@@ -38,6 +38,8 @@ RM = rm
 QEMU_IMG = qemu-system-i386
 QEMU_KERN = qemu-system-i386
 
+# File targets
+
 $(KERNEL): $(OBJECTS)
 	$(MKDIR) -p $(@D)
 	$(LD) -m32 -T $(LINK) $(LDFLAGS) -o $@ $^
@@ -61,6 +63,8 @@ $(ISO_DIR)/boot/$(notdir $(KERNEL)): $(KERNEL)
 $(GRUB_IMAGE): $(ISO_DIR)/boot/grub/grub.cfg $(ISO_DIR)/boot/$(notdir $(KERNEL))
 	$(MKDIR) -p $(@D)
 	$(GRUB_RESCUE) -o $(GRUB_IMAGE) $(ISO_DIR)
+
+# Phony targets
 
 image: $(GRUB_IMAGE)
 

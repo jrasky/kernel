@@ -7,23 +7,31 @@
 # http://opensource.org/licenses/MIT>, at your option. This file may not be
 # copied, modified, or distributed except according to those terms.
 
+ASM_SOURCES = multiboot.S multiboot2.S bootstrap.S
+C_SOURCES = kernel.c
+
 SOURCE_DIR = src
 TARGET_DIR = target
 LIB_DIR = lib
-ASM_OBJECTS = $(TARGET_DIR)/multiboot2.o $(TARGET_DIR)/bootstrap.o
-C_OBJECTS = $(TARGET_DIR)/kernel.o
-OBJECTS = $(ASM_OBJECTS) $(C_OBJECTS)
+
 KERNEL = $(TARGET_DIR)/kernel.elf
 LINK = $(LIB_DIR)/link.ld
+
 GRUB_CFG = $(LIB_DIR)/grub.cfg
 GRUB_IMAGE = $(TARGET_DIR)/image.iso
 ISO_DIR = $(TARGET_DIR)/iso
+
+ASM_OBJECTS = $(ASM_SOURCES:%.S=$(TARGET_DIR)/%.o)
+C_OBJECTS = $(C_SOURCES:%.c=$(TARGET_DIR)/%.o)
+OBJECTS = $(ASM_OBJECTS) $(C_OBJECTS)
+
+CFLAGS = -ffreestanding -O2 -Wall -Wextra
+LDFLAGS = -ffreestanding -O2 -nostdlib -lgcc
+
 GRUB_RESCUE = grub2-mkrescue
 CC = gcc
 LD = gcc
 AS = as
-CFLAGS = -ffreestanding -O2 -Wall -Wextra
-LDFLAGS = -ffreestanding -O2 -nostdlib -lgcc
 MKDIR = mkdir
 CP = cp
 RM = rm

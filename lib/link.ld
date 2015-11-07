@@ -15,10 +15,10 @@ SECTIONS {
     /* start at one MiB */
     . = 1M + SIZEOF_HEADERS;
 
-    /* multiboot header 
+    /* multiboot header */
     .multiboot ALIGN(4) : {
-        multiboot.o (.text)
-    }*/
+        target/multiboot.o (.text)
+    }
 
     /* multiboot2 header */
     .multiboot2 ALIGN(8) : {

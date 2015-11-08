@@ -45,10 +45,12 @@ multiboot2_header_top:
 
     .align ALIGN
 
-    ## Flags tag
-    .short 4, 0                 # type, flags
-    .long 12                    # size
-    .long 3                     # console_flags
+    ## Framebuffer tag
+    .short 5, 0                 # type, flags
+    .long 20                    # size
+    .long 640                   # width
+    .long 480                   # width
+    .long 32                    # bit depth
 
     .align ALIGN
 

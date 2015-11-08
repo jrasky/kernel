@@ -14,16 +14,35 @@
 _start:
     ## in kernel!
 
+    ## create an empty call frame
+    xor %ebp, %ebp
+
     ## set up stack
     movl $_stack_top, %esp
+
+    ## push stack info
+    push %ebp
+    mov %esp, %ebp
+
+    ## push multiboot info
+    push %ebx
+
+    ## push multiboot magic
+    push %eax
 
     ## call kmail
     call kmain
 
-    ## failsafe in case kernel returns
+    ## remove arguments from frame
+    add $5, %esp
+
+    ## restore call frame
+    pop %ebp
+
+    ## hang
+.hang:  
     cli
     hlt
-.Lhang:
-    jmp .Lhang
+    jmp .hang
 
     .size _start, . - _start

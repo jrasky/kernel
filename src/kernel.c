@@ -102,6 +102,7 @@ static inline void *align(void *ptr, size_t to) {
 static const char str[] = "Hello!";
 static const char mb1[] = "Booted from Multiboot";
 static const char mb2[] = "Booted from Multiboot 2";
+static const char fbinfo[] = "Got framebuffer info";
 static char *vidptr = (char*)0xb8000; // video memory begins here
 
 void kmain(uint32_t magic, boot_info_header_t *boot_info) {
@@ -124,16 +125,12 @@ void kmain(uint32_t magic, boot_info_header_t *boot_info) {
     for (size_t i = TERM_ROWS; i - TERM_ROWS < sizeof(mb1); i++) {
       // write the character from the string
       vidptr[i * 2] = mb1[i - TERM_ROWS];
-      // set the color
-      vidptr[i * 2 + 1] = 0x07;
     }
   } else if (magic == 0x36d76289) {
     // multiboot 2
     for (size_t i = TERM_ROWS; i - TERM_ROWS < sizeof(mb2); i++) {
       // write the character from the string
       vidptr[i * 2] = mb2[i - TERM_ROWS];
-      // set the color
-      vidptr[i * 2 + 1] = 0x07;
     }
 
     // boot info address is guarenteed to be 8-bytes aligned
@@ -142,13 +139,34 @@ void kmain(uint32_t magic, boot_info_header_t *boot_info) {
     boot_info_tag_header_t *tag = boot_info->tags;
     boot_info_tag_header_t *tags_end = tag + boot_info->total_size;
 
+    size_t acc2 = 3;
+
+    size_t temp = (size_t)align(tag + 9, 8);
+    size_t acc = TERM_ROWS * acc2 - 1;
+    while (temp > 0) {
+      vidptr[acc * 2] = '0' + (temp % 10);
+      temp /= 10;
+      acc -= 1;
+    }
+    acc2 += 1;
+
     // ensure we don't read past the boot info
     while (tag <= tags_end) {
+      size_t temp = (size_t)tag;
+      size_t acc = TERM_ROWS * acc2 - 1;
+      while (temp > 0) {
+        vidptr[acc * 2] = '0' + (temp % 10);
+        temp /= 10;
+        acc -= 1;
+      }
+      acc2 += 1;
       if (tag->type == 8) {
         // framebuffer info
         draw_screen((boot_info_framebuffer_t *)tag);
         break;
       }
+
+      
 
       // advance to the next tag
       tag = align(tag + tag->size, GNU_ALIGN);
@@ -159,6 +177,9 @@ void kmain(uint32_t magic, boot_info_header_t *boot_info) {
 void draw_screen(boot_info_framebuffer_t *info) {
   // we have framebuffer info!
   // quick hackey thing to test output, assuming we have a text framebuffer
-
+  for (size_t i = TERM_ROWS * 2; i - TERM_ROWS * 2 < sizeof(fbinfo); i++) {
+    // write the character from the string
+    vidptr[i * 2] = fbinfo[i - TERM_ROWS * 2];
+  }
 }
 

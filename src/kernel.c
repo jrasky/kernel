@@ -100,13 +100,14 @@ static inline void *align(void *ptr, size_t to) {
 }
 
 static const char str[] = "Hello!";
-static const size_t str_size = sizeof(str) - 1;
+static const char mb1[] = "Booted from Multiboot";
+static const char mb2[] = "Booted from Multiboot 2";
 static char *vidptr = (char*)0xb8000; // video memory begins here
 
 void kmain(uint32_t magic, boot_info_header_t *boot_info) {
   // write welcome string and clear screen
   for (size_t i = 0; i < TERM_ROWS * TERM_LINES; i++) {
-    if (i < str_size) {
+    if (i < sizeof(str) - 1) {
       // write the character from the string
       vidptr[i * 2] = str[i];
     } else {
@@ -120,9 +121,20 @@ void kmain(uint32_t magic, boot_info_header_t *boot_info) {
 
   if (magic == 0x2BADB002) {
     // multiboot 1
-
+    for (size_t i = TERM_ROWS; i - TERM_ROWS < sizeof(mb1); i++) {
+      // write the character from the string
+      vidptr[i * 2] = mb1[i - TERM_ROWS];
+      // set the color
+      vidptr[i * 2 + 1] = 0x07;
+    }
   } else if (magic == 0x36d76289) {
     // multiboot 2
+    for (size_t i = TERM_ROWS; i - TERM_ROWS < sizeof(mb2); i++) {
+      // write the character from the string
+      vidptr[i * 2] = mb2[i - TERM_ROWS];
+      // set the color
+      vidptr[i * 2 + 1] = 0x07;
+    }
 
     // boot info address is guarenteed to be 8-bytes aligned
     // as well, the boot info header is of length 64, which is also eight bytes
@@ -148,20 +160,5 @@ void draw_screen(boot_info_framebuffer_t *info) {
   // we have framebuffer info!
   // quick hackey thing to test output, assuming we have a text framebuffer
 
-  char *fb_ptr = (char *)(size_t)info->framebuffer_addr;
-
-  // write str and clear the screen
-  for (size_t i = 0; i < TERM_ROWS * TERM_LINES; i++) {
-    if (i < str_size) {
-      // write the character from the string
-      fb_ptr[i * 2] = str[i];
-    } else {
-      // clear the character
-      fb_ptr[i * 2] = ' ';
-    }
-
-    // set the color
-    fb_ptr[i * 2 + 1] = 0x07;
-  }
 }
 

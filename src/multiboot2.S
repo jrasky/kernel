@@ -30,8 +30,9 @@ multiboot2_header_top:
 
     ## Info request tag
     .short 1, 0
-    .long 12                     # size
+    .long 16                     # size
     .long 8                      # framebuffer info
+    .long 0                      # end info requests
 
     .align ALIGN
 

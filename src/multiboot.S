@@ -11,13 +11,32 @@
     # Declare constants used for creating a multiboot header.
     .set ALIGN,    1<<0             # align loaded modules on page boundaries
     .set MEMINFO,  1<<1             # provide memory map
-    .set FLAGS,    ALIGN | MEMINFO  # this is the Multiboot 'flag' field
+    .set VIDEO,    1<<2             # video mode info
+    .set ENTRY,    1<<16            # entry point info
+    .set FLAGS,    ALIGN | MEMINFO | VIDEO | ENTRY  # this is the Multiboot 'flag' field
     .set MAGIC,    0x1BADB002       # 'magic number' lets bootloader find the header
     .set CHECKSUM, -(MAGIC + FLAGS) # checksum of above, to prove we are multiboot
 
     ## Declare multiboot header
     .section .text
     .align ALIGN
+    
+multiboot_header_top:
     .long MAGIC
     .long FLAGS
     .long CHECKSUM
+
+    ## Entry point info
+
+    .long multiboot_header_top  # header magic address
+    .long _kernel_top           # beginning of text
+    .long _kernel_end           # end of data
+    .long _stack_top            # end of bss + stack
+    .long _start                # entry point
+    
+    ## Video mode info
+
+    .long 1                     # EGA text mode
+    .long 80                    # text columns
+    .long 25                    # text lines
+    .long 0                     # depth

@@ -139,25 +139,13 @@ void kmain(uint32_t magic, boot_info_header_t *boot_info) {
     boot_info_tag_header_t *tag = boot_info->tags;
     boot_info_tag_header_t *tags_end = tag + boot_info->total_size;
 
-    size_t acc2 = 3;
-
     // ensure we don't read past the boot info
     while (tag <= tags_end) {
-      size_t temp = tag->type;
-      size_t acc = TERM_ROWS * acc2 - 1;
-      while (temp > 0) {
-        vidptr[acc * 2] = '0' + (temp % 10);
-        temp /= 10;
-        acc -= 1;
-      }
-      acc2 += 1;
       if (tag->type == 8) {
         // framebuffer info
         draw_screen((boot_info_framebuffer_t *)tag);
         break;
       }
-
-      
 
       // advance to the next tag
       tag = align((void *)((size_t)tag + tag->size), GNU_ALIGN);

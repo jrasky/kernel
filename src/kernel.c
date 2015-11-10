@@ -141,18 +141,9 @@ void kmain(uint32_t magic, boot_info_header_t *boot_info) {
 
     size_t acc2 = 3;
 
-    size_t temp = (size_t)align(tag + 9, 8);
-    size_t acc = TERM_ROWS * acc2 - 1;
-    while (temp > 0) {
-      vidptr[acc * 2] = '0' + (temp % 10);
-      temp /= 10;
-      acc -= 1;
-    }
-    acc2 += 1;
-
     // ensure we don't read past the boot info
     while (tag <= tags_end) {
-      size_t temp = (size_t)tag;
+      size_t temp = tag->type;
       size_t acc = TERM_ROWS * acc2 - 1;
       while (temp > 0) {
         vidptr[acc * 2] = '0' + (temp % 10);
@@ -169,7 +160,7 @@ void kmain(uint32_t magic, boot_info_header_t *boot_info) {
       
 
       // advance to the next tag
-      tag = align(tag + tag->size, GNU_ALIGN);
+      tag = align((void *)((size_t)tag + tag->size), GNU_ALIGN);
     }
   }
 }
@@ -177,9 +168,10 @@ void kmain(uint32_t magic, boot_info_header_t *boot_info) {
 void draw_screen(boot_info_framebuffer_t *info) {
   // we have framebuffer info!
   // quick hackey thing to test output, assuming we have a text framebuffer
+  char *ptr = (char *)info->framebuffer_addr;
   for (size_t i = TERM_ROWS * 2; i - TERM_ROWS * 2 < sizeof(fbinfo); i++) {
     // write the character from the string
-    vidptr[i * 2] = fbinfo[i - TERM_ROWS * 2];
+    ptr[i * 2] = fbinfo[i - TERM_ROWS * 2];
   }
 }
 

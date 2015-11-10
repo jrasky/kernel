@@ -34,8 +34,6 @@ SECTIONS {
         target/kernel.o (.text)
     }
 
-    _kernel_end = .;
-
     /* read-only data */
     .rodata ALIGN(4K) : {
         * (.rodata)
@@ -46,13 +44,12 @@ SECTIONS {
         * (.rodata)
     }
 
+    _kernel_end = .;
+
     /* uninitialized, read-write data and stack */
     .bss ALIGN(4K) : {
-        *(COMMON)
         * (.bss)
     }
-
-    _bss_end = .;
 
     /* create a stack */
     .stack ALIGN(4K) : {
@@ -61,4 +58,9 @@ SECTIONS {
 
     /* tell the binaries about it */
     _stack_top = .;
+
+    /* other sections, which grub shouldn't zero out */
+    .common ALIGN(4K) : {
+        * (COMMON)
+    }
 }

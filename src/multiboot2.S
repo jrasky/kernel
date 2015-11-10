@@ -28,13 +28,20 @@ multiboot2_header_top:
 
     .align ALIGN
 
-    ## Address tap
+    ## Info request tag
+    .short 1, 0
+    .long 12                     # size
+    .long 8                      # framebuffer info
+
+    .align ALIGN
+
+    ## Address tag
     .short 2, 0                 # type, flags
     .long 24                    # size
     .long multiboot2_header_top # header address
     .long _kernel_top           # start of kernel .text
     .long _kernel_end           # end of kernel .text
-    .long _bss_end              # end of kernel .bss
+    .long _stack_top            # end of uninitialized data, including stack
 
     .align ALIGN
 
@@ -45,12 +52,10 @@ multiboot2_header_top:
 
     .align ALIGN
 
-    ## Framebuffer tag
-    .short 5, 0                 # type, flags
-    .long 20                    # size
-    .long 640                   # width
-    .long 480                   # width
-    .long 32                    # bit depth
+    ## Flags tag
+    .short 4, 0
+    .long 12
+    .long 3
 
     .align ALIGN
 

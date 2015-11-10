@@ -13,33 +13,155 @@
 
 #define TERM_ROWS 80
 #define TERM_LINES 25
+#define GNU_ALIGN 8
 
-static const char str[] = "my first kernel";
+struct boot_info_header;
+struct boot_info_tag_header;
+struct boot_info_framebuffer;
+
+typedef struct boot_info_header boot_info_header_t;
+typedef struct boot_info_tag_header boot_info_tag_header_t;
+typedef struct boot_info_framebuffer boot_info_framebuffer_t;
+
+void kmain(uint32_t, boot_info_header_t *);
+void draw_screen(boot_info_framebuffer_t *);
+
+struct boot_info_tag_header {
+  uint32_t type;
+  uint32_t size;
+  struct {} _data[];
+};
+
+struct boot_info_header {
+  uint32_t total_size;
+  uint32_t reserved;
+  boot_info_tag_header_t tags[];
+};
+
+struct boot_info_framebuffer {
+  uint32_t type;
+  uint32_t size;
+  uint64_t framebuffer_addr;
+  uint32_t framebuffer_pitch;
+  uint32_t framebuffer_width;
+  uint32_t framebuffer_height;
+  uint8_t framebuffer_bpp;
+  uint8_t framebuffer_type;
+  uint8_t reserved;
+  union {
+    struct {
+      uint32_t framebuffer_palette_number_colors;
+      struct {
+        uint8_t red_value;
+        uint8_t green_value;
+        uint8_t blue_value;
+      } framebuffer_palette[];
+    } indexed;
+
+    struct {
+      uint8_t framebuffer_red_field_position;
+      uint8_t framebuffer_red_mask_size;
+      uint8_t framebuffer_green_field_position;
+      uint8_t framebuffer_green_mask_size;
+      uint8_t framebuffer_blue_field_position;
+      uint8_t framebuffer_blue_mask_size;
+    } direct;
+
+    struct {
+      // nothing
+    } text;
+  };
+};
+
+static inline void outb(uint16_t port, uint8_t val) {
+    asm volatile ( "outb %0, %1" : : "a"(val), "Nd"(port) );
+    /* TODO: Is it wrong to use 'N' for the port? It's not a 8-bit constant. */
+    /* TODO: Should %1 be %w1? */
+}
+
+static inline uint8_t inb(uint16_t port) {
+    uint8_t ret;
+    asm volatile ( "inb %1, %0" : "=a"(ret) : "Nd"(port) );
+    /* TODO: Is it wrong to use 'N' for the port? It's not a 8-bit constant. */
+    /* TODO: Should %1 be %w1? */
+    return ret;
+}
+
+static inline void io_wait(void) {
+    /* Port 0x80 is used for 'checkpoints' during POST. */
+    /* The Linux kernel seems to think it is free for use :-/ */
+    asm volatile ( "outb %%al, $0x80" : : "a"(0) );
+    /* TODO: Is there any reason why al is forced? */
+}
+
+// align pointer to given bytes
+static inline void *align(void *ptr, size_t to) {
+  return (void *)(((size_t)ptr + to - 1) & ~(to - 1));
+}
+
+static const char str[] = "Hello!";
 static const size_t str_size = sizeof(str) - 1;
 static char *vidptr = (char*)0xb8000; // video memory begins here
 
-struct boot_info_header {
-};
+void kmain(uint32_t magic, boot_info_header_t *boot_info) {
+  // write welcome string and clear screen
+  for (size_t i = 0; i < TERM_ROWS * TERM_LINES; i++) {
+    if (i < str_size) {
+      // write the character from the string
+      vidptr[i * 2] = str[i];
+    } else {
+      // clear the character
+      vidptr[i * 2] = ' ';
+    }
 
-void kmain(uint32_t magic, void *boot_info) {
+    // set the color
+    vidptr[i * 2 + 1] = 0x07;
+  }
+
   if (magic == 0x2BADB002) {
     // multiboot 1
 
-    // write str and clear the screen
-    for (size_t i = 0; i < TERM_ROWS * TERM_LINES; i++) {
-      if (i < str_size) {
-        // write the character from the string
-        vidptr[i * 2] = str[i];
-      } else {
-        // clear the character
-        vidptr[i * 2] = ' ';
-      }
-
-      // set the color
-      vidptr[i * 2 + 1] = 0x07;
-    }
   } else if (magic == 0x36d76289) {
     // multiboot 2
 
+    // boot info address is guarenteed to be 8-bytes aligned
+    // as well, the boot info header is of length 64, which is also eight bytes
+    // alligned: this means we don't have to align this address
+    boot_info_tag_header_t *tag = boot_info->tags;
+    boot_info_tag_header_t *tags_end = tag + boot_info->total_size;
+
+    // ensure we don't read past the boot info
+    while (tag <= tags_end) {
+      if (tag->type == 8) {
+        // framebuffer info
+        draw_screen((boot_info_framebuffer_t *)tag);
+        break;
+      }
+
+      // advance to the next tag
+      tag = align(tag + tag->size, GNU_ALIGN);
+    }
   }
 }
+
+void draw_screen(boot_info_framebuffer_t *info) {
+  // we have framebuffer info!
+  // quick hackey thing to test output, assuming we have a text framebuffer
+
+  char *fb_ptr = (char *)(size_t)info->framebuffer_addr;
+
+  // write str and clear the screen
+  for (size_t i = 0; i < TERM_ROWS * TERM_LINES; i++) {
+    if (i < str_size) {
+      // write the character from the string
+      fb_ptr[i * 2] = str[i];
+    } else {
+      // clear the character
+      fb_ptr[i * 2] = ' ';
+    }
+
+    // set the color
+    fb_ptr[i * 2 + 1] = 0x07;
+  }
+}
+

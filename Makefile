@@ -29,7 +29,7 @@ C_SOURCES = $(filter %.c,$(SOURCES))
 C_OBJECTS = $(C_SOURCES:%.c=$(TARGET_DIR)/%.o)
 OBJECTS = $(ASM_OBJECTS) $(C_OBJECTS)
 
-CFLAGS = -ffreestanding -O2 -Wall -Wextra
+CFLAGS = -fno-asynchronous-unwind-tables -ffreestanding -O2 -Wall -Wextra
 LDFLAGS = -ffreestanding -O2 -nostdlib -lgcc
 
 GRUB_RESCUE = grub2-mkrescue

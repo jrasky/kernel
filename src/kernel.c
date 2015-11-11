@@ -23,7 +23,8 @@ typedef struct boot_info_header boot_info_header_t;
 typedef struct boot_info_tag_header boot_info_tag_header_t;
 typedef struct boot_info_framebuffer boot_info_framebuffer_t;
 
-void kmain(uint32_t, boot_info_header_t *);
+void kmain(void);
+//void kmain(uint32_t addr);
 void draw_screen(boot_info_framebuffer_t *);
 
 struct boot_info_tag_header {
@@ -105,7 +106,9 @@ static const char mb2[] = "Booted from Multiboot 2";
 static const char fbinfo[] = "Got framebuffer info";
 static char *vidptr = (char*)0xb8000; // video memory begins here
 
-void kmain(uint32_t magic, boot_info_header_t *boot_info) {
+boot_info_header_t *boot_info;
+
+/*void kmain(boot_info_header_t *boot_info) {
   // write welcome string and clear screen
   for (size_t i = 0; i < TERM_ROWS * TERM_LINES; i++) {
     if (i < sizeof(str) - 1) {
@@ -120,57 +123,27 @@ void kmain(uint32_t magic, boot_info_header_t *boot_info) {
     vidptr[i * 2 + 1] = 0x07;
   }
 
-  if (magic == 0x2BADB002) {
-    // multiboot 1
-    for (size_t i = TERM_ROWS; i - TERM_ROWS < sizeof(mb1); i++) {
-      // write the character from the string
-      vidptr[i * 2] = mb1[i - TERM_ROWS];
+  for (size_t i = TERM_ROWS; i - TERM_ROWS < sizeof(mb2); i++) {
+    // write the character from the string
+    vidptr[i * 2] = mb2[i - TERM_ROWS];
+  }
+
+  // boot info address is guarenteed to be 8-bytes aligned
+  // as well, the boot info header is of length 64, which is also eight bytes
+  // alligned: this means we don't have to align this address
+  boot_info_tag_header_t *tag = boot_info->tags;
+  boot_info_tag_header_t *tags_end = tag + boot_info->total_size;
+
+  // ensure we don't read past the boot info
+  while (tag <= tags_end) {
+    if (tag->type == 8) {
+      // framebuffer info
+      draw_screen((boot_info_framebuffer_t *)tag);
+      break;
     }
-  } else if (magic == 0x36d76289) {
-    // multiboot 2
-    for (size_t i = TERM_ROWS; i - TERM_ROWS < sizeof(mb2); i++) {
-      // write the character from the string
-      vidptr[i * 2] = mb2[i - TERM_ROWS];
-    }
 
-    // boot info address is guarenteed to be 8-bytes aligned
-    // as well, the boot info header is of length 64, which is also eight bytes
-    // alligned: this means we don't have to align this address
-    boot_info_tag_header_t *tag = boot_info->tags;
-    boot_info_tag_header_t *tags_end = tag + boot_info->total_size;
-
-    size_t acc2 = 3;
-
-    size_t temp = (size_t)align(tag + 9, 8);
-    size_t acc = TERM_ROWS * acc2 - 1;
-    while (temp > 0) {
-      vidptr[acc * 2] = '0' + (temp % 10);
-      temp /= 10;
-      acc -= 1;
-    }
-    acc2 += 1;
-
-    // ensure we don't read past the boot info
-    while (tag <= tags_end) {
-      size_t temp = (size_t)tag;
-      size_t acc = TERM_ROWS * acc2 - 1;
-      while (temp > 0) {
-        vidptr[acc * 2] = '0' + (temp % 10);
-        temp /= 10;
-        acc -= 1;
-      }
-      acc2 += 1;
-      if (tag->type == 8) {
-        // framebuffer info
-        draw_screen((boot_info_framebuffer_t *)tag);
-        break;
-      }
-
-      
-
-      // advance to the next tag
-      tag = align(tag + tag->size, GNU_ALIGN);
-    }
+    // advance to the next tag
+    tag = align((void *)((size_t)tag + tag->size), GNU_ALIGN);
   }
 }
 
@@ -181,5 +154,77 @@ void draw_screen(boot_info_framebuffer_t *info) {
     // write the character from the string
     vidptr[i * 2] = fbinfo[i - TERM_ROWS * 2];
   }
+}*/
+
+void kmain(void) {
+  // write welcome string and clear screen
+  for (size_t i = 0; i < TERM_ROWS * TERM_LINES; i++) {
+    if (i < sizeof(str) - 1) {
+      // write the character from the string
+      vidptr[i * 2] = str[i];
+    } else {
+      // clear the character
+      vidptr[i * 2] = ' ';
+    }
+
+    // set the color
+    vidptr[i * 2 + 1] = 0x07;
+  }
+
+  /*
+  size_t acc = 1;
+
+  size_t temp = (size_t)boot_info;
+  char *ptr = vidptr + (TERM_ROWS * acc * 2 - 2);
+  if (temp == 0) {
+    *ptr = '0';
+  }
+  while (temp > 0) {
+    *ptr = '0' + (temp % 10);
+    temp /= 10;
+    ptr -= 2;
+  }
+  acc++;
+
+  // boot info address is guarenteed to be 8-bytes aligned
+  // as well, the boot info header is of length 64, which is also eight bytes
+  // alligned: this means we don't have to align this address
+  boot_info_tag_header_t *tag = boot_info->tags;
+  boot_info_tag_header_t *tags_end = (boot_info_tag_header_t *)((size_t)tag + boot_info->total_size);
+
+  temp = (size_t)boot_info->total_size;
+  ptr = vidptr + (TERM_ROWS * acc * 2 - 2);
+  if (temp == 0) {
+    *ptr = '0';
+  }
+  while (temp > 0) {
+    *ptr = '0' + (temp % 10);
+    temp /= 10;
+    ptr -= 2;
+  }
+  acc++;
+
+  // ensure we don't read past the boot info
+  while (tag <= tags_end) {
+    size_t temp = (size_t)tag;
+    char *ptr = vidptr + (TERM_ROWS * acc * 2 - 2);
+    if (temp == 0) {
+      *ptr = '0';
+    }
+    while (temp > 0) {
+      *ptr = '0' + (temp % 10);
+      temp /= 10;
+      ptr -= 2;
+    }
+    acc++;
+    if (tag->type == 8) {
+      // framebuffer info
+      draw_screen((boot_info_framebuffer_t *)tag);
+      break;
+    }
+
+    // advance to the next tag
+    tag = align((void *)((size_t)tag + tag->size), GNU_ALIGN);
+  }*/
 }
 

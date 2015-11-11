@@ -7,7 +7,7 @@
 # http://opensource.org/licenses/MIT>, at your option. This file may not be
 # copied, modified, or distributed except according to those terms.
 
-SOURCES = multiboot.S multiboot2.S bootstrap.S kernel.c
+SOURCES = multiboot2.asm bootstrap.asm kernel.c long.asm
 
 SOURCE_DIR = src
 TARGET_DIR = target
@@ -23,24 +23,24 @@ ISO_DIR = $(TARGET_DIR)/iso
 ISO_GRUB_CFG = $(ISO_DIR)/boot/grub/grub.cfg
 ISO_KERNEL = $(ISO_DIR)/boot/$(notdir $(KERNEL))
 
-ASM_SOURCES = $(filter %.S,$(SOURCES))
-ASM_OBJECTS = $(ASM_SOURCES:%.S=$(TARGET_DIR)/%.o)
+ASM_SOURCES = $(filter %.asm,$(SOURCES))
+ASM_OBJECTS = $(ASM_SOURCES:%.asm=$(TARGET_DIR)/%.o)
 C_SOURCES = $(filter %.c,$(SOURCES))
 C_OBJECTS = $(C_SOURCES:%.c=$(TARGET_DIR)/%.o)
 OBJECTS = $(ASM_OBJECTS) $(C_OBJECTS)
 
-CFLAGS = -fno-asynchronous-unwind-tables -ffreestanding -O2 -Wall -Wextra
-LDFLAGS = -ffreestanding -O2 -nostdlib -lgcc
+CFLAGS = -fno-asynchronous-unwind-tables -ffreestanding -O2 -Wall -Wextra -Wpedantic
+LDFLAGS = -ffreestanding -O2 -nostdlib -lgcc -Wl,--nmagic
 
 GRUB_RESCUE = grub2-mkrescue
 CC = gcc
 LD = gcc
-AS = as
+AS = nasm
 MKDIR = mkdir
 CP = cp
 RM = rm
-QEMU_IMG = qemu-system-i386
-QEMU_KERN = qemu-system-i386
+QEMU_IMG = qemu-system-x86_64
+QEMU_KERN = qemu-system-x86_64
 
 # default target
 all: directories $(KERNEL)
@@ -48,13 +48,13 @@ all: directories $(KERNEL)
 # File targets
 
 $(KERNEL): $(OBJECTS) $(LINK)
-	$(LD) -m32 -T $(LINK) $(LDFLAGS) -o $@ $(filter-out $(TARGET_DIR) $(LINK),$^)
+	$(LD) -T $(LINK) $(LDFLAGS) -o $@ $(filter-out $(TARGET_DIR) $(LINK),$^)
 
 $(C_OBJECTS): $(TARGET_DIR)/%.o : $(SOURCE_DIR)/%.c
-	$(CC) -m32 -c $(CFLAGS) -o $@ $<
+	$(CC) -m64 -c $(CFLAGS) -o $@ $<
 
-$(ASM_OBJECTS): $(TARGET_DIR)/%.o : $(SOURCE_DIR)/%.S
-	$(AS) --32 -o $@ $<
+$(ASM_OBJECTS): $(TARGET_DIR)/%.o : $(SOURCE_DIR)/%.asm
+	$(AS) -f elf64 -o $@ $<
 
 $(ISO_GRUB_CFG): $(GRUB_CFG)
 	$(CP) $< $@

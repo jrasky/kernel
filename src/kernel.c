@@ -150,9 +150,10 @@ boot_info_header_t *boot_info;
 void draw_screen(boot_info_framebuffer_t *info) {
   // we have framebuffer info!
   // quick hackey thing to test output, assuming we have a text framebuffer
+  char *ptr = (char *)info->framebuffer_addr;
   for (size_t i = TERM_ROWS * 2; i - TERM_ROWS * 2 < sizeof(fbinfo); i++) {
     // write the character from the string
-    vidptr[i * 2] = fbinfo[i - TERM_ROWS * 2];
+    ptr[i * 2] = fbinfo[i - TERM_ROWS * 2];
   }
 }*/
 

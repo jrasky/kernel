@@ -42,8 +42,8 @@ multiboot2_header_top:
     dd multiboot2_header_top ; header address
     extern _kernel_top
     dd _kernel_top           ; start of kernel .text
-    extern _kernel_end
-    dd _kernel_end           ; end of kernel .text
+    extern _data_end
+    dd _data_end                ; end of kernel .text
     extern _stack_top
     dd _stack_top            ; end of uninitialized data, including stack
 

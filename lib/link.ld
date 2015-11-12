@@ -33,13 +33,14 @@ SECTIONS {
 
     /* initialized, read-write data */
     .data ALIGN(4K) : {
-        * (.rodata)
-        _kernel_end = .;
+        * (.data)
     }
+
+    . = .;
+    _data_end = .;
 
     /* uninitialized, read-write data and stack */
     .bss ALIGN(4K) : {
-        _bss = .;
         * (.bss)
     }
 
@@ -56,8 +57,10 @@ SECTIONS {
     /* create a stack */
     .stack ALIGN(4K) : {
         . += 4K;
-        _stack_top = .;
     }
+
+    . = .;
+    _stack_top = .;
 
     /* other sections, which grub shouldn't zero out */
     .common ALIGN(4K) : {

@@ -13,7 +13,7 @@ use core::fmt::Write;
 
 use spin::Mutex;
 
-use log::{LogRecord, LogMetadata, SetLoggerError};
+use log::{LogRecord, LogMetadata, SetLoggerError, LogLevelFilter};
 
 const BUFFER_HEIGHT: usize = 25;
 const BUFFER_WIDTH: usize = 80;
@@ -57,7 +57,8 @@ struct Buffer {
 pub struct Writer {
     column_position: usize,
     color_code: ColorCode,
-    buffer: Unique<Buffer>
+    buffer: Unique<Buffer>,
+    defered_newline: bool
 }
 
 #[repr(C)]
@@ -104,15 +105,20 @@ impl Writer {
         Writer {
             column_position: 0,
             color_code: ColorCode::new(foreground, background),
-            buffer: unsafe {Unique::new(0xb8000 as *mut _)}
+            buffer: unsafe {Unique::new(0xb8000 as *mut _)},
+            defered_newline: false
         }
     }
 
     pub fn write_byte(&mut self, byte: u8) {
         match byte {
-            b'\n' => self.new_line(),
+            b'\n' => self.request_new_line(),
             byte => {
                 if self.column_position >= BUFFER_WIDTH {
+                    self.new_line();
+                }
+
+                if self.defered_newline {
                     self.new_line();
                 }
 
@@ -133,6 +139,14 @@ impl Writer {
         unsafe {self.buffer.get_mut()}
     }
 
+    fn request_new_line(&mut self) {
+        if self.defered_newline {
+            self.new_line();
+        }
+
+        self.defered_newline = true;
+    }
+
     fn new_line(&mut self) {
         {
             let buffer = self.buffer();
@@ -144,6 +158,7 @@ impl Writer {
 
         self.clear_row(BUFFER_HEIGHT - 1);
         self.column_position = 0;
+        self.defered_newline = false;
     }
 
     fn clear_row(&mut self, row: usize) {
@@ -161,19 +176,23 @@ pub extern fn kmain() {
 
     // initialize logging
     match init_logging() {
-        Ok(_) => {},
+        Ok(_) => {
+            trace!("Initialized logging");
+        },
         Err(_) => {
-            let _ = WRITER.lock().write_str("Failed to initialize logging");
+            let _ = WRITER.lock().write_str("Failed to initialize logging\n");
+            panic!();
         }
     }
 
-    trace!("Reached kmain");
+    info!("kmain reached");
 
     loop {}
 }
 
 fn init_logging() -> Result<(), SetLoggerError> {
-    log::set_logger(|_| {
+    log::set_logger(|filter| {
+        filter.set(LogLevelFilter::max());
         &LOGGER_TRAIT as *const _
     })
 }

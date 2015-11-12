@@ -33,7 +33,7 @@ gdt64:
     section .text
     bits 32
 _start:
-    ;; in kernel!
+    ;; grub entry point
 
     ;; set up stack
     mov esp, _stack_top

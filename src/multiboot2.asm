@@ -14,7 +14,7 @@
     LENGTH equ multiboot2_header_end - multiboot2_header_top
     CHECKSUM equ 0xFFFFFFFF & -(MAGIC + ARCH + LENGTH)
 
-    section .text
+    section .multiboot2
     align GNUALIGN
 
 ;; top label

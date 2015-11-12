@@ -16,14 +16,14 @@ SECTIONS {
     . = 1M + SIZEOF_HEADERS;
 
     /* multiboot2 header */
-    .multiboot2 ALIGN(8) : {
-        KEEP(target/multiboot2.o (.text))
+    .boot ALIGN(8) : {
+        KEEP(target/multiboot2.o (.multiboot2))
     }
 
     /* first the multiboot header */
     .text ALIGN(4K) : {
         _kernel_top = .;
-        target/kernel.o (.text)
+        * (.text)
     }
 
     /* read-only data */

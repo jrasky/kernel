@@ -1,0 +1,10 @@
+[package]
+name = "kernel"
+version = "0.0.0"
+authors = ["Jerome Rasky <jerome@rasky.co>"]
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+rlibc = "*"

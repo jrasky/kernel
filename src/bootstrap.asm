@@ -44,7 +44,7 @@ _start:
     call _test_long_mode
 
     ;; save multiboot info
-    mov dword [boot_info + 4], ebx
+    ;mov dword [boot_info + 4], ebx
 
     ;; set up long mode
     call _setup_page_tables

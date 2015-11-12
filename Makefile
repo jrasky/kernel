@@ -7,11 +7,16 @@
 # http://opensource.org/licenses/MIT>, at your option. This file may not be
 # copied, modified, or distributed except according to those terms.
 
-SOURCES = multiboot2.asm bootstrap.asm kernel.c long.asm
+SOURCES = multiboot2.asm bootstrap.asm long.asm lib.rs
 
 SOURCE_DIR = src
 TARGET_DIR = target
 LIB_DIR = lib
+
+CFLAGS = -fno-asynchronous-unwind-tables -ffreestanding -O2 -Wall -Wextra -Wpedantic
+LDFLAGS = --nmagic --gc-sections
+ARCH = x86_64-unknown-linux-gnu
+RUSTFLAGS = -Z no-landing-pads
 
 KERNEL = $(TARGET_DIR)/kernel.elf
 LINK = $(LIB_DIR)/link.ld
@@ -27,20 +32,20 @@ ASM_SOURCES = $(filter %.asm,$(SOURCES))
 ASM_OBJECTS = $(ASM_SOURCES:%.asm=$(TARGET_DIR)/%.o)
 C_SOURCES = $(filter %.c,$(SOURCES))
 C_OBJECTS = $(C_SOURCES:%.c=$(TARGET_DIR)/%.o)
-OBJECTS = $(ASM_OBJECTS) $(C_OBJECTS)
-
-CFLAGS = -fno-asynchronous-unwind-tables -ffreestanding -O2 -Wall -Wextra -Wpedantic
-LDFLAGS = -ffreestanding -O2 -nostdlib -lgcc -Wl,--nmagic
+RUST_SOURCES = $(filter %.rs,$(SOURCES))
+RUST_OBJECTS = $(TARGET_DIR)/$(ARCH)/debug/libkernel.a
+OBJECTS = $(ASM_OBJECTS) $(C_OBJECTS) $(RUST_OBJECTS)
 
 GRUB_RESCUE = grub2-mkrescue
 CC = gcc
-LD = gcc
+LD = ld
 AS = nasm
 MKDIR = mkdir
 CP = cp
 RM = rm
 QEMU_IMG = qemu-system-x86_64
 QEMU_KERN = qemu-system-x86_64
+CARGO = cargo
 
 # default target
 all: directories $(KERNEL)
@@ -48,13 +53,16 @@ all: directories $(KERNEL)
 # File targets
 
 $(KERNEL): $(OBJECTS) $(LINK)
-	$(LD) -T $(LINK) $(LDFLAGS) -o $@ $(filter-out $(TARGET_DIR) $(LINK),$^)
+	$(LD) -n -T $(LINK) $(LDFLAGS) -o $@ $(filter-out $(TARGET_DIR) $(LINK),$^)
 
 $(C_OBJECTS): $(TARGET_DIR)/%.o : $(SOURCE_DIR)/%.c
 	$(CC) -m64 -c $(CFLAGS) -o $@ $<
 
 $(ASM_OBJECTS): $(TARGET_DIR)/%.o : $(SOURCE_DIR)/%.asm
 	$(AS) -f elf64 -o $@ $<
+
+$(RUST_OBJECTS): $(RUST_SOURCES:%=$(SOURCE_DIR)/%) Cargo.toml Cargo.lock
+	$(CARGO) rustc --target $(ARCH) -- $(RUSTFLAGS)
 
 $(ISO_GRUB_CFG): $(GRUB_CFG)
 	$(CP) $< $@

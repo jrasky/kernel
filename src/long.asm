@@ -15,7 +15,7 @@
     section .text
     bits 64
 _lstart:
-    ;; In long mode!
+    ;; Target of far jump to long mode
 
     call kmain
 

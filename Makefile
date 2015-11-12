@@ -14,7 +14,7 @@ TARGET_DIR = target
 LIB_DIR = lib
 
 CFLAGS = -fno-asynchronous-unwind-tables -ffreestanding -O2 -Wall -Wextra -Wpedantic
-LDFLAGS = --nmagic --gc-sections
+LDFLAGS = --gc-sections
 ARCH = x86_64-unknown-linux-gnu
 RUSTFLAGS = -Z no-landing-pads
 

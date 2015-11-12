@@ -27,12 +27,12 @@ SECTIONS {
     }
 
     /* read-only data */
-    .rodata ALIGN(4K) : ALIGN(4K) {
+    .rodata ALIGN(4K) : {
         * (.rodata)
     }
 
     /* initialized, read-write data */
-    .data ALIGN(4K) : ALIGN(4K) {
+    .data ALIGN(4K) : {
         * (.rodata)
         _kernel_end = .;
     }

@@ -8,3 +8,5 @@ crate-type = ["staticlib"]
 
 [dependencies]
 rlibc = "*"
+spin = "*"
+log = {git = "https://github.com/jrasky/log.git", features = ["freestanding", "release_max_level_info"]}

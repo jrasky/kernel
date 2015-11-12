@@ -17,6 +17,10 @@
 _lstart:
     ;; Target of far jump to long mode
 
+    ;; setup SSE
+    call _setup_SSE
+
+    ;; start kernel
     call kmain
 
     ;; kmain returned, error "X"

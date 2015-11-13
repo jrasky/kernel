@@ -2,6 +2,7 @@
 #![feature(const_fn)]
 #![feature(unique)]
 #![feature(core_str_ext)]
+#![feature(asm)]
 #![no_std]
 extern crate rlibc;
 extern crate spin;
@@ -10,6 +11,8 @@ extern crate log;
 
 use core::ptr::*;
 use core::fmt::Write;
+
+use core::fmt;
 
 use spin::Mutex;
 
@@ -180,14 +183,14 @@ pub extern fn kmain() {
             trace!("Initialized logging");
         },
         Err(_) => {
-            let _ = WRITER.lock().write_str("Failed to initialize logging\n");
+            let _ = write!(WRITER.lock(), "Failed to initialize logging");
             panic!();
         }
     }
 
     info!("kmain reached");
 
-    loop {}
+    panic!("end of kmain");
 }
 
 fn init_logging() -> Result<(), SetLoggerError> {
@@ -202,7 +205,15 @@ fn init_logging() -> Result<(), SetLoggerError> {
 extern fn eh_personality() {}
 
 #[cfg(not(test))]
+#[cold] #[inline(never)]
 #[lang = "panic_fmt"]
-extern fn panic_fmt() -> ! {
-    loop {}
+extern fn panic_fmt(msg: fmt::Arguments,
+                    file: &'static str, line: u32) -> ! {
+    let _ = write!(WRITER.lock(), "PANIC in {}, line {}: {}", file, line, msg);
+    loop {
+        unsafe {
+            asm!("cli" :::: "volatile");
+            asm!("hlt" :::: "volatile");
+        }
+    }
 }

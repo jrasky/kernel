@@ -291,7 +291,10 @@ fn align(n: usize, to: usize) -> usize {
 
 #[cfg(not(test))]
 #[lang = "eh_personality"]
-extern fn eh_personality() {}
+extern fn eh_personality() {
+    // no unwinding right now anyways
+    unimplemented!();
+}
 
 #[cfg(not(test))]
 #[cold] #[inline(never)]
@@ -299,6 +302,8 @@ extern fn eh_personality() {}
 extern fn panic_fmt(msg: fmt::Arguments,
                     file: &'static str, line: u32) -> ! {
     let _ = write!(WRITER.lock(), "PANIC in {}, line {}: {}", file, line, msg);
+
+    // loop clear interrupts and halt
     loop {
         unsafe {
             asm!("cli" :::: "volatile");

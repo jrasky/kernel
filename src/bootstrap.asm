@@ -12,7 +12,7 @@
     extern _p3_table
     extern _p2_table
     extern _p4_table
-    extern boot_info
+    extern BOOT_INFO_ADDR
     extern _lstart
 
     ;; global
@@ -34,6 +34,9 @@ gdt64:
     bits 32
 _start:
     ;; grub entry point
+
+    ;; save boot info pointer
+    mov dword [BOOT_INFO_ADDR], ebx
 
     ;; set up stack
     mov esp, _stack_top

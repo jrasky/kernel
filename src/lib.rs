@@ -1,4 +1,5 @@
 #![feature(no_std, lang_items)]
+#![feature(ptr_as_ref)]
 #![feature(const_fn)]
 #![feature(unique)]
 #![feature(core_str_ext)]
@@ -13,6 +14,8 @@ use core::ptr::*;
 use core::fmt::Write;
 
 use core::fmt;
+use core::slice;
+use core::str;
 
 use spin::Mutex;
 
@@ -26,6 +29,9 @@ static WRITER: Mutex<Writer> = Mutex::new(
 
 static LOGGER: VGALogger = VGALogger;
 static LOGGER_TRAIT: &'static log::Log = &LOGGER as &'static log::Log;
+
+#[no_mangle]
+pub static mut BOOT_INFO_ADDR: u32 = 0;
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
@@ -52,6 +58,12 @@ pub enum Color {
 struct ColorCode(u8);
 
 struct VGALogger;
+
+struct MBInfoMemTag {
+    base_addr: u64,
+    length: u64,
+    addr_type: u32
+}
 
 struct Buffer {
     chars: [[ScreenChar; BUFFER_WIDTH]; BUFFER_HEIGHT]
@@ -188,7 +200,79 @@ pub extern fn kmain() {
         }
     }
 
-    info!("kmain reached");
+    info!("Hello!");
+
+    unsafe {
+
+        trace!("debug info at: {}", BOOT_INFO_ADDR);
+
+        // read multiboot info
+        let mut ptr: *const u32 = BOOT_INFO_ADDR as usize as *const _;
+
+        let total_size: u32 = *ptr.as_ref().unwrap();
+
+        let end: *const u32 = (ptr as usize + total_size as usize) as *const _;
+
+        ptr = align(ptr.offset(2) as usize, 8) as *const _;
+
+        while ptr < end {
+            trace!("Found multiboot info tag {}", *ptr.as_ref().unwrap());
+
+            match *ptr.as_ref().unwrap() {
+                2 => {
+                    let str_ptr = ptr.offset(2) as *const u8;
+                    let mut size: isize = 0;
+
+                    while *str_ptr.offset(size).as_ref().unwrap() != 0 {
+                        size += 1;
+                    }
+
+                    let str_slice = slice::from_raw_parts(str_ptr, size as usize);
+
+                    match str::from_utf8(str_slice) {
+                        Ok(s) => {
+                            info!("Booted from: {}", s);
+                        },
+                        Err(e) => {
+                            warn!("Unable to decode bootloader name: {}", e);
+                        }
+                    }
+                },
+                6 => {
+                    // memory map
+                    let entry_size = *ptr.offset(2).as_ref().unwrap();
+                    let mut entry_ptr = ptr.offset(4) as *const MBInfoMemTag;
+                    let entry_end = (entry_ptr as usize + *ptr.offset(1) as usize) as *const _;
+
+                    while entry_ptr < entry_end {
+                        let entry = entry_ptr.as_ref().unwrap();
+                        match entry.addr_type {
+                            1 => {
+                                info!("RAM: {:16x} - {:16x} available", entry.base_addr, entry.base_addr + entry.length);
+                            },
+                            3 => {
+                                info!("RAM: {:16x} - {:16x} ACPI", entry.base_addr, entry.base_addr + entry.length);
+                            },
+                            4 => {
+                                info!("RAM: {:16x} - {:16x} reserved, preserve", entry.base_addr, entry.base_addr + entry.length);
+                            },
+                            _ => {
+                                info!("RAM: {:16x} - {:16x} reserved", entry.base_addr, entry.base_addr + entry.length);
+                            }
+                        }
+
+                        entry_ptr = align(entry_ptr as usize + entry_size as usize, 8) as *const _;
+                    }
+                },
+                _ => {
+                    // do nothing
+                }
+            }
+
+            // advance to the next tag
+            ptr = align(ptr as usize + *ptr.offset(1).as_ref().unwrap() as usize, 8) as *const _;
+        }
+    }
 
     panic!("end of kmain");
 }
@@ -198,6 +282,11 @@ fn init_logging() -> Result<(), SetLoggerError> {
         filter.set(LogLevelFilter::max());
         &LOGGER_TRAIT as *const _
     })
+}
+
+#[inline]
+fn align(n: usize, to: usize) -> usize {
+    (n + to - 1) & !(to - 1)
 }
 
 #[cfg(not(test))]

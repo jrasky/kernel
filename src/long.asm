@@ -10,7 +10,7 @@
     global _lstart
 
     extern kmain
-    extern _bss
+    extern _boot_info
 
     section .text
     bits 64
@@ -19,6 +19,9 @@ _lstart:
 
     ;; setup SSE
     call _setup_SSE
+
+    ;; boot_info argument
+    mov rdi, qword [_boot_info]
 
     ;; start kernel
     call kmain

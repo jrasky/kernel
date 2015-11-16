@@ -3,6 +3,7 @@
 #![feature(const_fn)]
 #![feature(unique)]
 #![feature(core_str_ext)]
+#![feature(reflect_marker)]
 #![feature(asm)]
 #![no_std]
 extern crate rlibc;
@@ -12,6 +13,9 @@ extern crate log;
 
 use core::ptr::*;
 use core::fmt::Write;
+use core::sync::atomic::{AtomicPtr, Ordering};
+use core::fmt::{Debug, Display, Formatter};
+use core::marker::Reflect;
 
 use core::fmt;
 use core::slice;
@@ -24,34 +28,35 @@ use log::{LogRecord, LogMetadata, SetLoggerError, LogLevelFilter};
 const BUFFER_HEIGHT: usize = 25;
 const BUFFER_WIDTH: usize = 80;
 
-static WRITER: Mutex<Writer> = Mutex::new(
-    Writer::new(Color::LightGray, Color::Black));
+static WRITER: Mutex<Writer> = Mutex::new(Writer::new(Color::LightGray, Color::Black));
 
 static LOGGER: VGALogger = VGALogger;
 static LOGGER_TRAIT: &'static log::Log = &LOGGER as &'static log::Log;
 
-#[no_mangle]
-pub static mut BOOT_INFO_ADDR: u32 = 0;
+static MEMORY: MemManager = MemManager {
+    free: AtomicPtr::new(0 as *mut Allocation),
+    used: AtomicPtr::new(0 as *mut Allocation),
+};
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum Color {
-    Black      = 0,
-    Blue       = 1,
-    Green      = 2,
-    Cyan       = 3,
-    Red        = 4,
-    Magenta    = 5,
-    Brown      = 6,
-    LightGray  = 7,
-    DarkGray   = 8,
-    LightBlue  = 9,
+    Black = 0,
+    Blue = 1,
+    Green = 2,
+    Cyan = 3,
+    Red = 4,
+    Magenta = 5,
+    Brown = 6,
+    LightGray = 7,
+    DarkGray = 8,
+    LightBlue = 9,
     LightGreen = 10,
-    LightCyan  = 11,
-    LightRed   = 12,
-    Pink       = 13,
-    Yellow     = 14,
-    White      = 15,
+    LightCyan = 11,
+    LightRed = 12,
+    Pink = 13,
+    Yellow = 14,
+    White = 15,
 }
 
 #[derive(Clone, Copy)]
@@ -59,28 +64,114 @@ struct ColorCode(u8);
 
 struct VGALogger;
 
+struct Allocation {
+    base: *mut u8,
+    size: usize,
+    next: AtomicPtr<Allocation>,
+}
+
+struct MemManager {
+    free: AtomicPtr<Allocation>,
+    used: AtomicPtr<Allocation>,
+}
+
 struct MBInfoMemTag {
     base_addr: u64,
     length: u64,
-    addr_type: u32
+    addr_type: u32,
 }
 
 struct Buffer {
-    chars: [[ScreenChar; BUFFER_WIDTH]; BUFFER_HEIGHT]
+    chars: [[ScreenChar; BUFFER_WIDTH]; BUFFER_HEIGHT],
 }
 
 pub struct Writer {
     column_position: usize,
     color_code: ColorCode,
     buffer: Unique<Buffer>,
-    defered_newline: bool
+    defered_newline: bool,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct ScreenChar {
     ascii_character: u8,
-    color_code: ColorCode
+    color_code: ColorCode,
+}
+
+trait Error: Debug + Display + Reflect {
+    fn description(&self) -> &str;
+
+    fn cause(&self) -> Option<&Error> {
+        None
+    }
+}
+
+#[derive(Debug)]
+enum MemError {
+    InvalidRange,
+}
+
+impl Reflect for MemManager {}
+unsafe impl Sync for MemManager {}
+
+impl Display for MemError {
+    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+        write!(fmt, "MemError: {}", self.description())
+    }
+}
+
+impl Error for MemError {
+    fn description(&self) -> &str {
+        match self {
+            &MemError::InvalidRange => "Invalid range",
+        }
+    }
+}
+
+impl Allocation {
+    const fn new(base: *mut u8, size: usize) -> Allocation {
+        Allocation {
+            base: base,
+            size: size,
+            next: AtomicPtr::new(0 as *mut _),
+        }
+    }
+}
+
+impl MemManager {
+    /// Add a memory range to the manager
+    ///
+    /// &self so it works with static. Has side-effects, beware!
+    fn add(&self, base: usize, size: usize) -> Result<(), MemError> {
+        // create an Allocation at the base address
+        let ptr = base as *mut Allocation;
+        let alloc: &mut Allocation = try!(unsafe { ptr.as_mut() }.ok_or(MemError::InvalidRange));
+        alloc.base = unsafe { ptr.offset(1) } as *mut _;
+        alloc.size = size;
+        Ok(())
+    }
+
+    /// Insert an Allocation into the free chain
+    fn insert_free(&self, alloc: *mut Allocation) -> Result<(), MemError> {
+        let last: *mut Allocation = self.free
+                                        .compare_and_swap(0 as *mut _, alloc, Ordering::SeqCst);
+
+        if last.is_null() {
+            // first insert, we're done here
+            return Ok(());
+        }
+
+        let alloc_ref = unsafe { alloc.as_ref() }.expect("Given bad allocation");
+
+        // keep trying until we win
+        loop {
+            while !last.is_null() ||
+                  unsafe { last.as_ref() }.expect("Memory corrupted").size > alloc_ref.size {
+
+            }
+        }
+    }
 }
 
 impl ColorCode {
@@ -120,8 +211,8 @@ impl Writer {
         Writer {
             column_position: 0,
             color_code: ColorCode::new(foreground, background),
-            buffer: unsafe {Unique::new(0xb8000 as *mut _)},
-            defered_newline: false
+            buffer: unsafe { Unique::new(0xb8000 as *mut _) },
+            defered_newline: false,
         }
     }
 
@@ -142,16 +233,16 @@ impl Writer {
 
                 self.buffer().chars[row][col] = ScreenChar {
                     ascii_character: byte,
-                    color_code: self.color_code
+                    color_code: self.color_code,
                 };
 
                 self.column_position += 1;
             }
         }
     }
-    
+
     fn buffer(&mut self) -> &mut Buffer {
-        unsafe {self.buffer.get_mut()}
+        unsafe { self.buffer.get_mut() }
     }
 
     fn request_new_line(&mut self) {
@@ -186,14 +277,14 @@ impl Writer {
 }
 
 #[no_mangle]
-pub extern fn kmain() {
+pub extern "C" fn kmain(boot_info: *const u32) -> ! {
     // kernel main
 
     // initialize logging
     match init_logging() {
         Ok(_) => {
             trace!("Initialized logging");
-        },
+        }
         Err(_) => {
             let _ = write!(WRITER.lock(), "Failed to initialize logging");
             panic!();
@@ -202,12 +293,12 @@ pub extern fn kmain() {
 
     info!("Hello!");
 
+    trace!("debug info at: {:x}", boot_info as usize);
+
     unsafe {
 
-        trace!("debug info at: {}", BOOT_INFO_ADDR);
-
         // read multiboot info
-        let mut ptr: *const u32 = BOOT_INFO_ADDR as usize as *const _;
+        let mut ptr: *const u32 = boot_info;
 
         let total_size: u32 = *ptr.as_ref().unwrap();
 
@@ -232,12 +323,12 @@ pub extern fn kmain() {
                     match str::from_utf8(str_slice) {
                         Ok(s) => {
                             info!("Booted from: {}", s);
-                        },
+                        }
                         Err(e) => {
                             warn!("Unable to decode bootloader name: {}", e);
                         }
                     }
-                },
+                }
                 6 => {
                     // memory map
                     let entry_size = *ptr.offset(2).as_ref().unwrap();
@@ -248,22 +339,30 @@ pub extern fn kmain() {
                         let entry = entry_ptr.as_ref().unwrap();
                         match entry.addr_type {
                             1 => {
-                                info!("RAM: {:16x} - {:16x} available", entry.base_addr, entry.base_addr + entry.length);
-                            },
+                                info!("RAM: {:16x} - {:16x} available",
+                                      entry.base_addr,
+                                      entry.base_addr + entry.length);
+                            }
                             3 => {
-                                info!("RAM: {:16x} - {:16x} ACPI", entry.base_addr, entry.base_addr + entry.length);
-                            },
+                                info!("RAM: {:16x} - {:16x} ACPI",
+                                      entry.base_addr,
+                                      entry.base_addr + entry.length);
+                            }
                             4 => {
-                                info!("RAM: {:16x} - {:16x} reserved, preserve", entry.base_addr, entry.base_addr + entry.length);
-                            },
+                                info!("RAM: {:16x} - {:16x} reserved, preserve",
+                                      entry.base_addr,
+                                      entry.base_addr + entry.length);
+                            }
                             _ => {
-                                info!("RAM: {:16x} - {:16x} reserved", entry.base_addr, entry.base_addr + entry.length);
+                                info!("RAM: {:16x} - {:16x} reserved",
+                                      entry.base_addr,
+                                      entry.base_addr + entry.length);
                             }
                         }
 
                         entry_ptr = align(entry_ptr as usize + entry_size as usize, 8) as *const _;
                     }
-                },
+                }
                 _ => {
                     // do nothing
                 }
@@ -274,7 +373,7 @@ pub extern fn kmain() {
         }
     }
 
-    panic!("end of kmain");
+    unreachable!("kmain tried to return");
 }
 
 fn init_logging() -> Result<(), SetLoggerError> {
@@ -291,16 +390,16 @@ fn align(n: usize, to: usize) -> usize {
 
 #[cfg(not(test))]
 #[lang = "eh_personality"]
-extern fn eh_personality() {
+extern "C" fn eh_personality() {
     // no unwinding right now anyways
     unimplemented!();
 }
 
 #[cfg(not(test))]
-#[cold] #[inline(never)]
+#[cold]
+#[inline(never)]
 #[lang = "panic_fmt"]
-extern fn panic_fmt(msg: fmt::Arguments,
-                    file: &'static str, line: u32) -> ! {
+extern "C" fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     let _ = write!(WRITER.lock(), "PANIC in {}, line {}: {}", file, line, msg);
 
     // loop clear interrupts and halt

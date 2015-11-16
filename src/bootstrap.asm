@@ -17,6 +17,7 @@
 
     ;; global
     global _start
+    global _boot_info
 
     section .rodata
 gdt64:
@@ -29,25 +30,26 @@ gdt64:
     dw $ - gdt64 - 1
     dq gdt64
 
+    section .data
+_boot_info:
+    dq 0
+
     ;; Define entry point
     section .text
     bits 32
 _start:
     ;; grub entry point
 
-    ;; save boot info pointer
-    mov dword [BOOT_INFO_ADDR], ebx
-
     ;; set up stack
     mov esp, _stack_top
+
+    ;; save boot info
+    mov dword [_boot_info], ebx
 
     ;; perform tests
     call _test_multiboot
     call _test_cpuid
     call _test_long_mode
-
-    ;; save multiboot info
-    ;mov dword [boot_info + 4], ebx
 
     ;; set up long mode
     call _setup_page_tables

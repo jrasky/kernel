@@ -23,14 +23,15 @@ use core::str;
 
 use spin::Mutex;
 
-use log::{LogRecord, LogMetadata, SetLoggerError, LogLevelFilter};
+use log::{LogRecord, LogMetadata, SetLoggerError, LogLevelFilter, MaxLogLevelFilter};
 
 const BUFFER_HEIGHT: usize = 25;
 const BUFFER_WIDTH: usize = 80;
 
 static WRITER: Mutex<Writer> = Mutex::new(Writer::new(Color::LightGray, Color::Black));
 
-static LOGGER: VGALogger = VGALogger;
+// TODO: make this a queue instead
+static LOGGER: LoggerWrapper = LoggerWrapper(Mutex::new(LoggerInner(Logger::Initial(VGALogger))));
 static LOGGER_TRAIT: &'static log::Log = &LOGGER as &'static log::Log;
 
 static MEMORY: MemManager = MemManager {
@@ -63,6 +64,19 @@ pub enum Color {
 struct ColorCode(u8);
 
 struct VGALogger;
+
+struct LoggerWrapper(Mutex<LoggerInner>);
+
+struct LoggerInner(Logger);
+
+enum Logger {
+    Initial(VGALogger),
+    Filtered(KLogger),
+}
+
+struct KLogger {
+    filter: MaxLogLevelFilter,
+}
 
 struct Allocation {
     base: *mut u8,
@@ -139,6 +153,40 @@ impl Allocation {
     }
 }
 
+impl KLogger {
+    pub fn set_filter(&mut self, level: LogLevelFilter) {
+        self.filter.set(level);
+    }
+}
+
+impl LoggerInner {
+    pub fn set_filter(&mut self, level: LogLevelFilter) {
+        if let Logger::Filtered(ref mut logger) = self.0 {
+            logger.set_filter(level)
+        } else {
+            warn!("Log level tried to be set, but was not a Filtered logger");
+        }
+    }
+
+    pub fn init_filtered(&mut self, filter: MaxLogLevelFilter) {
+        if let Logger::Initial(_) = self.0 {
+            self.0 = Logger::Filtered(KLogger { filter: filter });
+        } else {
+            panic!("init_filtered should only be called once");
+        }
+    }
+}
+
+impl LoggerWrapper {
+    pub fn set_filter(&self, level: LogLevelFilter) {
+        self.0.lock().set_filter(level);
+    }
+
+    pub fn init_filtered(&self, filter: MaxLogLevelFilter) {
+        self.0.lock().init_filtered(filter);
+    }
+}
+
 impl MemManager {
     /// Add a memory range to the manager
     ///
@@ -203,6 +251,63 @@ impl log::Log for VGALogger {
     #[allow(unused_must_use)]
     fn log(&self, record: &LogRecord) {
         WRITER.lock().write_fmt(format_args!("{}: {}\n", record.level(), record.args()));
+    }
+}
+
+impl log::Log for KLogger {
+    fn enabled(&self, _: &LogMetadata) -> bool {
+        true
+    }
+
+    #[allow(unused_must_use)]
+    fn log(&self, record: &LogRecord) {
+        WRITER.lock().write_fmt(format_args!("{}: {}\n", record.level(), record.args()));
+    }
+}
+
+impl log::Log for LoggerWrapper {
+    fn enabled(&self, meta: &LogMetadata) -> bool {
+        self.0.lock().enabled(meta)
+    }
+
+    fn log(&self, record: &LogRecord) {
+        self.0.lock().log(record)
+    }
+}
+
+impl log::Log for LoggerInner {
+    fn enabled(&self, meta: &LogMetadata) -> bool {
+        self.0.enabled(meta)
+    }
+
+    fn log(&self, record: &LogRecord) {
+        self.0.log(record)
+    }
+}
+
+impl log::Log for Logger {
+    fn enabled(&self, meta: &LogMetadata) -> bool {
+        use Logger::*;
+        match self {
+            &Initial(ref logger) => {
+                logger.enabled(meta)
+            }
+            &Filtered(ref logger) => {
+                logger.enabled(meta)
+            }
+        }
+    }
+
+    fn log(&self, record: &LogRecord) {
+        use Logger::*;
+        match self {
+            &Initial(ref logger) => {
+                logger.log(record)
+            }
+            &Filtered(ref logger) => {
+                logger.log(record)
+            }
+        }
     }
 }
 
@@ -310,6 +415,30 @@ pub extern "C" fn kmain(boot_info: *const u32) -> ! {
             trace!("Found multiboot info tag {}", *ptr.as_ref().unwrap());
 
             match *ptr.as_ref().unwrap() {
+                0 => {
+                    trace!("End of tags");
+                    break;
+                }
+                1 => {
+                    let str_ptr = ptr.offset(2) as *const u8;
+                    let mut size: isize = 0;
+
+                    while *str_ptr.offset(size).as_ref().unwrap() != 0 {
+                        size += 1;
+                    }
+
+                    let str_slice = slice::from_raw_parts(str_ptr, size as usize);
+
+                    match str::from_utf8(str_slice) {
+                        Ok(s) => {
+                            info!("Command line: {}", s);
+                        }
+                        Err(e) => {
+                            warn!("Unable to decode boot command line: {}", e);
+                        }
+                    }
+
+                }
                 2 => {
                     let str_ptr = ptr.offset(2) as *const u8;
                     let mut size: isize = 0;
@@ -378,7 +507,8 @@ pub extern "C" fn kmain(boot_info: *const u32) -> ! {
 
 fn init_logging() -> Result<(), SetLoggerError> {
     log::set_logger(|filter| {
-        filter.set(LogLevelFilter::max());
+        LOGGER.init_filtered(filter);
+        LOGGER.set_filter(LogLevelFilter::max());
         &LOGGER_TRAIT as *const _
     })
 }

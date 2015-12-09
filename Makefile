@@ -17,6 +17,7 @@ CFLAGS = -fno-asynchronous-unwind-tables -ffreestanding -O2 -Wall -Wextra -Wpeda
 LDFLAGS = --gc-sections
 ARCH = x86_64-unknown-linux-gnu
 RUSTFLAGS = -Z no-landing-pads
+GRUB_RESCUE_FLAGS = -d /usr/lib/grub/i386-pc/
 
 KERNEL = $(TARGET_DIR)/kernel.elf
 LINK = $(LIB_DIR)/link.ld
@@ -36,7 +37,7 @@ RUST_SOURCES = $(filter %.rs,$(SOURCES))
 RUST_OBJECTS = $(TARGET_DIR)/$(ARCH)/debug/libkernel.a
 OBJECTS = $(ASM_OBJECTS) $(C_OBJECTS) $(RUST_OBJECTS)
 
-GRUB_RESCUE = grub2-mkrescue
+GRUB_RESCUE = grub-mkrescue
 CC = gcc
 LD = ld
 AS = nasm
@@ -73,7 +74,7 @@ $(ISO_KERNEL): $(KERNEL)
 	$(CP) $< $@
 
 $(GRUB_IMAGE): $(ISO_GRUB_CFG) $(ISO_KERNEL)
-	$(GRUB_RESCUE) -o $(GRUB_IMAGE) $(ISO_DIR)
+	$(GRUB_RESCUE) $(GRUB_RESCUE_FLAGS) -o $(GRUB_IMAGE) $(ISO_DIR)
 
 $(TARGET_DIR):
 	$(MKDIR) -p $@
@@ -91,7 +92,7 @@ $(dir $(GRUB_IMAGE)):
 
 directories: $(TARGET_DIR) $(dir $(ISO_GRUB_CFG)) $(dir $(ISO_KERNEL)) $(dir $(GRUB_IMAGE))
 
-image: $(GRUB_IMAGE)
+image: directories $(GRUB_IMAGE)
 
 clean:
 	$(RM) -r $(TARGET_DIR)

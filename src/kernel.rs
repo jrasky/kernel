@@ -154,7 +154,7 @@ unsafe fn parse_multiboot_tags(boot_info: *const u32) {
 }
 
 #[no_mangle]
-pub extern "C" fn kmain(boot_info: *const u32) -> ! {
+pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // kernel main
 
     // initialize logging

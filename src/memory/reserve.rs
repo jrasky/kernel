@@ -1,22 +1,26 @@
 use constants::*;
 
-use core::cell::{RefCell, RefMut};
+use core::cell::{UnsafeCell};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use core::mem;
 
 use super::{Opaque, Header};
 
 static RESERVE: Memory = Memory {
-    inner: RefCell::new(MemoryInner {
+    inner: UnsafeCell::new(MemoryInner {
         slab: [0; RESERVE_SLAB_SIZE],
         map: [0; (RESERVE_SLAB_SIZE + 63) / 64],
-    })
+    }),
+    borrowed: AtomicBool::new(false)
 };
 
 struct Memory {
-    inner: RefCell<MemoryInner>,
+    inner: UnsafeCell<MemoryInner>,
+    borrowed: AtomicBool
 }
 
+unsafe impl Send for Memory {}
 unsafe impl Sync for Memory {}
 
 struct MemoryInner {
@@ -27,8 +31,18 @@ struct MemoryInner {
 }
 
 impl Memory {
-    fn borrow_mut(&self) -> RefMut<MemoryInner> {
-        self.inner.borrow_mut()
+    unsafe fn borrow_mut(&self) -> &mut MemoryInner {
+        if !self.borrowed.compare_and_swap(false, true, Ordering::SeqCst) {
+            self.inner.get().as_mut().unwrap()
+        } else {
+            panic!("Attempt to multiply access reserve allocator");
+        }
+    }
+
+    fn lock(&self) {
+        if !self.borrowed.compare_and_swap(true, false, Ordering::SeqCst) {
+            panic!("Attempt to doubly lock reserve allocator");
+        }
     }
 }
 
@@ -160,12 +174,16 @@ impl MemoryInner {
 
 #[inline]
 pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut Opaque> {
-    RESERVE.borrow_mut().allocate(size, align)
+    let result = RESERVE.borrow_mut().allocate(size, align);
+    RESERVE.lock();
+    result
 }
 
 #[inline]
 pub unsafe fn release(ptr: *mut Opaque) -> Option<usize> {
-    RESERVE.borrow_mut().release(ptr)
+    let result = RESERVE.borrow_mut().release(ptr);
+    RESERVE.lock();
+    result
 }
 
 #[inline]

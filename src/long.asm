@@ -9,7 +9,7 @@
 
     global _lstart
 
-    extern kmain
+    extern kernel_main
     extern _boot_info
 
     section .text
@@ -24,9 +24,9 @@ _lstart:
     mov rdi, qword [_boot_info]
 
     ;; start kernel
-    call kmain
+    call kernel_main
 
-    ;; kmain returned, error "X"
+    ;; kernel_main returned, error "X"
     mov al, "X"
     jmp _error
 

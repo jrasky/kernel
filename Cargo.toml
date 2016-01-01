@@ -4,6 +4,7 @@ version = "0.0.0"
 authors = ["Jerome Rasky <jerome@rasky.co>"]
 
 [lib]
+path = "src/kernel.rs"
 crate-type = ["staticlib"]
 
 [dependencies]

@@ -1,29 +1,35 @@
-#![feature(no_std, lang_items)]
+#![feature(lang_items)]
 #![feature(ptr_as_ref)]
 #![feature(const_fn)]
 #![feature(unique)]
-#![feature(core_str_ext)]
 #![feature(reflect_marker)]
+#![feature(alloc)]
+#![feature(collections)]
 #![feature(asm)]
 #![no_std]
 extern crate rlibc;
 extern crate spin;
 #[macro_use]
 extern crate log;
-
-use core::ptr::*;
+extern crate alloc;
+#[macro_use]
+extern crate collections;
 
 use core::fmt;
 use core::slice;
 use core::str;
 
-use spin::Mutex;
-
-use log::{LogRecord, LogMetadata, SetLoggerError, LogLevelFilter, MaxLogLevelFilter};
-
 mod logging;
 mod error;
 mod memory;
+mod constants;
+
+// pub use since they're exported
+pub use memory::{__rust_allocate,
+                 __rust_deallocate,
+                 __rust_reallocate,
+                 __rust_reallocate_inplace,
+                 __rust_usable_size};
 
 struct MBInfoMemTag {
     base_addr: u64,
@@ -163,6 +169,10 @@ pub extern "C" fn kmain(boot_info: *const u32) -> ! {
     unsafe {
         parse_multiboot_tags(boot_info);
     }
+
+    let x = vec![1, 2, 3];
+
+    info!("{:?}", x);
     
     unreachable!("kmain tried to return");
 }

@@ -1,229 +1,247 @@
 use core::prelude::v1::*;
 
-use core::marker::Reflect;
-use core::fmt::{Write, Debug, Display, Formatter};
-use core::sync::atomic::{AtomicPtr, Ordering};
-
-use core::fmt;
-use core::cmp;
 use core::ptr;
-use core::mem;
 
-use error::Error;
+// Reserve memory
+mod reserve {
+    use constants::*;
 
-static MEMORY: Manager = Manager { free: AtomicPtr::new(0 as *mut Block) };
+    use core::cell::{RefCell, RefMut};
+
+    use core::mem;
+
+    use super::{Opaque, Header};
+
+    static RESERVE: Memory = Memory {
+        inner: RefCell::new(MemoryInner {
+            slab: [0; RESERVE_SLAB_SIZE],
+            map: [0; (RESERVE_SLAB_SIZE + 63) / 64],
+        })
+    };
+
+    struct Memory {
+        inner: RefCell<MemoryInner>,
+    }
+
+    unsafe impl Sync for Memory {}
+
+    struct MemoryInner {
+        slab: [u64; RESERVE_SLAB_SIZE],
+        // RESERVE_SLAB_SIZE / 8 bytes per block, each byte has 8 bits
+        // round up
+        map: [u8; (RESERVE_SLAB_SIZE + 63) / 64],
+    }
+
+    impl Memory {
+        fn borrow_mut(&self) -> RefMut<MemoryInner> {
+            self.inner.borrow_mut()
+        }
+    }
+
+    impl MemoryInner {
+        unsafe fn allocate(&mut self, size: usize, align: usize) -> Option<*mut Opaque> {
+            // round up to the number of blocks we need to allocate
+            let blocks = (size + mem::size_of::<Header>() + 7) / 8;
+
+            let mut start: usize = 0;
+            let mut acc: usize = 0;
+            let mut pos: usize = 0;
+            let mut subpos: usize = 0;
+            loop {
+                // check for oom
+                if pos >= RESERVE_SLAB_SIZE {
+                    error!("Failed to allocate reserve memory");
+                    return None;
+                }
+
+                // check for free blocks
+                if self.map[pos] & (1 << subpos) == 0 {
+                    // block is free
+                    if acc > 0 {
+                        acc += 1;
+                    } else if align == 0 || ((self as *const _ as usize) // offset of the slab
+                                             + mem::size_of::<Header>() // offset for the header
+                                             + (((pos * 8) + subpos) * 8)) // offset into slab
+                    // aligned to given number of bytes
+                        & (align - 1) == 0 {
+                            // address is aligned
+                            start = (pos * 8) + subpos;
+                            acc = 1;
+                        }
+                } else if acc > 0 {
+                    acc = 0;
+                }
+
+                // check if we've found enough blocks
+                if acc >= blocks {
+                    // we've found blocks that work, mark them as used
+                    pos = start / 8;
+                    subpos = start % 8;
+                    for _ in 0..blocks {
+                        if subpos >= 8 {
+                            subpos = 0;
+                            pos += 1;
+                        }
+
+                        self.map[pos] |= 1 << subpos;
+                        subpos += 1;
+                    }
+
+                    // create the header
+                    let header = &mut self.slab[start] as *mut _ as *mut Header;
+                    let base = header.offset(1) as *mut Opaque;
+                    let header = header.as_mut().unwrap();
+
+                    // set header fields
+                    header.magic = RESERVE_MAGIC;
+                    header.size = size;
+
+                    // return the pointer of interest
+                    return Some(base);
+                }
+
+                // increment our position
+                subpos += 1;
+
+                if subpos >= 8 {
+                    subpos = 0;
+                    pos += 1;
+                }
+            }
+        }
+
+        unsafe fn release(&mut self, ptr: *mut Opaque) -> Option<usize> {
+            let header_ptr = (ptr as *mut Header).offset(-1);
+            
+            if header_ptr < (self as *mut _ as *mut _) {
+                error!("Tried to free a pointer not in the reserve slab");
+                return None;
+            }
+
+            let start = (header_ptr as usize) - (self as *mut _ as usize);
+
+            if start > RESERVE_SLAB_SIZE {
+                error!("Tried to free a pointer not in the reserve slab");
+                return None;
+            }
+
+            let header = match header_ptr.as_mut() {
+                None => {
+                    error!("Tried to free a null pointer");
+                    return None;
+                },
+                Some(header) => header
+            };
+
+            if header.magic != RESERVE_MAGIC {
+                error!("Tried to free an invalid pointer");
+                return None;
+            }
+
+            let blocks = (header.size + mem::size_of::<Header>() + 63)  / 64;
+            
+            let mut pos = start / 64;
+            let mut subpos = (start / 8) % 8;
+
+            for _ in 0..blocks {
+                if subpos >= 8 {
+                    subpos = 0;
+                    pos += 1;
+                }
+
+                self.map[pos] &= !(1 << subpos);
+                subpos += 1;
+            }
+
+            let size = header.size;
+
+            // reset header info
+            header.magic = 0;
+            header.size = 0;
+
+            // successfully freed memory
+            Some(size)
+        }
+    }
+
+    #[inline]
+    pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut Opaque> {
+        RESERVE.borrow_mut().allocate(size, align)
+    }
+
+    #[inline]
+    pub unsafe fn release(ptr: *mut Opaque) -> Option<usize> {
+        RESERVE.borrow_mut().release(ptr)
+    }
+
+    #[inline]
+    pub fn granularity(size: usize, _: usize) -> usize {
+        ((size + mem::size_of::<Header>() + 7) / 8) * 8
+    }
+}
+
+static MEMORY: Manager = Manager;
+
+pub struct Opaque;
 
 struct Header {
-    base: *mut u8,
+    magic: u64,
     size: usize,
 }
 
-#[derive(Debug)]
-struct Block {
-    base: *mut u8,
-    size: usize,
-    next: AtomicPtr<Block>,
-}
-
-struct Manager {
-    free: AtomicPtr<Block>,
-}
-
-#[derive(Debug)]
-enum MemError {
-    InvalidRange,
-}
-
-impl Reflect for Manager {}
-unsafe impl Sync for Manager {}
-
-impl PartialEq<Block> for Block {
-    fn eq(&self, other: &Block) -> bool {
-        self.base == other.base && self.size == other.size
-    }
-}
-
-impl Eq for Block {}
-
-impl PartialOrd for Block {
-    fn partial_cmp(&self, other: &Block) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Block {
-    fn cmp(&self, other: &Block) -> cmp::Ordering {
-        match self.size.cmp(&other.size) {
-            cmp::Ordering::Equal => {
-                self.base.cmp(&other.base)
-            }
-            order => order,
-        }
-    }
-}
-
-impl Display for MemError {
-    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
-        write!(fmt, "MemError: {}", self.description())
-    }
-}
-
-impl Error for MemError {
-    fn description(&self) -> &str {
-        match self {
-            &MemError::InvalidRange => "Invalid range",
-        }
-    }
-}
-
-impl Block {
-    const fn new(base: *mut u8, size: usize) -> Block {
-        Block {
-            base: base,
-            size: size,
-            next: AtomicPtr::new(ptr::null_mut()),
-        }
-    }
-
-    unsafe fn at(base: *mut Block, size: usize) -> *mut Block {
-        *base.as_mut().expect("Given null base") = Block::new(base as *mut _, size);
-        base
-    }
-
-    const fn dummy(size: usize) -> Block {
-        Block::new(ptr::null_mut(), size)
-    }
-
-    fn reduce(&mut self, by: usize) {
-        assert!(by < self.size, "Tried to reduce to zero or beyond");
-        self.size -= by;
-        self.base = unsafe {self.base.offset(by as isize)};
-    }
-}
+// Memory Manager
+struct Manager;
 
 impl Manager {
-    /// Get the block parent to the next biggest block in the free list, return
-    /// Err with the largest block if no bigger block exists, and None if the
-    /// free list is empty
-    fn find(&self, target: &Block) -> Option<Result<&mut Block, &mut Block>> {
-        let mut ptr = self.free.load(Ordering::Relaxed);
-        if ptr.is_null() {
-            trace!("Only null entries in free list");
-            return None;
-        }
-
-        loop {
-            let block = unsafe { ptr.as_mut() }.unwrap();
-            match unsafe { block.next.load(Ordering::Relaxed).as_mut() } {
-                None => {
-                    trace!("Reached end of list, returning closest: {:?}", block);
-                    return Some(Err(block));
-                }
-                Some(next) => {
-                    if next as &Block >= target {
-                        trace!("Found block of interest: {:?}", block);
-                        return Some(Ok(block));
-                    } else {
-                        // continue iterating
-                        ptr = next as *mut _;
-                    }
-                }
-            }
-        }
+    unsafe fn allocate(&self, size: usize, align: usize) -> Option<*mut Opaque> {
+        reserve::allocate(size, align)
     }
 
-    fn add_block(&self, block: *mut Block) {
-        // null blocks are a bad idea
-        assert!(!block.is_null(), "Tried to add null block");
-
-        loop {
-            match self.find(unsafe { block.as_ref() }.unwrap()) {
-                None => {
-                    // insert the first block
-                    if self.free
-                           .compare_and_swap(ptr::null_mut(), block, Ordering::SeqCst)
-                           .is_null() {
-                        debug!("Successfully added block {:?}", block);
-                        break;
-                    }
-                }
-                Some(Err(parent)) => {
-                    // insert the block at the end of the list
-                    if parent.next
-                             .compare_and_swap(ptr::null_mut(), block, Ordering::SeqCst)
-                             .is_null() {
-                        debug!("Successfully added block {:?}", block);
-                        break;
-                    }
-                }
-                Some(Ok(parent)) => {
-                    // first update the block
-                    let value = parent.next.load(Ordering::Relaxed);
-                    unsafe { block.as_mut() }.unwrap().next.store(value, Ordering::Relaxed);
-                    if parent.next.compare_and_swap(value, block, Ordering::SeqCst) == value {
-                        debug!("Successfully added block {:?}", block);
-                        break;
-                    }
-                }
-            }
-        }
+    unsafe fn release(&self, ptr: *mut Opaque) -> Option<usize> {
+        reserve::release(ptr)
     }
 
-    fn remove_block(&self, block: *mut Block) {
-        // null blocks are a bad idea
-        assert!(!block.is_null(), "Tried to remove a null block");
-
-        loop {
-            match self.find(unsafe { block.as_mut() }.unwrap()) {
-                Some(Ok(parent)) => {
-                    // squish the list down
-                    let current = parent.next.load(Ordering::Relaxed);
-                    let new_next = unsafe { current.as_ref() }
-                                       .unwrap()
-                                       .next
-                                       .load(Ordering::Relaxed);
-
-                    if parent.next.compare_and_swap(current, new_next, Ordering::SeqCst) ==
-                       current {
-                        debug!("Successfully removed block {:?}", block);
-                        break;
-                    }
-                }
-                _ => {
-                    debug!("Block not found: {:?}", block);
-                    break;
-                }
-            }
-        }
+    fn granularity(&self, size: usize, align: usize) -> usize {
+        reserve::granularity(size, align)
     }
+}
 
-    fn allocate(&self, mut size: usize) -> Option<*mut u8> {
-        if size == 0 {
-            return None;
-        }
+#[inline]
+pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut Opaque> {
+    MEMORY.allocate(size, align)
+}
 
-        // add header size
-        size += mem::size_of::<Header>();
+#[inline]
+pub unsafe fn release(ptr: *mut Opaque) -> Option<usize> {
+    MEMORY.release(ptr)
+}
 
-        match self.find(&Block::dummy(size)) {
-            None => None,
-            Some(Err(_)) => None,
-            Some(Ok(block)) => {
-                // at this point, assume block.next is not null
-                let block = unsafe {
-                    block.next
-                         .load(Ordering::Relaxed)
-                         .as_mut()
-                         .expect("Find returned terminating element")
-                };
-                let addr = block.base;
-                self.remove_block(block as *mut _);
-                if size < block.size {
-                    block.reduce(size);
-                    self.add_block(block);
-                }
-                Some(addr)
-            }
-        }
-    }
+#[inline]
+pub fn granularity(size: usize, align: usize) -> usize {
+    MEMORY.granularity(size, align)
+}
+
+#[no_mangle]
+pub extern "C" fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
+    unsafe {allocate(size, align).unwrap_or(ptr::null_mut()) as *mut _}
+}
+
+#[no_mangle]
+pub extern "C" fn __rust_deallocate(ptr: *mut u8, _: usize, _: usize) {
+    unsafe {release(ptr as *mut _).expect("release failed");}
+}
+
+#[no_mangle]
+pub extern "C" fn __rust_reallocate(_: *mut u8, _: usize, _: usize, _: usize) -> *mut u8 {
+    unimplemented!();
+}
+
+#[no_mangle]
+pub extern "C" fn __rust_reallocate_inplace(_: *mut u8, _: usize, _: usize, _: usize) -> usize {
+    unimplemented!();
+}
+
+#[no_mangle]
+pub extern "C" fn __rust_usable_size(size: usize, align: usize) -> usize {
+    granularity(size, align)
 }

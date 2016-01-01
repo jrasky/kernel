@@ -2,7 +2,7 @@ use core::ptr::*;
 
 use core::fmt;
 
-use core::fmt::{Write, Debug, Display, Formatter};
+use core::fmt::{Write};
 
 use log;
 
@@ -21,6 +21,7 @@ static LOGGER_TRAIT: &'static log::Log = &LOGGER as &'static log::Log;
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
+#[allow(dead_code)]
 enum Color {
     Black = 0,
     Blue,

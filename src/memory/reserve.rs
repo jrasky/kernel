@@ -1,6 +1,6 @@
 use constants::*;
 
-use core::cell::{UnsafeCell};
+use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use core::mem;
@@ -13,12 +13,12 @@ static RESERVE: Memory = Memory {
         slab: [0; RESERVE_SLAB_SIZE],
         map: [0; (RESERVE_SLAB_SIZE + 63) / 64],
     }),
-    borrowed: AtomicBool::new(false)
+    borrowed: AtomicBool::new(false),
 };
 
 struct Memory {
     inner: UnsafeCell<MemoryInner>,
-    borrowed: AtomicBool
+    borrowed: AtomicBool,
 }
 
 unsafe impl Send for Memory {}
@@ -68,15 +68,13 @@ impl MemoryInner {
                 // block is free
                 if acc > 0 {
                     acc += 1;
-                } else if align == 0 || ((self as *const _ as usize) // offset of the slab
-                                         + mem::size_of::<Header>() // offset for the header
-                                         + (((pos * 8) + subpos) * 8)) // offset into slab
-                // aligned to given number of bytes
-                    & (align - 1) == 0 {
-                        // address is aligned
-                        start = (pos * 8) + subpos;
-                        acc = 1;
-                    }
+                } else if align == 0 ||
+                   ((self as *const _ as usize) + mem::size_of::<Header>() +
+                    (((pos * 8) + subpos) * 8)) & (align - 1) == 0 {
+                    // address is aligned
+                    start = (pos * 8) + subpos;
+                    acc = 1;
+                }
             } else if acc > 0 {
                 acc = 0;
             }
@@ -121,7 +119,7 @@ impl MemoryInner {
 
     unsafe fn get_header<'a, 'b>(&'a self, ptr: *mut Opaque) -> Option<&'b mut Header> {
         let header_ptr = (ptr as *mut Header).offset(-1);
-        
+
         if header_ptr < (self as *const _ as *mut _) {
             error!("Pointer was not in reserve slab");
             return None;
@@ -138,8 +136,8 @@ impl MemoryInner {
             None => {
                 error!("Pointer was null");
                 return None;
-            },
-            Some(header) => header
+            }
+            Some(header) => header,
         };
 
         if header.magic != RESERVE_MAGIC {
@@ -155,14 +153,14 @@ impl MemoryInner {
             None => {
                 error!("Failed to get pointer header on release");
                 return None;
-            },
-            Some(header) => header
+            }
+            Some(header) => header,
         };
 
-        let blocks = (header.size + mem::size_of::<Header>() + 7)  / 8;
+        let blocks = (header.size + mem::size_of::<Header>() + 7) / 8;
 
         let start = ((header as *mut _) as usize) - (self as *mut _ as usize);
-        
+
         let mut pos = start / 64;
         let mut subpos = (start / 8) % 8;
 
@@ -192,7 +190,7 @@ impl MemoryInner {
                 error!("Failed to get pointer header on shrink");
                 return false;
             }
-            Some(header) => header
+            Some(header) => header,
         };
 
         if granularity(size, 0) >= header.size {
@@ -225,8 +223,8 @@ impl MemoryInner {
             None => {
                 error!("Failed to get pointer header on shrink");
                 return false;
-            },
-            Some(header) => header
+            }
+            Some(header) => header,
         };
 
         if granularity(header.size, 0) >= size {
@@ -274,14 +272,18 @@ impl MemoryInner {
         true
     }
 
-    unsafe fn resize(&mut self, ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
+    unsafe fn resize(&mut self,
+                     ptr: *mut Opaque,
+                     size: usize,
+                     align: usize)
+                     -> Option<*mut Opaque> {
         // check to see if the pointer is already aligned
         let header = match self.get_header(ptr) {
             None => {
                 error!("Tried to resize invalid pointer");
                 return None;
-            },
-            Some(header) => header
+            }
+            Some(header) => header,
         };
 
         if (ptr as usize) | (align - 1) == 0 {
@@ -304,7 +306,7 @@ impl MemoryInner {
             None => {
                 error!("Failed to free pointer on resize");
                 return None;
-            },
+            }
             Some(_) => {}
         }
 
@@ -329,8 +331,8 @@ impl MemoryInner {
 
                 // fail, but original allocation is still intact
                 return None;
-            },
-            Some(new_ptr) => new_ptr
+            }
+            Some(new_ptr) => new_ptr,
         };
 
         // only one thread can ever be here at a time, so it's safe

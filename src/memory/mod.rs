@@ -26,6 +26,18 @@ impl Manager {
         reserve::release(ptr)
     }
 
+    unsafe fn grow(&self, ptr: *mut Opaque, size: usize) -> bool {
+        reserve::grow(ptr, size)
+    }
+
+    unsafe fn shrink(&self, ptr: *mut Opaque, size: usize) -> bool {
+        reserve::shrink(ptr, size)
+    }
+
+    unsafe fn resize(&self, ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
+        reserve::resize(ptr, size, align)
+    }
+
     fn granularity(&self, size: usize, align: usize) -> usize {
         reserve::granularity(size, align)
     }
@@ -39,6 +51,21 @@ pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut Opaque> {
 #[inline]
 pub unsafe fn release(ptr: *mut Opaque) -> Option<usize> {
     MEMORY.release(ptr)
+}
+
+#[inline]
+pub unsafe fn grow(ptr: *mut Opaque, size: usize) -> bool {
+    MEMORY.grow(ptr, size)
+}
+
+#[inline]
+pub unsafe fn shrink(ptr: *mut Opaque, size: usize) -> bool {
+    MEMORY.shrink(ptr, size)
+}
+
+#[inline]
+pub unsafe fn resize(ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
+    MEMORY.resize(ptr, size, align)
 }
 
 #[inline]
@@ -57,13 +84,28 @@ pub extern "C" fn __rust_deallocate(ptr: *mut u8, _: usize, _: usize) {
 }
 
 #[no_mangle]
-pub extern "C" fn __rust_reallocate(_: *mut u8, _: usize, _: usize, _: usize) -> *mut u8 {
-    unimplemented!();
+pub extern "C" fn __rust_reallocate(ptr: *mut u8, _: usize, size: usize, align: usize) -> *mut u8 {
+    unsafe {resize(ptr as *mut _, size, align).unwrap_or(ptr::null_mut()) as *mut _}
 }
 
 #[no_mangle]
-pub extern "C" fn __rust_reallocate_inplace(_: *mut u8, _: usize, _: usize, _: usize) -> usize {
-    unimplemented!();
+pub extern "C" fn __rust_reallocate_inplace(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> usize {
+    if size > old_size {
+        if unsafe {grow(ptr as *mut _, size)} {
+            granularity(size, align)
+        } else {
+            granularity(old_size, align)
+        }
+    } else if size < old_size {
+        if unsafe {shrink(ptr as *mut _, size)} {
+            granularity(size, align)
+        } else {
+            granularity(old_size, align)
+        }
+    } else {
+        // noop
+        granularity(old_size, align)
+    }
 }
 
 #[no_mangle]

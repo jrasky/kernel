@@ -48,15 +48,14 @@ unsafe fn parse_cmdline(ptr: *const u32) {
     let str_slice = slice::from_raw_parts(str_ptr, size as usize);
 
     let cmdline = match str::from_utf8(str_slice) {
-        Ok(s) => {
-            info!("Command line: {}", s);
-            s
-        }
+        Ok(s) => s,
         Err(e) => {
             warn!("Unable to decode boot command line: {}", e);
             return;
         }
     };
+
+    info!("Command line: {}", cmdline);
 }
 
 unsafe fn parse_bootloader(ptr: *const u32) {
@@ -170,11 +169,14 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
         parse_multiboot_tags(boot_info);
     }
 
-    let x = vec![1, 2, 3];
+    let x = vec![1, 2, 4];
+    let y = vec![4, 5, 6];
 
     info!("{:?}", x);
+    info!("{:?}", y);
+    info!("{:?}", x);
     
-    unreachable!("kmain tried to return");
+    unreachable!("kernel_main tried to return");
 }
 
 #[inline]

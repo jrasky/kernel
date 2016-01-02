@@ -4,6 +4,7 @@ use core::cell::{UnsafeCell};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use core::mem;
+use core::ptr;
 
 use super::{Opaque, Header};
 
@@ -118,35 +119,49 @@ impl MemoryInner {
         }
     }
 
-    unsafe fn release(&mut self, ptr: *mut Opaque) -> Option<usize> {
+    unsafe fn get_header<'a, 'b>(&'a self, ptr: *mut Opaque) -> Option<&'b mut Header> {
         let header_ptr = (ptr as *mut Header).offset(-1);
         
-        if header_ptr < (self as *mut _ as *mut _) {
-            error!("Tried to free a pointer not in the reserve slab");
+        if header_ptr < (self as *const _ as *mut _) {
+            error!("Pointer was not in reserve slab");
             return None;
         }
 
-        let start = (header_ptr as usize) - (self as *mut _ as usize);
+        let start = (header_ptr as usize) - (self as *const _ as usize);
 
         if start > RESERVE_SLAB_SIZE {
-            error!("Tried to free a pointer not in the reserve slab");
+            error!("Pointer was not in reserve slab");
             return None;
         }
 
         let header = match header_ptr.as_mut() {
             None => {
-                error!("Tried to free a null pointer");
+                error!("Pointer was null");
                 return None;
             },
             Some(header) => header
         };
 
         if header.magic != RESERVE_MAGIC {
-            error!("Tried to free an invalid pointer");
+            error!("Pointer was invalid");
             return None;
         }
 
-        let blocks = (header.size + mem::size_of::<Header>() + 63)  / 64;
+        Some(header)
+    }
+
+    unsafe fn release(&mut self, ptr: *mut Opaque) -> Option<usize> {
+        let header = match self.get_header(ptr) {
+            None => {
+                error!("Failed to get pointer header on release");
+                return None;
+            },
+            Some(header) => header
+        };
+
+        let blocks = (header.size + mem::size_of::<Header>() + 7)  / 8;
+
+        let start = ((header as *mut _) as usize) - (self as *mut _ as usize);
         
         let mut pos = start / 64;
         let mut subpos = (start / 8) % 8;
@@ -170,6 +185,161 @@ impl MemoryInner {
         // successfully freed memory
         Some(size)
     }
+
+    unsafe fn shrink(&mut self, ptr: *mut Opaque, size: usize) -> bool {
+        let header = match self.get_header(ptr) {
+            None => {
+                error!("Failed to get pointer header on shrink");
+                return false;
+            }
+            Some(header) => header
+        };
+
+        if granularity(size, 0) >= header.size {
+            // nothing to do
+            return true;
+        }
+
+        let start = ((header as *mut _) as usize) - (self as *mut _ as usize);
+        let end = start + mem::size_of::<Header>() + header.size;
+        let new_end = start + mem::size_of::<Header>() + size;
+
+        let mut pos = new_end / 64;
+        let mut subpos = (new_end / 8) % 8;
+
+        for _ in new_end..end {
+            if subpos >= 8 {
+                subpos = 0;
+                pos += 1;
+            }
+
+            // mark the block sa free
+            self.map[pos] &= !(1 << subpos);
+        }
+
+        true
+    }
+
+    unsafe fn grow(&mut self, ptr: *mut Opaque, size: usize) -> bool {
+        let header = match self.get_header(ptr) {
+            None => {
+                error!("Failed to get pointer header on shrink");
+                return false;
+            },
+            Some(header) => header
+        };
+
+        if granularity(header.size, 0) >= size {
+            // nothing to do
+            return true;
+        }
+
+        let start = ((header as *mut _) as usize) - (self as *mut _ as usize);
+        let end = start + mem::size_of::<Header>() + header.size;
+
+        let mut pos = end / 64;
+        let mut subpos = (end / 8) % 8;
+
+        for place in 0..size - header.size {
+            if subpos >= 8 {
+                subpos = 0;
+                pos += 1;
+            }
+
+            if self.map[pos] & (1 << subpos) == 0 {
+                // mark the next block as used
+                self.map[pos] |= 1 << subpos;
+            } else {
+                // rollback
+                pos = end / 64;
+                subpos = (end / 8) % 8;
+                for _ in 0..place {
+                    if subpos >= 8 {
+                        subpos = 0;
+                        pos += 1;
+                    }
+
+                    self.map[pos] &= !(1 << subpos);
+                    subpos += 1;
+                }
+
+                // failed to grow
+                return false;
+            }
+
+            subpos += 1;
+        }
+
+        // successfully grew the allocation
+        true
+    }
+
+    unsafe fn resize(&mut self, ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
+        // check to see if the pointer is already aligned
+        let header = match self.get_header(ptr) {
+            None => {
+                error!("Tried to resize invalid pointer");
+                return None;
+            },
+            Some(header) => header
+        };
+
+        if (ptr as usize) | (align - 1) == 0 {
+            if size > granularity(header.size, align) {
+                if self.grow(ptr, size) {
+                    return Some(ptr);
+                }
+            } else if granularity(size, align) < header.size {
+                if self.shrink(ptr, size) {
+                    return Some(ptr);
+                }
+            } else {
+                // the pointer is already aligned, and already the same size? strange...
+                return Some(ptr);
+            }
+        }
+
+        // otherwise we need to create a new allocation
+        match self.release(ptr) {
+            None => {
+                error!("Failed to free pointer on resize");
+                return None;
+            },
+            Some(_) => {}
+        }
+
+        let new_ptr = match self.allocate(size, align) {
+            None => {
+                // roll back
+                let blocks = (header.size + mem::size_of::<Header>() + 7) / 8;
+                let start = ((header as *mut _) as usize) - (self as *mut _ as usize);
+                let mut pos = start / 64;
+                let mut subpos = (start / 8) % 8;
+
+                for _ in 0..blocks {
+                    if subpos >= 8 {
+                        subpos = 8;
+                        pos += 1;
+                    }
+
+                    self.map[pos] |= 1 << subpos;
+
+                    subpos += 1;
+                }
+
+                // fail, but original allocation is still intact
+                return None;
+            },
+            Some(new_ptr) => new_ptr
+        };
+
+        // only one thread can ever be here at a time, so it's safe
+        // to keep using the old pointer
+        ptr::copy(ptr as *mut u8, new_ptr as *mut u8, header.size);
+
+        // success!
+        Some(new_ptr)
+    }
 }
 
 #[inline]
@@ -182,6 +352,27 @@ pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut Opaque> {
 #[inline]
 pub unsafe fn release(ptr: *mut Opaque) -> Option<usize> {
     let result = RESERVE.borrow_mut().release(ptr);
+    RESERVE.lock();
+    result
+}
+
+#[inline]
+pub unsafe fn grow(ptr: *mut Opaque, size: usize) -> bool {
+    let result = RESERVE.borrow_mut().grow(ptr, size);
+    RESERVE.lock();
+    result
+}
+
+#[inline]
+pub unsafe fn shrink(ptr: *mut Opaque, size: usize) -> bool {
+    let result = RESERVE.borrow_mut().shrink(ptr, size);
+    RESERVE.lock();
+    result
+}
+
+#[inline]
+pub unsafe fn resize(ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
+    let result = RESERVE.borrow_mut().resize(ptr, size, align);
     RESERVE.lock();
     result
 }

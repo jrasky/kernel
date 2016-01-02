@@ -198,7 +198,8 @@ extern "C" fn eh_personality() {
 extern "C" fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     logging::write_line(format_args!("PANIC in {}, line {}: {}", file, line, msg));
 
-    // loop clear interrupts and halt
+    // clear interrupts and halt
+    // processory must be reset to continue
     loop {
         unsafe {
             asm!("cli" :::: "volatile");

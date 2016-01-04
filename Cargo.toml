@@ -7,7 +7,16 @@ authors = ["Jerome Rasky <jerome@rasky.co>"]
 path = "src/kernel.rs"
 crate-type = ["staticlib"]
 
+[features]
+default = ["log_any"]
+log_any = []
+log_critical = []
+log_error = []
+log_warn = []
+log_info = []
+log_debug = []
+log_trace = []
+
 [dependencies]
 rlibc = "*"
 spin = "*"
-log = {git = "https://github.com/jrasky/log.git", features = ["freestanding", "release_max_level_info"]}

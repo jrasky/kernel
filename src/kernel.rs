@@ -9,8 +9,6 @@
 #![no_std]
 extern crate rlibc;
 extern crate spin;
-#[macro_use]
-extern crate log;
 extern crate alloc;
 #[macro_use]
 extern crate collections;
@@ -19,7 +17,8 @@ use core::fmt;
 use core::slice;
 use core::str;
 
-mod logging;
+#[macro_use]
+mod log;
 mod error;
 mod memory;
 mod constants;
@@ -140,9 +139,8 @@ unsafe fn parse_multiboot_tags(boot_info: *const u32) {
             6 => {
                 parse_memory(ptr);
             }
-            n => {
+            _ => {
                 // unknown tags aren't a huge issue
-                debug!("Unknown tag {}", n);
             }
         }
 
@@ -155,27 +153,12 @@ unsafe fn parse_multiboot_tags(boot_info: *const u32) {
 #[no_mangle]
 pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // kernel main
-
-    // initialize logging
-    if let Err(_) = logging::init_logging() {
-        panic!("Failed to initialize logging");
-    }
-
     info!("Hello!");
-
-    trace!("debug info at: {:x}", boot_info as usize);
 
     unsafe {
         parse_multiboot_tags(boot_info);
     }
 
-    let x = vec![1, 2, 4];
-    let y = vec![4, 5, 6];
-
-    info!("{:?}", x);
-    info!("{:?}", y);
-    info!("{:?}", x);
-    
     unreachable!("kernel_main tried to return");
 }
 
@@ -196,7 +179,13 @@ extern "C" fn eh_personality() {
 #[inline(never)]
 #[lang = "panic_fmt"]
 extern "C" fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
-    logging::write_line(format_args!("PANIC in {}, line {}: {}", file, line, msg));
+    let loc = log::Location {
+        module_path: module_path!(),
+        file: file,
+        line: line
+    };
+
+    log::log(0, &loc, module_path!(), msg);
 
     // clear interrupts and halt
     // processory must be reset to continue

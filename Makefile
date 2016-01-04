@@ -7,7 +7,7 @@
 # http://opensource.org/licenses/MIT>, at your option. This file may not be
 # copied, modified, or distributed except according to those terms.
 
-SOURCES = multiboot2.asm bootstrap.asm long.asm kernel.rs memory/mod.rs memory/reserve.rs constants.rs error.rs logging.rs
+SOURCES = multiboot2.asm bootstrap.asm long.asm kernel.rs memory/mod.rs memory/reserve.rs constants.rs error.rs log/mod.rs log/vga.rs
 
 SOURCE_DIR = src
 TARGET_DIR = target
@@ -62,10 +62,10 @@ $(C_OBJECTS): $(TARGET_DIR)/%.o : $(SOURCE_DIR)/%.c
 $(ASM_OBJECTS): $(TARGET_DIR)/%.o : $(SOURCE_DIR)/%.asm
 	$(AS) -f elf64 -o $@ $<
 
-$(RUST_OBJECTS): $(RUST_SOURCES:%=$(SOURCE_DIR)/%) Cargo.toml Cargo.lock
+$(RUST_OBJECTS): $(RUST_SOURCES:%=$(SOURCE_DIR)/%) Cargo.lock
 	$(CARGO) rustc --target $(ARCH) -- $(RUSTFLAGS)
 
-Cargo.lock:
+Cargo.lock: Cargo.toml
 
 $(ISO_GRUB_CFG): $(GRUB_CFG)
 	$(CP) $< $@

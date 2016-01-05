@@ -17,6 +17,8 @@ use core::fmt;
 use core::slice;
 use core::str;
 
+use constants::*;
+
 #[macro_use]
 mod log;
 mod error;
@@ -160,11 +162,6 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     }
 
     unreachable!("kernel_main tried to return");
-}
-
-#[inline]
-fn align(n: usize, to: usize) -> usize {
-    (n + to - 1) & !(to - 1)
 }
 
 #[cfg(not(test))]

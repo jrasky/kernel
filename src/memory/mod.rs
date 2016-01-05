@@ -5,6 +5,10 @@ use core::ptr;
 // Reserve memory
 mod reserve;
 
+// Simple memory
+// Identity page-table only
+mod simple;
+
 static MEMORY: Manager = Manager;
 
 pub struct Opaque;
@@ -18,6 +22,14 @@ struct Header {
 struct Manager;
 
 impl Manager {
+    unsafe fn register(&self, ptr: *mut Opaque, size: usize) -> usize {
+        reserve::register(ptr, size)
+    }
+
+    unsafe fn forget(&self, ptr: *mut Opaque, size: usize) -> usize {
+        reserve::forget(ptr, size)
+    }
+
     unsafe fn allocate(&self, size: usize, align: usize) -> Option<*mut Opaque> {
         reserve::allocate(size, align)
     }
@@ -41,6 +53,16 @@ impl Manager {
     fn granularity(&self, size: usize, align: usize) -> usize {
         reserve::granularity(size, align)
     }
+}
+
+#[inline]
+pub unsafe fn register(ptr: *mut Opaque, size: usize) -> usize {
+    MEMORY.register(ptr, size)
+}
+
+#[inline]
+pub unsafe fn forget(ptr: *mut Opaque, size: usize) -> usize {
+    MEMORY.forget(ptr, size)
 }
 
 #[inline]

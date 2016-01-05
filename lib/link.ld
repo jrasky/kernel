@@ -31,17 +31,25 @@ SECTIONS {
         * (.rodata)
     }
 
-    /* initialized, read-write data */
+    /* initialized, read-write data and slab map */
     .data ALIGN(4K) : {
         * (.data)
+        _slab_map = .;
+        /* slab map size is invariant */
+        . += 0x208;
     }
 
     . = .;
     _data_end = .;
 
-    /* uninitialized, read-write data and stack */
+    /* uninitialized, read-write data, slab, and stack */
     .bss ALIGN(4K) : {
         * (.bss)
+    }
+
+    .slab ALIGN(4K) : {
+        _slab = .;
+        . += 0x8000;
     }
 
     /* create space for page tables */

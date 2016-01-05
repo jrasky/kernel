@@ -8,10 +8,15 @@ use core::ptr;
 
 use super::{Opaque, Header};
 
+extern "C" {
+    static _slab: [u8; RESERVE_SLAB_SIZE];
+    static _slab_map: [u8; (RESERVE_SLAB_SIZE + 63) / 64];
+}
+
 static RESERVE: Memory = Memory {
     inner: UnsafeCell::new(MemoryInner {
-        slab: [0; RESERVE_SLAB_SIZE],
-        map: [0; (RESERVE_SLAB_SIZE + 63) / 64],
+        slab: &_slab,
+        map: &_slab_map
     }),
     borrowed: AtomicBool::new(false),
 };
@@ -25,10 +30,10 @@ unsafe impl Send for Memory {}
 unsafe impl Sync for Memory {}
 
 struct MemoryInner {
-    slab: [u64; RESERVE_SLAB_SIZE],
+    slab: &[u64; RESERVE_SLAB_SIZE],
     // RESERVE_SLAB_SIZE / 8 bytes per block, each byte has 8 bits
     // round up
-    map: [u8; (RESERVE_SLAB_SIZE + 63) / 64],
+    map: &[u8; (RESERVE_SLAB_SIZE + 63) / 64],
 }
 
 impl Memory {
@@ -345,6 +350,16 @@ impl MemoryInner {
 }
 
 #[inline]
+pub const fn register(_: *mut Opaque, _: usize) -> usize {
+    0
+}
+
+#[inline]
+pub const fn forget(_: *mut Opaque, _: usize) -> usize {
+    0
+}
+
+#[inline]
 pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut Opaque> {
     let result = RESERVE.borrow_mut().allocate(size, align);
     RESERVE.lock();
@@ -380,6 +395,6 @@ pub unsafe fn resize(ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut
 }
 
 #[inline]
-pub fn granularity(size: usize, _: usize) -> usize {
+pub const fn granularity(size: usize, _: usize) -> usize {
     ((size + mem::size_of::<Header>() + 7) / 8) * 8
 }

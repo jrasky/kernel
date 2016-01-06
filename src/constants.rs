@@ -6,7 +6,7 @@ pub const VGA_BUFFER_ADDR: usize = 0xb8000;
 pub const SIMPLE_MAGIC: u64 = 4128539181889869321;
 
 #[inline]
-const fn align(n: usize, to: usize) -> usize {
+pub const fn align(n: usize, to: usize) -> usize {
     (n + to - 1) & !(to - 1)
 }
 

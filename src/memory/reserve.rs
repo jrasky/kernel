@@ -1,16 +1,17 @@
-use constants::*;
-
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use core::mem;
 use core::ptr;
+use core::slice;
+
+use constants::*;
 
 use super::{Opaque, Header};
 
 extern "C" {
-    static _slab: [u8; RESERVE_SLAB_SIZE];
-    static _slab_map: [u8; (RESERVE_SLAB_SIZE + 63) / 64];
+    static _slab: *mut u64;
+    static _slab_map: *mut u8;
 }
 
 static RESERVE: Memory = Memory {
@@ -30,10 +31,8 @@ unsafe impl Send for Memory {}
 unsafe impl Sync for Memory {}
 
 struct MemoryInner {
-    slab: &[u64; RESERVE_SLAB_SIZE],
-    // RESERVE_SLAB_SIZE / 8 bytes per block, each byte has 8 bits
-    // round up
-    map: &[u8; (RESERVE_SLAB_SIZE + 63) / 64],
+    slab: &'static *mut u64,
+    map: &'static *mut u8
 }
 
 impl Memory {
@@ -56,6 +55,8 @@ impl MemoryInner {
     unsafe fn allocate(&mut self, size: usize, align: usize) -> Option<*mut Opaque> {
         // round up to the number of blocks we need to allocate
         let blocks = (size + mem::size_of::<Header>() + 7) / 8;
+        let slab = slice::from_raw_parts_mut(*self.slab, RESERVE_SLAB_SIZE);
+        let map = slice::from_raw_parts_mut(*self.map, (RESERVE_SLAB_SIZE + 7) / 8);
 
         let mut start: usize = 0;
         let mut acc: usize = 0;
@@ -69,7 +70,7 @@ impl MemoryInner {
             }
 
             // check for free blocks
-            if self.map[pos] & (1 << subpos) == 0 {
+            if map[pos] & (1 << subpos) == 0 {
                 // block is free
                 if acc > 0 {
                     acc += 1;
@@ -95,12 +96,12 @@ impl MemoryInner {
                         pos += 1;
                     }
 
-                    self.map[pos] |= 1 << subpos;
+                    *map.get_mut(pos).unwrap() |= 1 << subpos;
                     subpos += 1;
                 }
 
                 // create the header
-                let header = &mut self.slab[start] as *mut _ as *mut Header;
+                let header = slab.get_mut(start).unwrap() as *mut _ as *mut Header;
                 let base = header.offset(1) as *mut Opaque;
                 let header = header.as_mut().unwrap();
 
@@ -154,6 +155,9 @@ impl MemoryInner {
     }
 
     unsafe fn release(&mut self, ptr: *mut Opaque) -> Option<usize> {
+        let slab = slice::from_raw_parts_mut(*self.slab, RESERVE_SLAB_SIZE);
+        let map = slice::from_raw_parts_mut(*self.map, (RESERVE_SLAB_SIZE + 7) / 8);
+
         let header = match self.get_header(ptr) {
             None => {
                 error!("Failed to get pointer header on release");
@@ -175,7 +179,7 @@ impl MemoryInner {
                 pos += 1;
             }
 
-            self.map[pos] &= !(1 << subpos);
+            *map.get_mut(pos).unwrap() &= !(1 << subpos);
             subpos += 1;
         }
 
@@ -190,6 +194,8 @@ impl MemoryInner {
     }
 
     unsafe fn shrink(&mut self, ptr: *mut Opaque, size: usize) -> bool {
+        let slab = slice::from_raw_parts_mut(*self.slab, RESERVE_SLAB_SIZE);
+        let map = slice::from_raw_parts_mut(*self.map, (RESERVE_SLAB_SIZE + 7) / 8);
         let header = match self.get_header(ptr) {
             None => {
                 error!("Failed to get pointer header on shrink");
@@ -217,13 +223,15 @@ impl MemoryInner {
             }
 
             // mark the block sa free
-            self.map[pos] &= !(1 << subpos);
+            *map.get_mut(pos).unwrap() &= !(1 << subpos);
         }
 
         true
     }
 
     unsafe fn grow(&mut self, ptr: *mut Opaque, size: usize) -> bool {
+        let slab = slice::from_raw_parts_mut(*self.slab, RESERVE_SLAB_SIZE);
+        let map = slice::from_raw_parts_mut(*self.map, (RESERVE_SLAB_SIZE + 7) / 8);
         let header = match self.get_header(ptr) {
             None => {
                 error!("Failed to get pointer header on shrink");
@@ -249,9 +257,9 @@ impl MemoryInner {
                 pos += 1;
             }
 
-            if self.map[pos] & (1 << subpos) == 0 {
+            if map[pos] & (1 << subpos) == 0 {
                 // mark the next block as used
-                self.map[pos] |= 1 << subpos;
+                *map.get_mut(pos).unwrap() |= 1 << subpos;
             } else {
                 // rollback
                 pos = end / 64;
@@ -262,7 +270,7 @@ impl MemoryInner {
                         pos += 1;
                     }
 
-                    self.map[pos] &= !(1 << subpos);
+                    *map.get_mut(pos).unwrap() &= !(1 << subpos);
                     subpos += 1;
                 }
 
@@ -318,6 +326,8 @@ impl MemoryInner {
         let new_ptr = match self.allocate(size, align) {
             None => {
                 // roll back
+                let slab = slice::from_raw_parts_mut(*self.slab, RESERVE_SLAB_SIZE);
+                let map = slice::from_raw_parts_mut(*self.map, (RESERVE_SLAB_SIZE + 7) / 8);
                 let blocks = (header.size + mem::size_of::<Header>() + 7) / 8;
                 let start = ((header as *mut _) as usize) - (self as *mut _ as usize);
                 let mut pos = start / 64;
@@ -329,7 +339,7 @@ impl MemoryInner {
                         pos += 1;
                     }
 
-                    self.map[pos] |= 1 << subpos;
+                    *map.get_mut(pos).unwrap() |= 1 << subpos;
 
                     subpos += 1;
                 }
@@ -395,6 +405,6 @@ pub unsafe fn resize(ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut
 }
 
 #[inline]
-pub const fn granularity(size: usize, _: usize) -> usize {
+pub fn granularity(size: usize, _: usize) -> usize {
     ((size + mem::size_of::<Header>() + 7) / 8) * 8
 }

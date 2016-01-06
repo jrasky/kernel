@@ -35,8 +35,8 @@ SECTIONS {
     .data ALIGN(4K) : {
         * (.data)
         _slab_map = .;
-        /* slab map size is invariant */
-        . += 0x208;
+        /* slab map size = slab size / 8 */
+        . += 0x1000;
     }
 
     . = .;

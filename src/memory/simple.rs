@@ -6,6 +6,7 @@ use core::mem;
 use spin::Mutex;
 
 use constants::*;
+use constants;
 
 static MEMORY: Mutex<Manager> = Mutex::new(Manager {
     free: ptr::null_mut()
@@ -33,20 +34,19 @@ impl Manager {
                 return 0;
             }
             self.free = ptr as *mut _;
-            self.free.as_mut().unwrap() = Block {
+            *self.free.as_mut().unwrap() = Block {
                 base: self.free.offset(1) as *mut _,
-                end: (self.free as *mut u8).offset(size) as *mut _,
+                end: (self.free as *mut u8).offset(size as isize) as *mut _,
                 next: ptr::null_mut(),
                 last: ptr::null_mut()
             };
 
-            size
+            return size;
         }
 
-        let ptr = ptr as *mut Block;
         let base = ptr.offset(1);
-        let end = (ptr as *mut u8).offset()
-            let mut block = self.free.as_mut().unwrap();
+        let end = (ptr as *mut u8).offset(size as isize) as *mut Opaque;
+        let mut block = self.free.as_mut().unwrap();
 
         if end < block.base {
             // insert element before the first free element
@@ -55,7 +55,7 @@ impl Manager {
                 return 0;
             }
             self.free = ptr as *mut _;
-            self.free.as_mut().unwrap() = Block {
+            *self.free.as_mut().unwrap() = Block {
                 base: base,
                 end: end,
                 next: block,
@@ -79,11 +79,11 @@ impl Manager {
                         warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
                         return 0;
                     }
-                    block.next = ptr;
-                    block.next.as_mut().unwrap() = Block {
+                    block.next = ptr as *mut Block;
+                    *block.next.as_mut().unwrap() = Block {
                         base: base,
                         end: end,
-                        next: null_mut(),
+                        next: ptr::null_mut(),
                         last: block
                     };
 
@@ -99,16 +99,17 @@ impl Manager {
                 }
             }
 
-            let next = block.as_mut().unwrap();
-            if base > block.next && end < next.base {
+            let next = block.next.as_mut().unwrap();
+
+            if base > block.end && end < next.base {
                 // insert between block and next
-                block.next = ptr;
-                next.last = ptr;
+                block.next = ptr as *mut Block;
+                next.last = ptr as *mut Block;
                 if size <= mem::size_of::<Block>() {
                     warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
                     return 0;
                 }
-                ptr.as_mut().unwrap() = Block {
+                *block.next.as_mut().unwrap() = Block {
                     base: base,
                     end: end,
                     next: next,
@@ -116,31 +117,31 @@ impl Manager {
                 };
 
                 return size;
-            } else if base == block.next && end == next.base {
+            } else if base == block.end && end == next.base {
                 // join the two elements together
                 block.end = next.end;
                 block.next = next.next;
 
                 return size;
-            } else if base == block.next && end < next.base {
+            } else if base == block.end && end < next.base {
                 // extend block
                 block.end = end;
 
                 return size;
-            } else if base > block.next && end == next.base {
+            } else if base > block.end && end == next.base {
                 // extend next
                 if size <= mem::size_of::<Block>() {
                     warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
                     return 0;
                 }
-                ptr.as_mut().unwrap() = Block {
+
+                block.next = ptr as *mut Block;
+                *block.next.as_mut().unwrap() = Block {
                     base: base,
                     end: next.end,
                     next: next.next,
                     last: block
                 };
-
-                block.next = ptr;
 
                 return size;
             } else {
@@ -159,7 +160,7 @@ impl Manager {
             Some(block) => block
         };
 
-        let end = (ptr as *mut u8).offset(size) as *mut Opaque;
+        let end = (ptr as *mut u8).offset(size as isize) as *mut Opaque;
 
         let mut forgotten_size: usize = 0;
 
@@ -207,16 +208,17 @@ impl Manager {
 
         loop {
             if let Some(block_ref) = block.as_mut() {
-                aligned_base = align(block_ref.base as usize 
-                                         + mem::size_of::<Header>(), align) as *mut Opaque;
+                aligned_base = constants::align(block_ref.base as usize 
+                                                + mem::size_of::<Header>(), align) as *mut Opaque;
+                let end = (aligned_base as *mut u8).offset(size as isize) as *mut Opaque;
                 header_base = (aligned_base as *mut Header).offset(-1);
                 if aligned_base < block_ref.end &&
                     block_ref.end as usize - aligned_base as usize >= size
                 {
                     // we've found a spot!
-                    if header_base > block_ref.base {
+                    if header_base as *mut Opaque > block_ref.base {
                         // truncate the block
-                        let end = (aligned_base as u8).offset(size) as *mut Opaque;
+                        let end = (aligned_base as *mut u8).offset(size as isize) as *mut Opaque;
                         if end < block_ref.end {
                             // split the block into two
                             let new_block = (end as *mut Block).as_mut().unwrap();
@@ -230,14 +232,14 @@ impl Manager {
                             }
                         }
 
-                        block_ref.end = header_base as *mut Header;
+                        block_ref.end = header_base as *mut Opaque;
 
                         // done
                         break;
                     } else {
                         if end < block_ref.end {
                             // truncate the beginning of the block
-                            block_ref.start = end;
+                            block_ref.base = end;
 
                             // done
                             break;
@@ -266,7 +268,7 @@ impl Manager {
         }
 
         // set up header
-        header_base.as_mut().unwrap() = Header {
+        *header_base.as_mut().unwrap() = Header {
             magic: SIMPLE_MAGIC,
             size: size
         };
@@ -275,10 +277,11 @@ impl Manager {
         Some(aligned_base)
     }
 
-    unsafe fn release(&self, ptr: *mut Opaque, size: usize) -> Option<usize> {
+    unsafe fn release(&mut self, ptr: *mut Opaque) -> Option<usize> {
         // pointer and size do not inclue the header
-        let base = (ptr as *mut Header).offset(-1) as *mut Opaque;
-        let registered_size = self.register(base, size + mem::size_of::<Header>());
+        let header_base = (ptr as *mut Header).offset(-1);
+        let header = header_base.as_ref().unwrap();
+        let registered_size = self.register(ptr, header.size + mem::size_of::<Header>());
         if registered_size < mem::size_of::<Header>() {
             None
         } else {
@@ -286,17 +289,17 @@ impl Manager {
         }
     }
 
-    unsafe fn grow(&self, ptr: *mut Opaque, size: usize) -> bool {
+    unsafe fn grow(&mut self, ptr: *mut Opaque, size: usize) -> bool {
         let header_base = (ptr as *mut Header).offset(-1);
         let header = header_base.as_mut().unwrap();
-        debug_assert!(size > header_base.size);
-        let end = (ptr as *mut u8).offset(header.size) as *mut Opaque;
-        let new_end = (ptr as *mut u8).offset(size) as *mut Opaque;
+        debug_assert!(size > header.size);
+        let end = (ptr as *mut u8).offset(header.size as isize) as *mut Opaque;
+        let new_end = (ptr as *mut u8).offset(size as isize) as *mut Opaque;
 
         let mut block = self.free;
 
         loop {
-            if Some(block_ref) = block.as_mut() {
+            if let Some(block_ref) = block.as_mut() {
                 if block_ref.base == end && block_ref.end >= new_end {
                     // we can grow this allocation
                     if block_ref.end > new_end {
@@ -325,12 +328,12 @@ impl Manager {
         }
     }
 
-    unsafe fn shrink(&self, ptr: *mut Opaque, size: usize) -> bool {
+    unsafe fn shrink(&mut self, ptr: *mut Opaque, size: usize) -> bool {
         let header_base = (ptr as *mut Header).offset(-1);
         let header = header_base.as_mut().unwrap();
-        debug_assert!(size < header_base.size);
-        let difference = size - header_base.size;
-        let registered_size = self.register((ptr as *mut u8).offset(size), difference);
+        debug_assert!(size < header.size);
+        let difference = size - header.size;
+        let registered_size = self.register((ptr as *mut u8).offset(size as isize) as *mut Opaque, difference);
         if registered_size < difference {
             return false;
         } else {
@@ -338,7 +341,7 @@ impl Manager {
         }
     }
 
-    unsafe fn resize(&self, ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
+    unsafe fn resize(&mut self, ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
         let header_base = (ptr as *mut Header).offset(-1);
         let header = header_base.as_mut().unwrap();
 
@@ -349,7 +352,7 @@ impl Manager {
                     return Some(ptr);
                 }
             } else if size < header.size {
-                if self.shrink(ptr, size()) {
+                if self.shrink(ptr, size) {
                     return Some(ptr);
                 }
             } else {
@@ -370,14 +373,13 @@ impl Manager {
             Some(new_ptr)
         } else {
             // roll back
-            let end = (ptr as *mut u8).offset(header.size);
+            let end = (ptr as *mut u8).offset(header.size as isize) as *mut Opaque;
             let mut block = self.free;
             loop {
                 if let Some(block_ref) = block.as_mut() {
-                    if block_ref.base <= header_base && end <= block_ref.end {
-                        if header_base > block_ref.base {
+                    if block_ref.base <= header_base as *mut Opaque && end <= block_ref.end {
+                        if header_base as *mut Opaque > block_ref.base {
                             // truncate the block
-                            let end = (aligned_base as u8).offset(size) as *mut Opaque;
                             if end < block_ref.end {
                                 // split the block into two
                                 let new_block = (end as *mut Block).as_mut().unwrap();
@@ -391,14 +393,14 @@ impl Manager {
                                 }
                             }
 
-                            block_ref.end = header_base as *mut Header;
+                            block_ref.end = header_base as *mut Opaque;
 
                             // done
                             break;
                         } else {
                             if end < block_ref.end {
                                 // truncate the beginning of the block
-                                block_ref.start = end;
+                                block_ref.base = end;
 
                                 // done
                                 break;

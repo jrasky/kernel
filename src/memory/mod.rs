@@ -1,6 +1,10 @@
 use core::prelude::v1::*;
 
+use core::sync::atomic::{Ordering, AtomicBool};
+
 use core::ptr;
+
+use constants::*;
 
 // Reserve memory
 mod reserve;
@@ -9,7 +13,9 @@ mod reserve;
 // Identity page-table only
 mod simple;
 
-static MEMORY: Manager = Manager;
+static MEMORY: Manager = Manager {
+    use_reserve: AtomicBool::new(true)
+};
 
 pub struct Opaque;
 
@@ -19,39 +25,127 @@ struct Header {
 }
 
 // Memory Manager
-struct Manager;
+struct Manager {
+    use_reserve: AtomicBool
+}
 
 impl Manager {
     unsafe fn register(&self, ptr: *mut Opaque, size: usize) -> usize {
-        reserve::register(ptr, size)
+        if self.use_reserve.load(Ordering::Relaxed) {
+            reserve::register(ptr, size)
+        } else {
+            simple::register(ptr, size)
+        }
     }
 
     unsafe fn forget(&self, ptr: *mut Opaque, size: usize) -> usize {
-        reserve::forget(ptr, size)
+        if self.use_reserve.load(Ordering::Relaxed) {
+            reserve::forget(ptr, size)
+        } else {
+            simple::forget(ptr, size)
+        }
     }
 
     unsafe fn allocate(&self, size: usize, align: usize) -> Option<*mut Opaque> {
-        reserve::allocate(size, align)
+        if self.use_reserve.load(Ordering::Relaxed) {
+            reserve::allocate(size, align)
+        } else {
+            simple::allocate(size, align)
+        }
     }
 
     unsafe fn release(&self, ptr: *mut Opaque) -> Option<usize> {
-        reserve::release(ptr)
+        let header = match (ptr as *mut Header).offset(-1).as_mut() {
+            None => {
+                error!("Failed to get header on release");
+                return None;
+            },
+            Some(header) => header
+        };
+
+        match header.magic {
+            RESERVE_MAGIC => reserve::release(ptr),
+            SIMPLE_MAGIC => simple::release(ptr),
+            _ => {
+                error!("Tried to release invalid pointer");
+                None
+            }
+        }
     }
 
     unsafe fn grow(&self, ptr: *mut Opaque, size: usize) -> bool {
-        reserve::grow(ptr, size)
+        let header = match (ptr as *mut Header).offset(-1).as_mut() {
+            None => {
+                error!("Failed to get header on grow");
+                return false;
+            },
+            Some(header) => header
+        };
+
+        match header.magic {
+            RESERVE_MAGIC => reserve::grow(ptr, size),
+            SIMPLE_MAGIC => simple::grow(ptr, size),
+            _ => {
+                error!("Tried to grow invalid pointer");
+                false
+            }
+        }
     }
 
     unsafe fn shrink(&self, ptr: *mut Opaque, size: usize) -> bool {
-        reserve::shrink(ptr, size)
+        let header = match (ptr as *mut Header).offset(-1).as_mut() {
+            None => {
+                error!("Failed to get header on shrink");
+                return false;
+            },
+            Some(header) => header
+        };
+
+        match header.magic {
+            RESERVE_MAGIC => reserve::shrink(ptr, size),
+            SIMPLE_MAGIC => simple::shrink(ptr, size),
+            _ => {
+                error!("Tried to shrink invalid pointer");
+                false
+            }
+        }
     }
 
     unsafe fn resize(&self, ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
-        reserve::resize(ptr, size, align)
+        let header = match (ptr as *mut Header).offset(-1).as_mut() {
+            None => {
+                error!("Failed to get header on resize");
+                return None;
+            },
+            Some(header) => header
+        };
+
+        match header.magic {
+            RESERVE_MAGIC => reserve::resize(ptr, size, align),
+            SIMPLE_MAGIC => simple::resize(ptr, size, align),
+            _ => {
+                error!("Tried to resize invalid pointer");
+                None
+            }
+        }
     }
 
     fn granularity(&self, size: usize, align: usize) -> usize {
-        reserve::granularity(size, align)
+        if self.use_reserve.load(Ordering::Relaxed) {
+            reserve::granularity(size, align)
+        } else {
+            simple::granularity(size, align)
+        }
+    }
+
+    #[inline]
+    fn enter_reserved(&self) -> bool {
+        self.use_reserve.swap(true, Ordering::Relaxed)
+    }
+
+    #[inline]
+    fn exit_reserved(&self) -> bool {
+        self.use_reserve.swap(false, Ordering::Relaxed)
     }
 }
 
@@ -60,6 +154,7 @@ pub unsafe fn register(ptr: *mut Opaque, size: usize) -> usize {
     MEMORY.register(ptr, size)
 }
 
+#[allow(dead_code)] // not used yet
 #[inline]
 pub unsafe fn forget(ptr: *mut Opaque, size: usize) -> usize {
     MEMORY.forget(ptr, size)
@@ -91,13 +186,23 @@ pub unsafe fn resize(ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut
 }
 
 #[inline]
+pub fn enter_reserved() -> bool {
+    MEMORY.enter_reserved()
+}
+
+#[inline]
+pub fn exit_reserved() -> bool {
+    MEMORY.exit_reserved()
+}
+
+#[inline]
 pub fn granularity(size: usize, align: usize) -> usize {
     MEMORY.granularity(size, align)
 }
 
 #[no_mangle]
 pub extern "C" fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
-    unsafe {allocate(size, align).unwrap_or(ptr::null_mut()) as *mut _}
+    unsafe {allocate(size, align).expect("Out of memory") as *mut _}
 }
 
 #[no_mangle]

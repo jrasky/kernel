@@ -277,21 +277,46 @@ impl Manager {
         Some(aligned_base)
     }
 
-    unsafe fn release(&mut self, ptr: *mut Opaque) -> Option<usize> {
-        // pointer and size do not inclue the header
-        let header_base = (ptr as *mut Header).offset(-1);
-        let header = header_base.as_ref().unwrap();
-        let registered_size = self.register(ptr, header.size + mem::size_of::<Header>());
-        if registered_size < mem::size_of::<Header>() {
-            None
+    unsafe fn get_header<'a, 'b>(&'a self, ptr: *mut Opaque) -> Option<&'b mut Header> {
+        let header_ptr = (ptr as *mut Header).offset(-1);
+
+        // since we can allocate anywhere, we just check the magic
+        if let Some(header) = header_ptr.as_mut() {
+            if header.magic != SIMPLE_MAGIC {
+                error!("Pointer was not allocated by simple allocator");
+                None
+            } else {
+                Some(header)
+            }
         } else {
-            Some(registered_size - mem::size_of::<Header>())
+            error!("Pointer was null");
+            None
+        }
+    }
+
+    unsafe fn release(&mut self, ptr: *mut Opaque) -> Option<usize> {
+        if let Some(header) = self.get_header(ptr) {
+            let registered_size = self.register(ptr, header.size + mem::size_of::<Header>());
+            if registered_size < mem::size_of::<Header>() {
+                None
+            } else {
+                Some(registered_size - mem::size_of::<Header>())
+            }
+        } else {
+            error!("Failed to get allocation header on release");
+            None
         }
     }
 
     unsafe fn grow(&mut self, ptr: *mut Opaque, size: usize) -> bool {
-        let header_base = (ptr as *mut Header).offset(-1);
-        let header = header_base.as_mut().unwrap();
+        let header = match self.get_header(ptr) {
+            None => {
+                error!("Failed to get allocation header on grow");
+                return false;
+            },
+            Some(header) => header
+        };
+
         debug_assert!(size > header.size);
         let end = (ptr as *mut u8).offset(header.size as isize) as *mut Opaque;
         let new_end = (ptr as *mut u8).offset(size as isize) as *mut Opaque;
@@ -320,6 +345,9 @@ impl Manager {
                         header.size = size;
                         return true;
                     }
+                } else {
+                    // advance
+                    block = block_ref.next;
                 }
             } else {
                 // we cannot grow this allocation
@@ -329,8 +357,15 @@ impl Manager {
     }
 
     unsafe fn shrink(&mut self, ptr: *mut Opaque, size: usize) -> bool {
-        let header_base = (ptr as *mut Header).offset(-1);
-        let header = header_base.as_mut().unwrap();
+        let header = match self.get_header(ptr) {
+            None => {
+                error!("Failed to get header on shrink");
+                return false;
+            },
+            Some(header) => {
+                header
+            }
+        };
         debug_assert!(size < header.size);
         let difference = size - header.size;
         let registered_size = self.register((ptr as *mut u8).offset(size as isize) as *mut Opaque, difference);
@@ -343,7 +378,13 @@ impl Manager {
 
     unsafe fn resize(&mut self, ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
         let header_base = (ptr as *mut Header).offset(-1);
-        let header = header_base.as_mut().unwrap();
+        let header = match self.get_header(ptr) {
+            None => {
+                error!("Failed to get header on resize");
+                return None;
+            },
+            Some(header) => header
+        };
 
         if (ptr as usize) | (align - 1) == 0 {
             // pointer is already aligned

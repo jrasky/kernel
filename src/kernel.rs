@@ -92,6 +92,14 @@ unsafe fn parse_memory(ptr: *const u32) {
                 info!("RAM: {:16x} - {:16x} available",
                       entry.base_addr,
                       entry.base_addr + entry.length);
+                // register memory
+                memory::exit_reserved();
+                let base_addr = if entry.base_addr == 0 {
+                    1
+                } else {
+                    entry.base_addr
+                };
+                memory::register(base_addr as *mut memory::Opaque, entry.length as usize);
             }
             3 => {
                 info!("RAM: {:16x} - {:16x} ACPI",
@@ -161,6 +169,12 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
         parse_multiboot_tags(boot_info);
     }
 
+    let mut x = vec![1, 2];
+    x.push(3);
+    x.push(4);
+
+    info!("{:?}", x);
+
     unreachable!("kernel_main tried to return");
 }
 
@@ -176,6 +190,9 @@ extern "C" fn eh_personality() {
 #[inline(never)]
 #[lang = "panic_fmt"]
 extern "C" fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
+    // enter reserve memory
+    memory::enter_reserved();
+
     let loc = log::Location {
         module_path: module_path!(),
         file: file,

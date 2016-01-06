@@ -133,8 +133,6 @@ unsafe fn parse_multiboot_tags(boot_info: *const u32) {
     ptr = align(ptr.offset(2) as usize, 8) as *const _;
 
     while ptr < end {
-        trace!("Found multiboot info tag {}", *ptr.as_ref().unwrap());
-
         match *ptr.as_ref().unwrap() {
             0 => {
                 trace!("End of tags");
@@ -151,6 +149,7 @@ unsafe fn parse_multiboot_tags(boot_info: *const u32) {
             }
             _ => {
                 // unknown tags aren't a huge issue
+                trace!("Found multiboot info tag {}", *ptr.as_ref().unwrap());
             }
         }
 

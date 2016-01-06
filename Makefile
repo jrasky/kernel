@@ -66,6 +66,7 @@ $(RUST_OBJECTS): $(RUST_SOURCES:%=$(SOURCE_DIR)/%) Cargo.lock
 	$(CARGO) rustc --target $(ARCH) -- $(RUSTFLAGS)
 
 Cargo.lock: Cargo.toml
+	$(CARGO) update
 
 $(ISO_GRUB_CFG): $(GRUB_CFG)
 	$(CP) $< $@

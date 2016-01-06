@@ -20,3 +20,4 @@ log_trace = []
 [dependencies]
 rlibc = "*"
 spin = "*"
+elfloader = "*"

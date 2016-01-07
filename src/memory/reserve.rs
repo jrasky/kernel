@@ -359,16 +359,6 @@ impl MemoryInner {
 }
 
 #[inline]
-pub const fn register(_: *mut Opaque, _: usize) -> usize {
-    0
-}
-
-#[inline]
-pub const fn forget(_: *mut Opaque, _: usize) -> usize {
-    0
-}
-
-#[inline]
 pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut Opaque> {
     let result = RESERVE.borrow_mut().allocate(size, align);
     RESERVE.lock();

@@ -31,19 +31,13 @@ struct Manager {
 
 impl Manager {
     unsafe fn register(&self, ptr: *mut Opaque, size: usize) -> usize {
-        if self.use_reserve.load(Ordering::Relaxed) {
-            reserve::register(ptr, size)
-        } else {
-            simple::register(ptr, size)
-        }
+        // don't register with reserve
+        simple::register(ptr, size)
     }
 
     unsafe fn forget(&self, ptr: *mut Opaque, size: usize) -> usize {
-        if self.use_reserve.load(Ordering::Relaxed) {
-            reserve::forget(ptr, size)
-        } else {
-            simple::forget(ptr, size)
-        }
+        // don't forget from reserve
+        simple::forget(ptr, size)
     }
 
     unsafe fn allocate(&self, size: usize, align: usize) -> Option<*mut Opaque> {
@@ -154,7 +148,6 @@ pub unsafe fn register(ptr: *mut Opaque, size: usize) -> usize {
     MEMORY.register(ptr, size)
 }
 
-#[allow(dead_code)] // not used yet
 #[inline]
 pub unsafe fn forget(ptr: *mut Opaque, size: usize) -> usize {
     MEMORY.forget(ptr, size)

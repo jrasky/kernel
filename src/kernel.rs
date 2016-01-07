@@ -3,7 +3,6 @@
 #![feature(const_fn)]
 #![feature(unique)]
 #![feature(reflect_marker)]
-#![feature(iter_arith)]
 #![feature(alloc)]
 #![feature(collections)]
 #![feature(asm)]
@@ -20,7 +19,6 @@ use elfloader::elf;
 use core::fmt;
 use core::slice;
 use core::str;
-use core::mem;
 
 use constants::*;
 
@@ -54,11 +52,20 @@ struct MBElfSymTag {
 
 unsafe fn parse_elf(ptr: *const u32) {
     let info = (ptr as *const MBElfSymTag).as_ref().unwrap();
-    info!("{} ELF sections", info.num as usize);
 
     let sections = slice::from_raw_parts((ptr as *const MBElfSymTag).offset(1) as *const elf::SectionHeader, info.num as usize);
 
-    info!("Total allocated size: {}", sections.iter().map(|section| section.size).sum::<u64>());
+    let mut sum: u64 = 0;
+
+    for section in sections {
+        if section.flags.0 & elf::SHF_ALLOC.0 == elf::SHF_ALLOC.0 {
+            // this section was presumably loaded into memory
+            memory::forget(section.addr as *mut memory::Opaque, section.size as usize);
+            sum += section.size;
+        }
+    }
+
+    info!("{:#x} bytes used by kernel", sum);
 }
 
 unsafe fn parse_cmdline(ptr: *const u32) {
@@ -116,7 +123,6 @@ unsafe fn parse_memory(ptr: *const u32) {
                       entry.base_addr,
                       entry.base_addr + entry.length);
                 // register memory
-                memory::exit_reserved();
                 let base_addr = if entry.base_addr == 0 {
                     1
                 } else {
@@ -195,6 +201,9 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     unsafe {
         parse_multiboot_tags(boot_info);
     }
+
+    // once we're done with multiboot info, we can safely exit reserve memory
+    memory::exit_reserved();
 
     let mut x = vec![1, 2];
     x.push(3);

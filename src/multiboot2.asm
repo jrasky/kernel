@@ -32,6 +32,7 @@ multiboot2_header_top:
     dw 1, 0
     dd 16                     ; size
     dd 8                      ; framebuffer info
+    dd 9                      ; elf info
     dd 0                      ; end info requests
 
     align GNUALIGN

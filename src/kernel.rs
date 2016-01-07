@@ -3,6 +3,7 @@
 #![feature(const_fn)]
 #![feature(unique)]
 #![feature(reflect_marker)]
+#![feature(iter_arith)]
 #![feature(alloc)]
 #![feature(collections)]
 #![feature(asm)]
@@ -12,10 +13,14 @@ extern crate spin;
 extern crate alloc;
 #[macro_use]
 extern crate collections;
+extern crate elfloader;
+
+use elfloader::elf;
 
 use core::fmt;
 use core::slice;
 use core::str;
+use core::mem;
 
 use constants::*;
 
@@ -36,6 +41,24 @@ struct MBInfoMemTag {
     base_addr: u64,
     length: u64,
     addr_type: u32,
+}
+
+#[derive(Debug)]
+struct MBElfSymTag {
+    ty: u32,
+    size: u32,
+    num: u32,
+    entsize: u32,
+    shndx: u32
+}
+
+unsafe fn parse_elf(ptr: *const u32) {
+    let info = (ptr as *const MBElfSymTag).as_ref().unwrap();
+    info!("{} ELF sections", info.num as usize);
+
+    let sections = slice::from_raw_parts((ptr as *const MBElfSymTag).offset(1) as *const elf::SectionHeader, info.num as usize);
+
+    info!("Total allocated size: {}", sections.iter().map(|section| section.size).sum::<u64>());
 }
 
 unsafe fn parse_cmdline(ptr: *const u32) {
@@ -147,6 +170,9 @@ unsafe fn parse_multiboot_tags(boot_info: *const u32) {
             6 => {
                 parse_memory(ptr);
             }
+            9 => {
+                parse_elf(ptr);
+            }
             _ => {
                 // unknown tags aren't a huge issue
                 trace!("Found multiboot info tag {}", *ptr.as_ref().unwrap());
@@ -163,6 +189,8 @@ unsafe fn parse_multiboot_tags(boot_info: *const u32) {
 pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // kernel main
     info!("Hello!");
+
+    debug!("Multiboot info at: {:#x}", boot_info as usize);
 
     unsafe {
         parse_multiboot_tags(boot_info);

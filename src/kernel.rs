@@ -5,6 +5,7 @@
 #![feature(reflect_marker)]
 #![feature(alloc)]
 #![feature(collections)]
+#![feature(core_intrinsics)]
 #![feature(asm)]
 #![no_std]
 extern crate rlibc;
@@ -19,6 +20,8 @@ use elfloader::elf;
 use core::fmt;
 use core::slice;
 use core::str;
+use core::mem;
+use core::cmp;
 
 use constants::*;
 
@@ -34,6 +37,11 @@ pub use memory::{__rust_allocate,
                  __rust_reallocate,
                  __rust_reallocate_inplace,
                  __rust_usable_size};
+
+extern "C" {
+    static _image_begin: memory::Opaque;
+    static _image_end: memory::Opaque;
+}
 
 struct MBInfoMemTag {
     base_addr: u64,
@@ -59,8 +67,6 @@ unsafe fn parse_elf(ptr: *const u32) {
 
     for section in sections {
         if section.flags.0 & elf::SHF_ALLOC.0 == elf::SHF_ALLOC.0 {
-            // this section was presumably loaded into memory
-            memory::forget(section.addr as *mut memory::Opaque, section.size as usize);
             sum += section.size;
         }
     }
@@ -115,6 +121,9 @@ unsafe fn parse_memory(ptr: *const u32) {
     let mut entry_ptr = ptr.offset(4) as *const MBInfoMemTag;
     let entry_end = (entry_ptr as usize + *ptr.offset(1) as usize) as *const _;
 
+    let image_begin = &_image_begin as *const _ as usize;
+    let image_end = &_image_end as *const _ as usize;
+
     while entry_ptr < entry_end {
         let entry = entry_ptr.as_ref().unwrap();
         match entry.addr_type {
@@ -123,12 +132,27 @@ unsafe fn parse_memory(ptr: *const u32) {
                       entry.base_addr,
                       entry.base_addr + entry.length);
                 // register memory
-                let base_addr = if entry.base_addr == 0 {
+                let mut base_addr = if entry.base_addr == 0 {
                     1
                 } else {
-                    entry.base_addr
+                    entry.base_addr as usize
                 };
-                memory::register(base_addr as *mut memory::Opaque, entry.length as usize);
+
+                if image_begin <= base_addr
+                    && base_addr <= image_end
+                    && base_addr + entry.length as usize > image_end {
+                    memory::register(image_end as *mut memory::Opaque,
+                                     base_addr + entry.length as usize - image_end);
+                } else if base_addr < image_begin
+                    && image_end > base_addr + entry.length as usize
+                    && base_addr + entry.length as usize > image_begin {
+                    memory::register(image_begin as *mut memory::Opaque,
+                                     base_addr - image_begin);
+                } else if base_addr + (entry.length as usize) < image_begin {
+                    memory::register(base_addr as *mut memory::Opaque, entry.length as usize);
+                } else {
+                    // do not register the section
+                }
             }
             3 => {
                 info!("RAM: {:16x} - {:16x} ACPI",
@@ -227,7 +251,7 @@ extern "C" fn eh_personality() {
 #[lang = "panic_fmt"]
 extern "C" fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     // enter reserve memory
-    memory::enter_reserved();
+    //memory::enter_reserved();
 
     let loc = log::Location {
         module_path: module_path!(),

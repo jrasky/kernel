@@ -10,14 +10,14 @@ use constants::*;
 use super::{Opaque, Header};
 
 extern "C" {
-    static _slab: *mut u64;
-    static _slab_map: *mut u8;
+    static _slab: u64;
+    static _slab_map: u8;
 }
 
 static RESERVE: Memory = Memory {
     inner: UnsafeCell::new(MemoryInner {
-        slab: &_slab,
-        map: &_slab_map
+        slab: &_slab as *const _ as *mut _,
+        map: &_slab_map as *const _ as *mut _
     }),
     borrowed: AtomicBool::new(false),
 };
@@ -31,8 +31,8 @@ unsafe impl Send for Memory {}
 unsafe impl Sync for Memory {}
 
 struct MemoryInner {
-    slab: &'static *mut u64,
-    map: &'static *mut u8
+    slab: *mut u64,
+    map: *mut u8
 }
 
 impl Memory {
@@ -54,8 +54,8 @@ impl Memory {
 impl MemoryInner {
     #[inline]
     unsafe fn get_slab<'a, 'b>(&'a mut self) -> (&'b mut [u64], &'b mut [u8]) {
-        (slice::from_raw_parts_mut(*self.slab, RESERVE_SLAB_SIZE),
-         slice::from_raw_parts_mut(*self.map, (RESERVE_SLAB_SIZE + 7) / 8))
+        (slice::from_raw_parts_mut(self.slab, RESERVE_SLAB_SIZE),
+         slice::from_raw_parts_mut(self.map, (RESERVE_SLAB_SIZE + 7) / 8))
     }
 
     unsafe fn allocate(&mut self, size: usize, align: usize) -> Option<*mut Opaque> {

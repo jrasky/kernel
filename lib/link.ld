@@ -13,6 +13,7 @@ ENTRY(_start)
 
 SECTIONS {
     /* start at one MiB */
+    _image_begin = 1M;
     . = 1M + SIZEOF_HEADERS;
 
     /* multiboot2 header */
@@ -74,4 +75,7 @@ SECTIONS {
     .common ALIGN(4K) : {
         * (COMMON)
     }
+
+    . = .;
+    _image_end = .;
 }

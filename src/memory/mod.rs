@@ -197,17 +197,29 @@ pub fn granularity(size: usize, align: usize) -> usize {
 
 #[no_mangle]
 pub extern "C" fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
-    unsafe {allocate(size, align).expect("Out of memory") as *mut _}
+    if let Some(ptr) = unsafe {allocate(size, align)} {
+        ptr as *mut _
+    } else {
+        critical!("Out of memory");
+        ptr::null_mut()
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn __rust_deallocate(ptr: *mut u8, _: usize, _: usize) {
-    unsafe {release(ptr as *mut _).expect("release failed");}
+    if unsafe {release(ptr as *mut _)}.is_none() {
+        critical!("Failed to release pointer");
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn __rust_reallocate(ptr: *mut u8, _: usize, size: usize, align: usize) -> *mut u8 {
-    unsafe {resize(ptr as *mut _, size, align).unwrap_or(ptr::null_mut()) as *mut _}
+    if let Some(new_ptr) = unsafe {resize(ptr as *mut _, size, align)} {
+        new_ptr as *mut _
+    } else {
+        critical!("Failed to reallocate");
+        ptr::null_mut()
+    }
 }
 
 #[no_mangle]
@@ -216,12 +228,14 @@ pub extern "C" fn __rust_reallocate_inplace(ptr: *mut u8, old_size: usize, size:
         if unsafe {grow(ptr as *mut _, size)} {
             granularity(size, align)
         } else {
+            critical!("Failed to reallocate inplace");
             granularity(old_size, align)
         }
     } else if size < old_size {
         if unsafe {shrink(ptr as *mut _, size)} {
             granularity(size, align)
         } else {
+            critical!("Failed to reallocate inplace");
             granularity(old_size, align)
         }
     } else {

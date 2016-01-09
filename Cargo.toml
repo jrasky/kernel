@@ -21,3 +21,6 @@ log_trace = []
 rlibc = "*"
 spin = "*"
 elfloader = "*"
+
+[target]
+custom_unwind_resume = {}

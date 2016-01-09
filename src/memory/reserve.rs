@@ -80,7 +80,7 @@ impl MemoryInner {
                 if acc > 0 {
                     acc += 1;
                 } else if align == 0 ||
-                   ((*self.slab as usize) + mem::size_of::<Header>() +
+                   ((self.slab as usize) + mem::size_of::<Header>() +
                     (((pos * 8) + subpos) * 8)) & (align - 1) == 0 {
                     // address is aligned
                     start = (pos * 8) + subpos;
@@ -131,13 +131,13 @@ impl MemoryInner {
     unsafe fn get_header<'a, 'b>(&'a self, ptr: *mut Opaque) -> Option<&'b mut Header> {
         let header_ptr = (ptr as *mut Header).offset(-1);
 
-        if header_ptr < (*self.slab as *mut _) {
-            error!("Pointer was not in reserve slab");
+        if header_ptr < self.slab as *mut _ {
+            error!("Pointer was below reserve slab");
             return None;
         }
 
         if header_ptr > self.slab.offset(RESERVE_SLAB_SIZE as isize) as *mut Header {
-            error!("Pointer was not in reserve slab");
+            error!("Pointer was above reserve slab");
             return None;
         }
 
@@ -170,7 +170,7 @@ impl MemoryInner {
 
         let blocks = (header.size + mem::size_of::<Header>() + 7) / 8;
 
-        let start = ((header as *mut _) as usize) - (*self.slab as usize);
+        let start = ((header as *mut _) as usize) - (self.slab as usize);
 
         let mut pos = start / 64;
         let mut subpos = (start / 8) % 8;
@@ -210,7 +210,7 @@ impl MemoryInner {
             return true;
         }
 
-        let start = ((header as *mut _) as usize) - (*self.slab as usize);
+        let start = ((header as *mut _) as usize) - (self.slab as usize);
         let end = start + mem::size_of::<Header>() + header.size;
         let new_end = start + mem::size_of::<Header>() + size;
 
@@ -245,7 +245,7 @@ impl MemoryInner {
             return true;
         }
 
-        let start = ((header as *mut _) as usize) - (*self.slab as usize);
+        let start = ((header as *mut _) as usize) - (self.slab as usize);
         let end = start + mem::size_of::<Header>() + header.size;
 
         let mut pos = end / 64;
@@ -328,7 +328,7 @@ impl MemoryInner {
                 // roll back
                 let (_, map) = self.get_slab();
                 let blocks = (header.size + mem::size_of::<Header>() + 7) / 8;
-                let start = ((header as *mut _) as usize) - (*self.slab as usize);
+                let start = ((header as *mut _) as usize) - (self.slab as usize);
                 let mut pos = start / 64;
                 let mut subpos = (start / 8) % 8;
 

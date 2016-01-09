@@ -5,7 +5,9 @@
 #![feature(reflect_marker)]
 #![feature(alloc)]
 #![feature(collections)]
+#![feature(unwind_attributes)]
 #![feature(core_intrinsics)]
+#![feature(stmt_expr_attributes)]
 #![feature(asm)]
 #![no_std]
 extern crate rlibc;
@@ -14,6 +16,8 @@ extern crate alloc;
 #[macro_use]
 extern crate collections;
 extern crate elfloader;
+
+use collections::{Vec, String};
 
 use elfloader::elf;
 
@@ -93,6 +97,58 @@ unsafe fn parse_cmdline(ptr: *const u32) {
     };
 
     info!("Command line: {}", cmdline);
+
+    let mut acc = format!("");
+    let mut item: Option<String> = None;
+
+    for ch in cmdline.chars() {
+        match ch {
+            '=' => {
+                if acc == "log" {
+                    item = Some(acc);
+                }
+
+                acc = format!("");
+            },
+            ' ' => {
+                if let Some(ref item) = item {
+                    parse_command(item, &acc);
+                }
+
+                item = None;
+                acc.clear();
+            },
+            ch => {
+                acc.push(ch);
+            }
+        }
+    }
+
+    if let Some(ref item) = item {
+        parse_command(item, &acc);
+    }
+}
+
+fn parse_command(item: &String, value: &String) {
+    if item == "log" {
+        if value == "any" || value == "ANY" {
+            log::set_level(None);
+        } else if value == "critical" || value == "CRITICAL" {
+            log::set_level(Some(0));
+        } else if value == "error" || value == "ERROR" {
+            log::set_level(Some(1));
+        } else if value == "warn" || value == "WARN" {
+            log::set_level(Some(2));
+        } else if value == "info" || value == "INFO" {
+            log::set_level(Some(3));
+        } else if value == "debug" || value == "DEBUG" {
+            log::set_level(Some(4));
+        } else if value == "trace" || value == "TRACE" {
+            log::set_level(Some(5));
+        } else {
+            warn!("Unknown log level: {}", value);
+        }
+    }
 }
 
 unsafe fn parse_bootloader(ptr: *const u32) {
@@ -226,10 +282,12 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
         parse_multiboot_tags(boot_info);
     }
 
+    trace!("Done parsing tags");
+
     // once we're done with multiboot info, we can safely exit reserve memory
     memory::exit_reserved();
 
-    let mut x = vec![1, 2];
+    let mut x: Vec<usize> = vec![1, 2];
     x.push(3);
     x.push(4);
 
@@ -238,20 +296,21 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     unreachable!("kernel_main tried to return");
 }
 
-#[cfg(not(test))]
+#[cold]
+#[inline(never)]
 #[lang = "eh_personality"]
 extern "C" fn eh_personality() {
     // no unwinding right now anyways
     unimplemented!();
 }
 
-#[cfg(not(test))]
 #[cold]
 #[inline(never)]
+#[no_mangle]
 #[lang = "panic_fmt"]
-extern "C" fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
+extern "C" fn rust_begin_unwind(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     // enter reserve memory
-    //memory::enter_reserved();
+    memory::enter_reserved();
 
     let loc = log::Location {
         module_path: module_path!(),
@@ -269,4 +328,14 @@ extern "C" fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> !
             asm!("hlt" :::: "volatile");
         }
     }
+}
+
+#[cold]
+#[inline(never)]
+#[no_mangle]
+#[allow(non_snake_case)]
+#[unwind]
+#[lang = "eh_unwind_resume"]
+pub fn _Unwind_Resume(_: *mut memory::Opaque) {
+    unimplemented!();
 }

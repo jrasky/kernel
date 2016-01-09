@@ -16,7 +16,7 @@ LIB_DIR = lib
 CFLAGS = -fno-asynchronous-unwind-tables -ffreestanding -O2 -Wall -Wextra -Wpedantic
 LDFLAGS = --gc-sections
 ARCH = x86_64-unknown-linux-gnu
-RUSTFLAGS = -Z no-landing-pads
+RUSTFLAGS = -Z no-landing-pads -C no-redzone=y
 GRUB_RESCUE_FLAGS = -d /usr/lib/grub/i386-pc/
 
 KERNEL = $(TARGET_DIR)/kernel.elf
@@ -62,11 +62,8 @@ $(C_OBJECTS): $(TARGET_DIR)/%.o : $(SOURCE_DIR)/%.c
 $(ASM_OBJECTS): $(TARGET_DIR)/%.o : $(SOURCE_DIR)/%.asm
 	$(AS) -f elf64 -o $@ $<
 
-$(RUST_OBJECTS): $(RUST_SOURCES:%=$(SOURCE_DIR)/%) Cargo.lock
+$(RUST_OBJECTS): $(RUST_SOURCES:%=$(SOURCE_DIR)/%) Cargo.toml
 	$(CARGO) rustc --target $(ARCH) -- $(RUSTFLAGS)
-
-Cargo.lock: Cargo.toml
-	$(CARGO) update
 
 $(ISO_GRUB_CFG): $(GRUB_CFG)
 	$(CP) $< $@

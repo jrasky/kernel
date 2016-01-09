@@ -13,7 +13,8 @@ ENTRY(_start)
 
 SECTIONS {
     /* start at one MiB */
-    _image_begin = 1M;
+    /* don't allocate before the end of the kernel image at all */
+    _image_begin = 0;
     . = 1M + SIZEOF_HEADERS;
 
     /* multiboot2 header */
@@ -65,7 +66,7 @@ SECTIONS {
 
     /* create a stack */
     .stack ALIGN(4K) : {
-        . += 4K;
+        . += 0x8000;
     }
 
     . = .;

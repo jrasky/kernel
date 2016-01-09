@@ -4,9 +4,138 @@ use spin::Mutex;
 
 mod vga;
 
-static LOGGER: Mutex<Logger> = Mutex::new(Logger);
+#[macro_export]
+macro_rules! log {
+    (target: $target:expr, $level:expr, $($arg:tt)+) => (
+        #[cfg(feature = "log_any")]
+        {
+            static LOCATION: $crate::log::Location = $crate::log::Location {
+                module_path: module_path!(),
+                file: file!(),
+                line: line!()
+            };
+            $crate::log::log($level, &LOCATION, $target, format_args!($($arg)+));
+        }
+    );
+    ($($level:expr, $arg:tt)+) => (
+        trace!(target: module_path!(), $($arg)+)
+    )
+}
 
-struct Logger;
+#[macro_export]
+macro_rules! critical {
+    (target: $target:expr, $($arg:tt)+) => (
+        #[cfg(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info", feature = "log_warn", feature = "log_error", feature = "log_critical"))]
+        {
+            static LOCATION: $crate::log::Location = $crate::log::Location {
+                module_path: module_path!(),
+                file: file!(),
+                line: line!()
+            };
+            $crate::log::log(0, &LOCATION, $target, format_args!($($arg)+));
+        }
+    );
+    ($($arg:tt)+) => (
+        critical!(target: module_path!(), $($arg)+)
+    )
+}
+
+#[macro_export]
+macro_rules! error {
+    (target: $target:expr, $($arg:tt)+) => (
+        #[cfg(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info", feature = "log_warn", feature = "log_error"))]
+        {
+            static LOCATION: $crate::log::Location = $crate::log::Location {
+                module_path: module_path!(),
+                file: file!(),
+                line: line!()
+            };
+            $crate::log::log(1, &LOCATION, $target, format_args!($($arg)+));
+        }
+    );
+    ($($arg:tt)+) => (
+        error!(target: module_path!(), $($arg)+)
+    )
+}
+
+#[macro_export]
+macro_rules! warn {
+    (target: $target:expr, $($arg:tt)+) => (
+        #[cfg(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info", feature = "log_warn"))]
+        {
+            static LOCATION: $crate::log::Location = $crate::log::Location {
+                module_path: module_path!(),
+                file: file!(),
+                line: line!()
+            };
+            $crate::log::log(2, &LOCATION, $target, format_args!($($arg)+));
+        }
+    );
+    ($($arg:tt)+) => (
+        warn!(target: module_path!(), $($arg)+)
+    )
+}
+
+#[macro_export]
+macro_rules! info {
+    (target: $target:expr, $($arg:tt)+) => (
+        #[cfg(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info"))]
+        {
+            static LOCATION: $crate::log::Location = $crate::log::Location {
+                module_path: module_path!(),
+                file: file!(),
+                line: line!()
+            };
+            $crate::log::log(3, &LOCATION, $target, format_args!($($arg)+));
+        }
+    );
+    ($($arg:tt)+) => (
+        info!(target: module_path!(), $($arg)+)
+    )
+}
+
+
+#[macro_export]
+macro_rules! debug {
+    (target: $target:expr, $($arg:tt)+) => (
+        #[cfg(any(feature = "log_any", feature = "log_trace", feature = "log_debug"))]
+        {
+            static LOCATION: $crate::log::Location = $crate::log::Location {
+                module_path: module_path!(),
+                file: file!(),
+                line: line!()
+            };
+            $crate::log::log(4, &LOCATION, $target, format_args!($($arg)+));
+        }
+    );
+    ($($arg:tt)+) => (
+        debug!(target: module_path!(), $($arg)+)
+    )
+}
+
+#[macro_export]
+macro_rules! trace {
+    (target: $target:expr, $($arg:tt)+) => (
+        #[cfg(any(feature = "log_any", feature = "log_trace"))]
+        {
+            static LOCATION: $crate::log::Location = $crate::log::Location {
+                module_path: module_path!(),
+                file: file!(),
+                line: line!()
+            };
+            $crate::log::log(5, &LOCATION, $target, format_args!($($arg)+));
+        }
+    );
+    ($($arg:tt)+) => (
+        trace!(target: module_path!(), $($arg)+)
+    )
+}
+
+static LOGGER: Mutex<Logger> = Mutex::new(Logger::new());
+
+struct Logger {
+    level: Option<usize>
+}
 
 pub struct Location {
     pub module_path: &'static str,
@@ -15,9 +144,72 @@ pub struct Location {
 }
 
 impl Logger {
+    #[cfg(feature = "log_any")]
+    const fn new() -> Logger {
+        Logger {
+            level: None
+        }
+    }
+
+    #[cfg(all(feature = "log_critical", not(any(feature = "log_any", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_debug", feature = "log_trace"))))]
+    const fn new() -> Logger {
+        Logger {
+            level: Some(0)
+        }
+    }
+
+    #[cfg(all(feature = "log_error", not(any(feature = "log_any", feature = "log_critical", feature = "log_warn", feature = "log_info", feature = "log_debug", feature = "log_trace"))))]
+    const fn new() -> Logger {
+        Logger {
+            level: Some(1)
+        }
+    }
+
+    #[cfg(all(feature = "log_warn", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_info", feature = "log_debug", feature = "log_trace"))))]
+    const fn new() -> Logger {
+        Logger {
+            level: Some(2)
+        }
+    }
+
+    #[cfg(all(feature = "log_info", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_warn", feature = "log_debug", feature = "log_trace"))))]
+    const fn new() -> Logger {
+        Logger {
+            level: Some(3)
+        }
+    }
+
+    #[cfg(all(feature = "log_debug", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_trace"))))]
+    const fn new() -> Logger {
+        Logger {
+            level: Some(4)
+        }
+    }
+
+    #[cfg(all(feature = "log_trace", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_debug"))))]
+    const fn new() -> Logger {
+        Logger {
+            level: Some(5)
+        }
+    }
+
+    fn set_level(&mut self, level: Option<usize>) -> Option<usize> {
+        let res = self.level;
+        self.level = level;
+        res
+    }
+
     fn log<T: Display, V: Display>(&mut self, level: usize, _: &Location,
                                    target: V, message: T) {
         // only one logger right now
+        if let Some(log_level) = self.level {
+            if level > log_level {
+                // don't log
+                return;
+            }
+        }
+
+        // otherwise log
         vga::write_fmt(format_args!("{} {}: {}\n", target, self.level_name(level), message));
     }
 
@@ -38,119 +230,6 @@ pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V,
     LOGGER.lock().log(level, location, target, message)
 }
 
-#[macro_export]
-macro_rules! log {
-    (target: $target:expr, $level:expr, $($arg:tt)+) => ({
-        if cfg!(feature = "log_any") {
-            static LOCATION: $crate::log::Location = $crate::log::Location {
-                module_path: module_path!(),
-                file: file!(),
-                line: line!()
-            };
-            $crate::log::log($level, &LOCATION, $target, format_args!($($arg)+));
-        }
-    });
-    ($level:expr, $($arg:tt)+) => (log!(target: module_path!(), $level, $($arg)+))
-}
-
-#[macro_export]
-macro_rules! critical {
-    (target: $target:expr, $($arg:tt)+) => (
-        if cfg!(feature = "log_critical") || cfg!(feature = "log_any") {
-            static LOCATION: $crate::log::Location = $crate::log::Location {
-                module_path: module_path!(),
-                file: file!(),
-                line: line!()
-            };
-            $crate::log::log(0, &LOCATION, $target, format_args!($($arg)+));
-        }
-    );
-    ($($arg:tt)+) => (
-        critical!(target: module_path!(), $($arg)+)
-    )
-}
-
-#[macro_export]
-macro_rules! error {
-    (target: $target:expr, $($arg:tt)+) => (
-        if cfg!(feature = "log_error") || cfg!(feature = "log_any") {
-            static LOCATION: $crate::log::Location = $crate::log::Location {
-                module_path: module_path!(),
-                file: file!(),
-                line: line!()
-            };
-            $crate::log::log(1, &LOCATION, $target, format_args!($($arg)+));
-        }
-    );
-    ($($arg:tt)+) => (
-        error!(target: module_path!(), $($arg)+)
-    )
-}
-
-#[macro_export]
-macro_rules! warn {
-    (target: $target:expr, $($arg:tt)+) => (
-        if cfg!(feature = "log_warn") || cfg!(feature = "log_any") {
-            static LOCATION: $crate::log::Location = $crate::log::Location {
-                module_path: module_path!(),
-                file: file!(),
-                line: line!()
-            };
-            $crate::log::log(2, &LOCATION, $target, format_args!($($arg)+));
-        }
-    );
-    ($($arg:tt)+) => (
-        warn!(target: module_path!(), $($arg)+)
-    )
-}
-
-#[macro_export]
-macro_rules! info {
-    (target: $target:expr, $($arg:tt)+) => (
-        if cfg!(feature = "log_info") || cfg!(feature = "log_any") {
-            static LOCATION: $crate::log::Location = $crate::log::Location {
-                module_path: module_path!(),
-                file: file!(),
-                line: line!()
-            };
-            $crate::log::log(3, &LOCATION, $target, format_args!($($arg)+));
-        }
-    );
-    ($($arg:tt)+) => (
-        info!(target: module_path!(), $($arg)+)
-    )
-}
-
-#[macro_export]
-macro_rules! debug {
-    (target: $target:expr, $($arg:tt)+) => (
-        if cfg!(feature = "log_debug") || cfg!(feature = "log_any") {
-            static LOCATION: $crate::log::Location = $crate::log::Location {
-                module_path: module_path!(),
-                file: file!(),
-                line: line!()
-            };
-            $crate::log::log(4, &LOCATION, $target, format_args!($($arg)+));
-        }
-    );
-    ($($arg:tt)+) => (
-        debug!(target: module_path!(), $($arg)+)
-    )
-}
-
-#[macro_export]
-macro_rules! trace {
-    (target: $target:expr, $($arg:tt)+) => (
-        if cfg!(feature = "log_trace") || cfg!(feature = "log_any") {
-            static LOCATION: $crate::log::Location = $crate::log::Location {
-                module_path: module_path!(),
-                file: file!(),
-                line: line!()
-            };
-            $crate::log::log(5, &LOCATION, $target, format_args!($($arg)+));
-        }
-    );
-    ($($arg:tt)+) => (
-        trace!(target: module_path!(), $($arg)+)
-    )
+pub fn set_level(level: Option<usize>) -> Option<usize> {
+    LOGGER.lock().set_level(level)
 }

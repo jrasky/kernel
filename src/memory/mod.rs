@@ -17,6 +17,7 @@ static MEMORY: Manager = Manager {
     use_reserve: AtomicBool::new(true)
 };
 
+#[repr(C)]
 pub struct Opaque;
 
 struct Header {

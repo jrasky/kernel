@@ -25,7 +25,7 @@ macro_rules! log {
 #[macro_export]
 macro_rules! critical {
     (target: $target:expr, $($arg:tt)+) => (
-        #[cfg(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info", feature = "log_warn", feature = "log_error", feature = "log_critical"))]
+        // always log critical
         {
             static LOCATION: $crate::log::Location = $crate::log::Location {
                 module_path: module_path!(),
@@ -151,7 +151,7 @@ impl Logger {
         }
     }
 
-    #[cfg(all(feature = "log_critical", not(any(feature = "log_any", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_debug", feature = "log_trace"))))]
+    #[cfg(not(any(feature = "log_any", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_debug", feature = "log_trace")))]
     const fn new() -> Logger {
         Logger {
             level: Some(0)

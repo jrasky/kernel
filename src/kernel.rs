@@ -6,7 +6,6 @@
 #![feature(alloc)]
 #![feature(collections)]
 #![feature(unwind_attributes)]
-#![feature(core_intrinsics)]
 #![feature(stmt_expr_attributes)]
 #![feature(asm)]
 #![no_std]
@@ -24,8 +23,6 @@ use elfloader::elf;
 use core::fmt;
 use core::slice;
 use core::str;
-use core::mem;
-use core::cmp;
 
 use constants::*;
 
@@ -43,8 +40,8 @@ pub use memory::{__rust_allocate,
                  __rust_usable_size};
 
 extern "C" {
-    static _image_begin: memory::Opaque;
-    static _image_end: memory::Opaque;
+    static _image_begin: u8;
+    static _image_end: u8;
 }
 
 struct MBInfoMemTag {
@@ -188,7 +185,7 @@ unsafe fn parse_memory(ptr: *const u32) {
                       entry.base_addr,
                       entry.base_addr + entry.length);
                 // register memory
-                let mut base_addr = if entry.base_addr == 0 {
+                let base_addr = if entry.base_addr == 0 {
                     1
                 } else {
                     entry.base_addr as usize
@@ -276,7 +273,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // kernel main
     info!("Hello!");
 
-    debug!("Multiboot info at: {:#x}", boot_info as usize);
+    trace!("Multiboot info at: {:#x}", boot_info as usize);
 
     unsafe {
         parse_multiboot_tags(boot_info);
@@ -308,7 +305,7 @@ extern "C" fn eh_personality() {
 #[inline(never)]
 #[no_mangle]
 #[lang = "panic_fmt"]
-extern "C" fn rust_begin_unwind(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
+pub extern "C" fn rust_begin_unwind(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     // enter reserve memory
     memory::enter_reserved();
 

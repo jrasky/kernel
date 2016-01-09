@@ -150,6 +150,7 @@ pub unsafe fn register(ptr: *mut Opaque, size: usize) -> usize {
 }
 
 #[inline]
+#[allow(dead_code)] // included for completeness
 pub unsafe fn forget(ptr: *mut Opaque, size: usize) -> usize {
     MEMORY.forget(ptr, size)
 }

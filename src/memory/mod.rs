@@ -42,14 +42,25 @@ impl Manager {
     }
 
     unsafe fn allocate(&self, size: usize, align: usize) -> Option<*mut Opaque> {
-        if self.use_reserve.load(Ordering::Relaxed) {
-            reserve::allocate(size, align)
+        if size == 0 {
+            warn!("Tried to allocate zero bytes");
+            Some(ptr::null_mut())
         } else {
-            simple::allocate(size, align)
+            if self.use_reserve.load(Ordering::Relaxed) {
+                reserve::allocate(size, align)
+            } else {
+                simple::allocate(size, align)
+            }
         }
     }
 
     unsafe fn release(&self, ptr: *mut Opaque) -> Option<usize> {
+        if ptr.is_null() {
+            // do nothing
+            warn!("Tried to free a null pointer");
+            return Some(0);
+        }
+
         let header = match (ptr as *mut Header).offset(-1).as_mut() {
             None => {
                 error!("Failed to get header on release");

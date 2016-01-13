@@ -8,6 +8,7 @@
 #![feature(unwind_attributes)]
 #![feature(stmt_expr_attributes)]
 #![feature(asm)]
+#![feature(num_bits_bytes)]
 #![no_std]
 extern crate rlibc;
 extern crate spin;
@@ -23,6 +24,9 @@ use elfloader::elf;
 use core::fmt;
 use core::slice;
 use core::str;
+use core::ptr;
+
+use alloc::raw_vec::RawVec;
 
 use constants::*;
 
@@ -44,6 +48,33 @@ extern "C" {
     static _image_end: u8;
 }
 
+#[repr(packed)]
+#[derive(Debug)]
+struct GDTRegister {
+    size: u16,
+    base: u64
+}
+
+struct TaskStateSegment {
+    buffer: RawVec<u8>,
+    privilege_level: u8,
+    io_offset: u16,
+    interrupt_stack_table: [u64; 7],
+    stack_pointers: [u64; 3]
+}
+
+struct TSSDescriptor {
+    base: u64,
+    size: u32,
+    privilege_level: u8,
+    busy: bool
+}
+
+struct GlobalDescriptorTable {
+    buffer: RawVec<u8>,
+    tss: Vec<TaskStateSegment>
+}
+
 struct MBInfoMemTag {
     base_addr: u64,
     length: u64,
@@ -57,6 +88,190 @@ struct MBElfSymTag {
     num: u32,
     entsize: u32,
     shndx: u32
+}
+
+impl TSSDescriptor {
+    fn as_entry(&self) -> [u64; 2] {
+        trace!("a1: {:?}", self.size);
+        trace!("a2: {:?}", self.base);
+        let mut lower =
+            ((self.base & (0xff << 24)) << 32) | ((self.base & 0xffffff) << 16) // base address
+            | (self.size & (0xf << 16)) as u64 | (self.size - 1 & 0xffff) as u64 // limit
+            | (1 << 47) | (1 << 43) | (1 << 40); // present, 64-bit, TSS
+
+        assert!(self.privilege_level < 4);
+
+        lower |= (self.privilege_level as u64) << 45; // privilege level
+        
+        if self.busy {
+            lower |= 1 << 41; // busy
+        }
+
+        trace!("{:x}, {:x}", self.base >> 32, lower);
+
+        [lower, self.base >> 32]
+    }
+}
+
+impl TaskStateSegment {
+    fn new(interrupt_stack_table: [u64; 7],
+           stack_pointers: [u64; 3], privilege_level: u8) -> TaskStateSegment {
+        TaskStateSegment {
+            buffer: RawVec::with_capacity(0x68),
+            privilege_level: privilege_level,
+            io_offset: 0, // don't handle this right now
+            interrupt_stack_table: interrupt_stack_table,
+            stack_pointers: stack_pointers
+        }
+    }
+
+    fn get_register(&self) -> TSSDescriptor {
+        TSSDescriptor {
+            base: self.buffer.ptr() as u64,
+            size: 0x68,
+            privilege_level: self.privilege_level,
+            busy: false
+        }
+    }
+
+    unsafe fn save(&mut self) -> *mut u8 {
+        // make sure our buffer is big enough
+        // don't handle i/o map right now
+        self.buffer.reserve(0, 0x68);
+
+        // copy the data to our buffer
+        let ptr = self.buffer.ptr();
+        trace!("b: {:?}", ptr);
+        self.copy_to(ptr);
+
+        // produce the buffer
+        ptr
+    }
+
+    unsafe fn copy_to(&self, mut tss: *mut u8) {
+        // reserved
+        ptr::copy([0u8; 4].as_ptr(), tss, 4);
+        tss = tss.offset(4);
+
+        // stack pointers
+        ptr::copy(self.stack_pointers.as_ptr(), tss as *mut u64, 3);
+        tss = tss.offset(core::u64::BYTES as isize * 3);
+
+        // reserved
+        ptr::copy([0u8; 8].as_ptr(), tss, 8);
+        tss = tss.offset(8);
+
+        // interrupt stack table
+        ptr::copy(self.interrupt_stack_table.as_ptr(), tss as *mut u64, 7);
+        tss = tss.offset(core::u64::BYTES as isize * 7);
+
+        // reserved
+        ptr::copy([0u8; 10].as_ptr(), tss, 10);
+        tss = tss.offset(10);
+
+        // i/o map offset
+        trace!("c: {:?}", tss);
+        *(tss as *mut u16).as_mut().unwrap() = self.io_offset;
+        // done
+    }
+}
+
+impl GlobalDescriptorTable {
+    fn new(tss: Vec<TaskStateSegment>) -> GlobalDescriptorTable {
+        GlobalDescriptorTable {
+            buffer: RawVec::new(),
+            tss: tss
+        }
+    }
+
+    unsafe fn set_task(&mut self, task_index: u16) {
+        assert!((task_index as usize) < self.tss.len());
+
+        // task selector has to be indirected through a memory location
+        asm!("ltr $0"
+             :: "r"((task_index + 3) << 3)
+             :: "volatile", "intel"); // could modify self
+    }
+
+    unsafe fn install(&mut self) {
+        // lgdt needs a compile-time constant location
+        // we basically have to use a mutable static for this
+        static mut REGISTER: GDTRegister = GDTRegister {
+            size: 0,
+            base: 0
+        };
+
+        // write out to buffer
+        let res = self.save();
+
+        // save info in static
+        REGISTER.size = res.size;
+        REGISTER.base = res.base;
+
+        debug!("{:?}", REGISTER);
+
+        // load the new global descriptor table,
+        // and reload the segments
+        asm!(concat!(
+            "lgdt $0;",
+            "call _reload_segments;")
+             :: "i"(&REGISTER)
+             : "{ax}"
+             : "intel");
+
+        // no change in code or data selector from setup in bootstrap
+        // so no far jump to reload selector
+    }
+
+    unsafe fn save(&mut self) -> GDTRegister {
+        // make sure we have enough space
+        let len = self.tss.len();
+        self.buffer.reserve(0, 36 + 2 * len);
+
+        // copy data
+        let ptr = self.buffer.ptr();
+        let gdtr = self.copy_to(ptr);
+
+        // save TSS list
+        for tss in self.tss.iter_mut() {
+            tss.save();
+        }
+
+        // return pointer to GDT register
+        gdtr
+    }
+
+    unsafe fn copy_to(&self, gdt: *mut u8) -> GDTRegister {
+        // u64 is a more convenient addressing mode
+        let top = gdt as u64;
+        let mut gdt = gdt as *mut u64;
+
+        // first three entries are static
+        let header: [u64; 3] = [
+            0, // null
+            (1 << 44) | (1 << 47) | (1 << 41) | (1 << 43) | (1 << 53), // code
+            (1 << 44) | (1 << 47) | (1 << 41)]; // data
+
+        trace!("{:?}", gdt);
+        trace!("{:?}", header);
+        trace!("{:?}", header.as_ptr());
+
+        ptr::copy(header.as_ptr(), gdt, 3);
+
+        gdt = gdt.offset(3);
+
+        // copy TSS descriptors
+
+        for desc in self.tss.iter() {
+            ptr::copy(desc.get_register().as_entry().as_ptr(), gdt, 2);
+            gdt = gdt.offset(2);
+        }
+
+        GDTRegister {
+            size: (gdt as u64 - top - 1) as u16,
+            base: top
+        }
+    }
 }
 
 unsafe fn parse_elf(ptr: *const u32) {
@@ -273,22 +488,36 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // kernel main
     info!("Hello!");
 
-    trace!("Multiboot info at: {:#x}", boot_info as usize);
+    debug!("Multiboot info at: {:#x}", boot_info as usize);
 
     unsafe {
         parse_multiboot_tags(boot_info);
     }
 
-    trace!("Done parsing tags");
+    debug!("Done parsing tags");
 
     // once we're done with multiboot info, we can safely exit reserve memory
     memory::exit_reserved();
 
-    let mut x: Vec<usize> = vec![1, 2];
-    x.push(3);
-    x.push(4);
+    debug!("Out of reserve memory");
 
-    info!("{:?}", x);
+    // create a new GDT with a TSS
+    let tss = TaskStateSegment::new([0; 7], [0; 3], 0);
+    let mut gdt = GlobalDescriptorTable::new(vec![tss]);
+
+    debug!("Created new GDT");
+
+    unsafe {
+        // install the gdt
+        gdt.install();
+
+        debug!("Installed GDT");
+
+        // set the task
+        gdt.set_task(0);
+
+        debug!("Set new task");
+    }
 
     unreachable!("kernel_main tried to return");
 }
@@ -297,8 +526,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 #[inline(never)]
 #[lang = "eh_personality"]
 extern "C" fn eh_personality() {
-    // no unwinding right now anyways
-    unimplemented!();
+    panic!("Tried to get unwind personality");
 }
 
 #[cold]
@@ -321,8 +549,7 @@ pub extern "C" fn rust_begin_unwind(msg: fmt::Arguments, file: &'static str, lin
     // processory must be reset to continue
     loop {
         unsafe {
-            asm!("cli" :::: "volatile");
-            asm!("hlt" :::: "volatile");
+            asm!("cli; hlt" ::::);
         }
     }
 }
@@ -333,6 +560,6 @@ pub extern "C" fn rust_begin_unwind(msg: fmt::Arguments, file: &'static str, lin
 #[allow(non_snake_case)]
 #[unwind]
 #[lang = "eh_unwind_resume"]
-pub fn _Unwind_Resume(_: *mut memory::Opaque) {
-    unimplemented!();
+pub fn _Unwind_Resume() {
+    panic!("Exception was thrown");
 }

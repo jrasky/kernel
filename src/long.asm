@@ -8,6 +8,7 @@
 ;;; copied, modified, or distributed except according to those terms.
 
     global _lstart
+    global _reload_segments
 
     extern kernel_main
     extern _boot_info
@@ -66,3 +67,16 @@ _setup_SSE:
 .no_SSE:
     mov al, "a"
     jmp _error
+
+_reload_segments:
+    push 0x08                   ;second selector is code selector
+    push .target
+    o64 retf
+.target:
+    mov ax, 0x10                ;third selector is data selector
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    ret

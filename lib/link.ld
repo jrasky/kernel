@@ -66,7 +66,7 @@ SECTIONS {
 
     /* create a stack */
     .stack ALIGN(4K) : {
-        . += 0x8000;
+        . += 0xf000;
     }
 
     . = .;

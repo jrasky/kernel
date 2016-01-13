@@ -18,6 +18,7 @@
     ;; global
     global _start
     global _boot_info
+    global _tss
 
     section .rodata
 gdt64:

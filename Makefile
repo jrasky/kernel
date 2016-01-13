@@ -16,7 +16,7 @@ LIB_DIR = lib
 CFLAGS = -fno-asynchronous-unwind-tables -ffreestanding -O2 -Wall -Wextra -Wpedantic
 LDFLAGS = --gc-sections
 ARCH = x86_64-unknown-linux-gnu
-RUSTFLAGS = -Z no-landing-pads -C no-redzone=y
+RUSTFLAGS = -C no-redzone=y -C no-stack-check
 GRUB_RESCUE_FLAGS = -d /usr/lib/grub/i386-pc/
 
 KERNEL = $(TARGET_DIR)/kernel.elf

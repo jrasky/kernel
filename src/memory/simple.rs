@@ -56,11 +56,11 @@ impl Manager {
         let end = (ptr as *mut u8).offset(size as isize) as *mut Opaque;
         let mut block = self.free.as_mut().unwrap();
 
-        trace!("{:?}, {:?}, {:?}", base, end, self.free);
+        //trace!("{:?}, {:?}, {:?}", base, end, self.free);
 
         if end < self.free as *mut _ {
             // insert element before the first free element
-            trace!("before");
+            //trace!("before");
             if size <= mem::size_of::<Block>() {
                 warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
                 return 0;
@@ -76,7 +76,7 @@ impl Manager {
             return size;
         } else if end == self.free as *mut _ {
             // extend the first element backwards
-            trace!("a: {:?}", base);
+            //trace!("a: {:?}", base);
             let new_block = ptr as *mut Block;
             *new_block.as_mut().unwrap() = Block {
                 base: base,
@@ -96,7 +96,7 @@ impl Manager {
 
         // search in the list for a place to insert this block
         loop {
-            trace!("{:?}", block.base);
+            //trace!("{:?}", block.base);
             if block.next.is_null() {
                 // insert here
                 if ptr > block.end {
@@ -275,12 +275,12 @@ impl Manager {
                     block_ref.end as usize - aligned_base as usize >= size
                 {
                     // we've found a spot!
-                    trace!("Allocating from {:?}", block_ref);
-                    trace!("{:?}, {:?}, {:?}", aligned_base, header_base, end);
+                    //trace!("Allocating from {:?}", block_ref);
+                    //trace!("{:?}, {:?}, {:?}", aligned_base, header_base, end);
                     // truncate the block
                     if header_base as *mut Opaque <= block_ref.base {
                         // move the block forward
-                        trace!("Moving forward");
+                        //trace!("Moving forward");
                         let new_block = Block {
                             base: (end as *mut Block).offset(1) as *mut Opaque,
                             end: block_ref.end,
@@ -301,7 +301,7 @@ impl Manager {
                         *(end as *mut Block).as_mut().unwrap() = new_block;
                     } else {
                         // split block in two
-                        trace!("Splitting in two");
+                        //trace!("Splitting in two");
                         let new_block = (end as *mut Block).as_mut().unwrap();
                         *new_block = Block {
                             base: (end as *mut Block).offset(1) as *mut Opaque,
@@ -462,7 +462,7 @@ impl Manager {
             Some(header) => header
         };
 
-        if (ptr as usize) & (align - 1) == 0 && false {
+        if (ptr as usize) & (align - 1) == 0 {
             // pointer is already aligned
             trace!("Trying inplace");
             if size > header.size {

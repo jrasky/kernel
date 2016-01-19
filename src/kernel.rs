@@ -48,9 +48,20 @@ extern "C" {
     static _image_end: u8;
 }
 
+struct Stack {
+    buffer: RawVec<u8>
+}
+
 #[repr(packed)]
 #[derive(Debug)]
 struct GDTRegister {
+    size: u16,
+    base: u64
+}
+
+#[repr(packed)]
+#[derive(Debug)]
+struct IDTRegister {
     size: u16,
     base: u64
 }
@@ -59,8 +70,8 @@ struct TaskStateSegment {
     buffer: RawVec<u8>,
     privilege_level: u8,
     io_offset: u16,
-    interrupt_stack_table: [u64; 7],
-    stack_pointers: [u64; 3]
+    interrupt_stack_table: [Option<Stack>; 7],
+    stack_pointers: [Option<Stack>; 3]
 }
 
 struct TSSDescriptor {
@@ -70,9 +81,23 @@ struct TSSDescriptor {
     busy: bool
 }
 
+#[derive(Debug)]
+struct IDTDescriptor {
+    target: u64,
+    segment: u16,
+    interrupt: bool,
+    present: bool,
+    stack: u8
+}
+
 struct GlobalDescriptorTable {
     buffer: RawVec<u8>,
     tss: Vec<TaskStateSegment>
+}
+
+struct InterruptDescriptorTable {
+    buffer: RawVec<u8>,
+    descriptors: Vec<IDTDescriptor>
 }
 
 struct MBInfoMemTag {
@@ -88,6 +113,18 @@ struct MBElfSymTag {
     num: u32,
     entsize: u32,
     shndx: u32
+}
+
+impl Stack {
+    fn create(size: usize) -> Stack {
+        Stack {
+            buffer: RawVec::with_capacity(size)
+        }
+    }
+
+    fn get(&self) -> *mut memory::Opaque {
+        self.buffer.ptr() as *mut _
+    }
 }
 
 impl TSSDescriptor {
@@ -113,9 +150,55 @@ impl TSSDescriptor {
     }
 }
 
+impl IDTDescriptor {
+    const fn placeholder() -> IDTDescriptor {
+        IDTDescriptor {
+            target: 0,
+            segment: 0,
+            interrupt: false,
+            present: false,
+            stack: 0
+        }
+    }
+
+    const fn new(target: u64, interrupt: bool, stack: u8) -> IDTDescriptor {
+        IDTDescriptor {
+            target: target,
+            segment: 1 << 3, // second segment, GDT, RPL 0
+            interrupt: interrupt,
+            present: true,
+            stack: stack
+        }
+    }
+
+    fn as_entry(&self) -> [u64; 2] {
+        if !self.present {
+            // make everything zero in this case
+            return [0, 0];
+        }
+
+        let mut lower = ((self.target & (0xffff << 16)) << 32) | (self.target & 0xffff) // base address
+            | ((self.segment as u64) << 16) // Segment Selector
+            | ((self.stack as u64) << 32) // IST selector
+            | (1 << 47); // present
+
+        if self.interrupt {
+            // interrupt gate
+            lower |= 0x0e << 40;
+        } else {
+            // trap gate
+            lower |= 0x0f << 40;
+        }
+
+        trace!("{:?}, {:?}", lower, self.target >> 32);
+
+        [lower, self.target >> 32]
+    }
+}
+
 impl TaskStateSegment {
-    fn new(interrupt_stack_table: [u64; 7],
-           stack_pointers: [u64; 3], privilege_level: u8) -> TaskStateSegment {
+    fn new(interrupt_stack_table: [Option<Stack>; 7],
+           stack_pointers: [Option<Stack>; 3], privilege_level: u8) -> TaskStateSegment {
         TaskStateSegment {
             buffer: RawVec::with_capacity(0x68),
             privilege_level: privilege_level,
@@ -154,7 +237,14 @@ impl TaskStateSegment {
         tss = tss.offset(4);
 
         // stack pointers
-        ptr::copy(self.stack_pointers.as_ptr(), tss as *mut u64, 3);
+        let ptrs: Vec<u64> = self.stack_pointers.iter().map(|stack| {
+            if let &Some(ref stack) = stack {
+                stack.get() as u64
+            } else {
+                0
+            }
+        }).collect();
+        ptr::copy(ptrs.as_ptr(), tss as *mut u64, 3);
         tss = tss.offset(core::u64::BYTES as isize * 3);
 
         // reserved
@@ -162,7 +252,14 @@ impl TaskStateSegment {
         tss = tss.offset(8);
 
         // interrupt stack table
-        ptr::copy(self.interrupt_stack_table.as_ptr(), tss as *mut u64, 7);
+        let ptrs: Vec<u64> = self.interrupt_stack_table.iter().map(|stack| {
+            if let &Some(ref stack) = stack {
+                stack.get() as u64
+            } else {
+                0
+            }
+        }).collect();
+        ptr::copy(ptrs.as_ptr(), tss as *mut u64, 7);
         tss = tss.offset(core::u64::BYTES as isize * 7);
 
         // reserved
@@ -173,6 +270,77 @@ impl TaskStateSegment {
         trace!("c: {:?}", tss);
         *(tss as *mut u16).as_mut().unwrap() = self.io_offset;
         // done
+    }
+}
+
+impl InterruptDescriptorTable {
+    fn new(descriptors: Vec<IDTDescriptor>) -> InterruptDescriptorTable {
+        InterruptDescriptorTable {
+            buffer: RawVec::new(),
+            descriptors: descriptors
+        }
+    }
+
+    unsafe fn install(&mut self) {
+        static mut REGISTER: IDTRegister = IDTRegister {
+            size: 0,
+            base: 0
+        };
+
+        // write out IDT
+        let res = self.save();
+
+        if res.size == 0 {
+            // do nothing
+            return;
+        }
+
+        // save info in register
+        REGISTER.size = res.size;
+        REGISTER.base = res.base;
+
+        trace!("aoe: {:?}", REGISTER);
+
+        asm!("lidt $0"
+             :: "i"(&REGISTER)
+             :: "intel");
+    }
+
+    unsafe fn save(&mut self) -> IDTRegister {
+        let len = self.descriptors.len();
+
+        if len == 0 {
+            // do nothing if we have no descriptors
+            return IDTRegister {
+                size: 0,
+                base: self.buffer.ptr() as u64
+            };
+        }
+
+        self.buffer.reserve(0, 36 * len);
+
+        // copy data
+        let ptr = self.buffer.ptr();
+        let idtr = self.copy_to(ptr);
+
+        // produce idt register
+        idtr
+    }
+
+    unsafe fn copy_to(&self, idt: *mut u8) -> IDTRegister {
+        let top = idt as u64;
+        let mut idt = idt as *mut u64;
+
+        for desc in self.descriptors.iter() {
+            trace!("{:?}", desc);
+            ptr::copy(desc.as_entry().as_ptr(), idt, 2);
+            idt = idt.offset(2);
+        }
+
+        IDTRegister {
+            size: (idt as u64 - top - 1) as u16,
+            base: top
+        }
     }
 }
 
@@ -226,7 +394,7 @@ impl GlobalDescriptorTable {
     unsafe fn save(&mut self) -> GDTRegister {
         // make sure we have enough space
         let len = self.tss.len();
-        self.buffer.reserve(0, 36 + 2 * len);
+        self.buffer.reserve(0, 24 + 16 * len);
 
         // copy data
         let ptr = self.buffer.ptr();
@@ -483,6 +651,10 @@ unsafe fn parse_multiboot_tags(boot_info: *const u32) {
 
 }
 
+extern "C" fn interrupt() {
+    panic!("Interrupt");
+}
+
 #[no_mangle]
 pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // kernel main
@@ -502,7 +674,8 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     debug!("Out of reserve memory");
 
     // create a new GDT with a TSS
-    let tss = TaskStateSegment::new([0; 7], [0; 3], 0);
+    let tss = TaskStateSegment::new([None, None, None, None, None, None, None],
+                                    [Some(Stack::create(0x1000)), None, None], 0);
     let mut gdt = GlobalDescriptorTable::new(vec![tss]);
 
     debug!("Created new GDT");
@@ -519,6 +692,26 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
         debug!("Set new task");
     }
 
+    let mut descriptors = vec![];
+
+    for _ in 0..3 {
+        descriptors.push(IDTDescriptor::placeholder());
+    }
+
+    descriptors.push(IDTDescriptor::new(interrupt as u64, true, 0));
+
+    let mut idt = InterruptDescriptorTable::new(descriptors);
+
+    debug!("Created IDT");
+
+    unsafe {
+        idt.install();
+
+        debug!("Installed IDT");
+
+        asm!("sti; int 3" :::: "intel");
+    }
+
     unreachable!("kernel_main tried to return");
 }
 
@@ -526,7 +719,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 #[inline(never)]
 #[lang = "eh_personality"]
 extern "C" fn eh_personality() {
-    panic!("Tried to get unwind personality");
+    unreachable!("C++ exception code called")
 }
 
 #[cold]
@@ -561,5 +754,5 @@ pub extern "C" fn rust_begin_unwind(msg: fmt::Arguments, file: &'static str, lin
 #[unwind]
 #[lang = "eh_unwind_resume"]
 pub fn _Unwind_Resume() {
-    panic!("Exception was thrown");
+    unreachable!("C++ exception code called");
 }

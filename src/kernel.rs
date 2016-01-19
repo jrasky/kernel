@@ -123,7 +123,9 @@ impl Stack {
     }
 
     fn get(&self) -> *mut memory::Opaque {
-        self.buffer.ptr() as *mut _
+        let cap = self.buffer.cap();
+        trace!("stack {:?} size {:x}", self.buffer.ptr(), cap);
+        unsafe {self.buffer.ptr().offset(cap as isize) as *mut _}
     }
 }
 
@@ -267,7 +269,6 @@ impl TaskStateSegment {
         tss = tss.offset(10);
 
         // i/o map offset
-        trace!("c: {:?}", tss);
         *(tss as *mut u16).as_mut().unwrap() = self.io_offset;
         // done
     }
@@ -651,7 +652,18 @@ unsafe fn parse_multiboot_tags(boot_info: *const u32) {
 
 }
 
-extern "C" fn interrupt() {
+extern "C" {
+    fn _interrupt() -> !;
+}
+
+#[no_mangle]
+pub extern "C" fn interrupt(error_code: u64, rip: u64, cs: u64, rflags: u64, rsp: u64, ss: u64) {
+    debug!("error_code: {}", error_code);
+    debug!("rip: {:x}", rip);
+    debug!("cs: {:x}", cs);
+    debug!("rflags: {:x}", rflags);
+    debug!("rsp: {:x}", rsp);
+    debug!("ss: {:x}", ss);
     panic!("Interrupt");
 }
 
@@ -675,7 +687,8 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
     // create a new GDT with a TSS
     let tss = TaskStateSegment::new([None, None, None, None, None, None, None],
-                                    [Some(Stack::create(0x1000)), None, None], 0);
+                                    [Some(Stack::create(0x10000)), None, None], 0);
+
     let mut gdt = GlobalDescriptorTable::new(vec![tss]);
 
     debug!("Created new GDT");
@@ -698,7 +711,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
         descriptors.push(IDTDescriptor::placeholder());
     }
 
-    descriptors.push(IDTDescriptor::new(interrupt as u64, true, 0));
+    descriptors.push(IDTDescriptor::new(_interrupt as u64, true, 0));
 
     let mut idt = InterruptDescriptorTable::new(descriptors);
 

@@ -9,9 +9,12 @@
 
     global _lstart
     global _reload_segments
+    global _interrupt
+    global _interrupt_with_error
 
     extern kernel_main
     extern _boot_info
+    extern interrupt
 
     section .text
     bits 64
@@ -80,3 +83,17 @@ _reload_segments:
     mov gs, ax
     mov ss, ax
     ret
+
+_interrupt:
+    push 0x0                    ;push error code
+_interrupt_with_error:  
+    pop rdi                     ;error code
+    pop rsi                     ;RIP
+    pop rdx                     ;CS
+    pop rcx                     ;RFLAGS
+    pop r8                      ;RSP
+    pop r9                      ;SS
+    call interrupt
+    ;; interrupt handler should not return
+    mov al, "I"
+    jmp _error

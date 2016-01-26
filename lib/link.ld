@@ -41,7 +41,10 @@ SECTIONS {
         . += 0x1000;
         /* fxsave area, which needs to be aligned to 16 bytes */
         . = ALIGN(16);
-        _fxsave_area = .;
+        _fxsave_trap = .;
+        . += 0x200;
+        . = ALIGN(16);
+        _fxsave_int = .;
         . += 0x200;
     }
 

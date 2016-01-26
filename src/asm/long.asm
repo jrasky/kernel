@@ -15,6 +15,7 @@
     extern kernel_main
     extern _boot_info
     extern interrupt
+    extern _fxsave_area
 
     section .text
     bits 64
@@ -26,6 +27,9 @@ _lstart:
 
     ;; boot_info argument
     mov rdi, qword [_boot_info]
+
+    ;; align stack
+    and rsp, -16
 
     ;; start kernel
     call kernel_main
@@ -85,15 +89,81 @@ _reload_segments:
     ret
 
 _interrupt:
-    push 0x0                    ;push error code
-_interrupt_with_error:  
-    pop rdi                     ;error code
-    pop rsi                     ;RIP
-    pop rdx                     ;CS
-    pop rcx                     ;RFLAGS
-    pop r8                      ;RSP
-    pop r9                      ;SS
+    push 0x0                    ;push null error to ensure consistent stack frame
+_interrupt_with_error:
+    ;; push general-purpose registers
+	push r15
+	push r14
+    push r13
+    push r12
+    push r11
+    push r10
+    push r9
+    push r8
+    push rdi
+    push rsi
+    push rbp
+    push rdx
+    push rcx
+    push rbx
+    push rax
+
+    ;; copy old fxsave area to stack
+    mov rcx, 0x200
+.copy_fxsave:
+    sub rcx, 0x08
+    push QWORD [_fxsave_area + rcx]
+    test rcx, rcx
+    jnz .copy_fxsave
+
+    ;; fxsave
+    fxsave [_fxsave_area]
+
+    ;; first argument is the position of the stack, which contains all the context
+    ;; needed to unwind
+    mov rdi, rsp
+    ;; copy stack pointer to rbp, so it's saved after the interrupt handler
+    mov rbp, rsp
+
+    ;; align stack
+    and rsp, -16
+
+    ;; interrupt handler
     call interrupt
-    ;; interrupt handler should not return
-    mov al, "I"
-    jmp _error
+
+    ;; de-align stack
+    mov rsp, rbp
+
+    ;; fxrstor
+    fxrstor [_fxsave_area]
+
+    ;; restore old fxsave area
+    mov rcx, 0
+.restore_fxsave:
+    pop QWORD [_fxsave_area + rcx]
+    add rcx, 0x08
+    cmp rcx, 0x200
+    jne .restore_fxsave
+
+    ;; restore old registers
+    pop rax
+    pop rbx
+    pop rcx
+    pop rdx
+    pop rbp
+    pop rsi
+    pop rdi
+    pop r8
+    pop r9
+    pop r10
+    pop r11
+    pop r12
+    pop r13
+    pop r14
+    pop r15
+
+    ;; skip error code
+    add rsp, 0x08
+    
+    ;; iret
+    iretq

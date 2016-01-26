@@ -19,7 +19,7 @@ SECTIONS {
 
     /* multiboot2 header */
     .boot ALIGN(8) : {
-        KEEP(target/multiboot2.o (.multiboot2))
+        KEEP(target/asm/multiboot2.o (.multiboot2))
     }
 
     /* first the multiboot header */
@@ -39,6 +39,10 @@ SECTIONS {
         _slab_map = .;
         /* slab map size = slab size / 8 */
         . += 0x1000;
+        /* fxsave area, which needs to be aligned to 16 bytes */
+        . = ALIGN(16);
+        _fxsave_area = .;
+        . += 0x200;
     }
 
     . = .;

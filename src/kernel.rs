@@ -48,6 +48,37 @@ extern "C" {
     static _image_end: u8;
 }
 
+#[repr(packed)]
+pub struct Context {
+    // fxsave
+    _fxsave: [u8; 0x200],
+
+    // additional context
+    rax: u64,
+    rbx: u64,
+    rcx: u64,
+    rdx: u64,
+    rbp: u64,
+    rsi: u64,
+    rdi: u64,
+    r8: u64,
+    r9: u64,
+    r10: u64,
+    r11: u64,
+    r12: u64,
+    r13: u64,
+    r14: u64,
+    r15: u64,
+
+    // begin interrupt info
+    error_code: u64,
+    rip: u64,
+    cs: u64,
+    rflags: u64,
+    rsp: u64,
+    ss: u64
+}
+
 struct Stack {
     buffer: RawVec<u8>
 }
@@ -653,18 +684,17 @@ unsafe fn parse_multiboot_tags(boot_info: *const u32) {
 }
 
 extern "C" {
-    fn _interrupt() -> !;
+    fn _interrupt();
+    fn _interrupt_with_error();
 }
 
 #[no_mangle]
-pub extern "C" fn interrupt(error_code: u64, rip: u64, cs: u64, rflags: u64, rsp: u64, ss: u64) {
-    debug!("error_code: {}", error_code);
-    debug!("rip: {:x}", rip);
-    debug!("cs: {:x}", cs);
-    debug!("rflags: {:x}", rflags);
-    debug!("rsp: {:x}", rsp);
-    debug!("ss: {:x}", ss);
-    panic!("Interrupt");
+pub unsafe extern "C" fn interrupt(context: *const Context) {
+    let context = context.as_ref().unwrap();
+
+    info!("Interrupt");
+    debug!("Error code: {}", context.error_code);
+    debug!("From: {:x}", context.rip);
 }
 
 #[no_mangle]
@@ -705,13 +735,23 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
         debug!("Set new task");
     }
 
-    let mut descriptors = vec![];
+    let mut descriptors = Vec::with_capacity(16);
 
-    for _ in 0..3 {
-        descriptors.push(IDTDescriptor::placeholder());
-    }
-
-    descriptors.push(IDTDescriptor::new(_interrupt as u64, true, 0));
+    descriptors.push(IDTDescriptor::placeholder()); // 0
+    descriptors.push(IDTDescriptor::placeholder()); // 1
+    descriptors.push(IDTDescriptor::placeholder()); // 2
+    descriptors.push(IDTDescriptor::new(_interrupt as u64, false, 0)); // 3
+    descriptors.push(IDTDescriptor::placeholder()); // 4
+    descriptors.push(IDTDescriptor::placeholder()); // 5
+    descriptors.push(IDTDescriptor::placeholder()); // 6
+    descriptors.push(IDTDescriptor::placeholder()); // 7
+    descriptors.push(IDTDescriptor::placeholder()); // 8
+    descriptors.push(IDTDescriptor::placeholder()); // 9
+    descriptors.push(IDTDescriptor::placeholder()); // 10
+    descriptors.push(IDTDescriptor::placeholder()); // 11
+    descriptors.push(IDTDescriptor::placeholder()); // 13
+    descriptors.push(IDTDescriptor::new(_interrupt_with_error as u64, true, 0)); // 14
+    descriptors.push(IDTDescriptor::placeholder()); // 15
 
     let mut idt = InterruptDescriptorTable::new(descriptors);
 
@@ -721,9 +761,14 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
         idt.install();
 
         debug!("Installed IDT");
+        
+        asm!("sti");
 
-        asm!("sti; int 3" :::: "intel");
+        asm!("int 3" :::: "intel");
+
     }
+
+    debug!("After interrupt");
 
     unreachable!("kernel_main tried to return");
 }

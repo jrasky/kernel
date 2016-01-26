@@ -16,7 +16,7 @@ LIB_DIR = lib
 CFLAGS = -fno-asynchronous-unwind-tables -ffreestanding -O2 -Wall -Wextra -Wpedantic
 LDFLAGS = --gc-sections
 ARCH = x86_64-unknown-linux-gnu
-RUSTFLAGS = -C no-redzone=y -C no-stack-check
+RUSTFLAGS = -C no-stack-check
 GRUB_RESCUE_FLAGS = -d /usr/lib/grub/i386-pc/
 
 KERNEL = $(TARGET_DIR)/kernel.elf
@@ -30,9 +30,9 @@ ISO_GRUB_CFG = $(ISO_DIR)/boot/grub/grub.cfg
 ISO_KERNEL = $(ISO_DIR)/boot/$(notdir $(KERNEL))
 
 ASM_SOURCES = $(filter %.asm,$(SOURCES))
-ASM_OBJECTS = $(ASM_SOURCES:%.asm=$(TARGET_DIR)/%.o)
+ASM_OBJECTS = $(ASM_SOURCES:%.asm=$(TARGET_DIR)/asm/%.o)
 C_SOURCES = $(filter %.c,$(SOURCES))
-C_OBJECTS = $(C_SOURCES:%.c=$(TARGET_DIR)/%.o)
+C_OBJECTS = $(C_SOURCES:%.c=$(TARGET_DIR)/c/%.o)
 RUST_SOURCES = $(filter %.rs,$(SOURCES))
 RUST_OBJECTS = $(TARGET_DIR)/$(ARCH)/debug/libkernel.a
 OBJECTS = $(ASM_OBJECTS) $(C_OBJECTS) $(RUST_OBJECTS)
@@ -77,6 +77,15 @@ $(GRUB_IMAGE): $(ISO_GRUB_CFG) $(ISO_KERNEL)
 $(TARGET_DIR):
 	$(MKDIR) -p $@
 
+$(TARGET_DIR)/asm:
+	$(MKDIR) -p $@
+
+$(TARGET_DIR)/c:
+	$(MKDIR) -p $@
+
+$(TARGET_DIR)/rust:
+	$(MKDIR) -p $@
+
 $(dir $(ISO_GRUB_CFG)):
 	$(MKDIR) -p $@
 
@@ -88,7 +97,7 @@ $(dir $(GRUB_IMAGE)):
 
 # Phony targets
 
-directories: $(TARGET_DIR) $(dir $(ISO_GRUB_CFG)) $(dir $(ISO_KERNEL)) $(dir $(GRUB_IMAGE))
+directories: $(TARGET_DIR) $(TARGET_DIR)/asm $(TARGET_DIR)/c $(TARGET_DIR)/rust $(dir $(ISO_GRUB_CFG)) $(dir $(ISO_KERNEL)) $(dir $(GRUB_IMAGE))
 
 image: directories $(GRUB_IMAGE)
 

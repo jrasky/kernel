@@ -404,6 +404,14 @@ impl Manager {
                             next: block_ref.next
                         };
 
+                        // update the previous block
+                        if let Some(last) = new_block.last.as_mut() {
+                            last.next = new_end as *mut Block;
+                        } else {
+                            // we've moved the first block
+                            self.free = new_end as *mut Block;
+                        }
+
                         trace!("{:?}, {:?}", new_end, new_block);
                         *(new_end as *mut Block).as_mut().unwrap() = new_block;
                         header.size = size;
@@ -453,6 +461,7 @@ impl Manager {
     }
 
     unsafe fn resize(&mut self, ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
+        trace!("Resizing at {:?} to 0x{:x} with align 0x{:x}", ptr, size, align);
         let header_base = (ptr as *mut Header).offset(-1);
         let header = match self.get_header(ptr) {
             None => {

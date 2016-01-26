@@ -768,7 +768,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
         debug!("Set new task");
     }
 
-    let mut descriptors = Vec::with_capacity(16);
+    let mut descriptors = vec![];
 
     descriptors.push(IDTDescriptor::placeholder()); // 0
     descriptors.push(IDTDescriptor::placeholder()); // 1

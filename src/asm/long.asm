@@ -16,6 +16,7 @@
     extern _boot_info
     extern _fxsave_trap
     extern _fxsave_int
+    extern _fxsave_task
     extern interrupt_breakpoint
     extern interrupt_general_protection_fault
 

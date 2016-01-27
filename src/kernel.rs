@@ -46,6 +46,47 @@ pub use memory::{__rust_allocate,
 extern "C" {
     static _image_begin: u8;
     static _image_end: u8;
+    static _fxsave_task: u8;
+}
+
+struct Task {
+    context: TaskContext,
+    stack: Stack
+}
+
+#[repr(u8)]
+enum PrivilegeLevel {
+    CORE = 0,       // privileged instructions
+    DRIVER = 1,     // permissioned-mapped i/o
+    EXECUTIVE = 2,  // identity page-map
+    USER = 3        // isolated
+}
+
+struct TaskContext {
+    // FP/MMX/SSE state
+    fxsave: [u8; 0x200],
+
+    // GP register state
+    rax: u64,
+    rbx: u64,
+    rcx: u64,
+    rdx: u64,
+    rbp: u64,
+    rsi: u64,
+    rdi: u64,
+    r8: u64,
+    r9: u64,
+    r10: u64,
+    r11: u64,
+    r12: u64,
+    r13: u64,
+    r14: u64,
+    r15: u64,
+
+    // execution state
+    rip: u64,
+    rsp: u64,
+    cpl: PrivilegeLevel
 }
 
 #[repr(packed)]
@@ -172,6 +213,53 @@ struct MBElfSymTag {
     num: u32,
     entsize: u32,
     shndx: u32
+}
+
+impl TaskContext {
+    fn create(level: PrivilegeLevel, entry: extern "C" fn(), stack: &Stack) -> TaskContext {
+        let rflags: u64;
+
+        unsafe {
+            // fxsave, use current floating point state in task
+            // TODO: actually figure out how to create a clear state and use that
+            // instead
+            asm!("fxsave $0"
+                 :: "i"(_fxsave_task)
+                 :: "intel");
+        }
+
+        TaskContext {
+            fxsave: _fxsave_task,
+
+            rax: 0,
+            rbx: 0,
+            rcx: 0,
+            rbp: 0,
+            rsi: 0,
+            rdi: 0,
+            r8: 0,
+            r9: 0,
+            r10: 0,
+            r11: 0,
+            r12: 0,
+            r13: 0,
+            r14: 0,
+            r15: 0,
+
+            rip: entry as u64,
+            rsp: stack.get_ptr() as u64,
+            cpl: level
+        }
+    }
+}
+
+impl Task {
+    pub const fn new(context: TaskContext, stack: Stack) -> Task {
+        Task {
+            context: context,
+            stack: stack
+        }
+    }
 }
 
 impl Stack {
@@ -750,7 +838,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
     // create a new GDT with a TSS
     let tss = TaskStateSegment::new([None, None, None, None, None, None, None],
-                                    [Some(Stack::create(0x10000)), None, None], 0);
+                                    [None, None, None], 0);
 
     let mut gdt = GlobalDescriptorTable::new(vec![tss]);
 
@@ -794,13 +882,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
         idt.install();
 
         debug!("Installed IDT");
-        
-        asm!("int 3" :::: "intel");
-
-        asm!("sti");
     }
-
-    debug!("After interrupt");
 
     unreachable!("kernel_main tried to return");
 }

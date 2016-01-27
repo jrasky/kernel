@@ -46,6 +46,9 @@ SECTIONS {
         . = ALIGN(16);
         _fxsave_int = .;
         . += 0x200;
+        . = ALIGN(16);
+        _fxsave_task = .;
+        . += 0x200;
     }
 
     . = .;

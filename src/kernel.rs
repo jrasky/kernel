@@ -25,6 +25,7 @@ use core::fmt;
 use core::slice;
 use core::str;
 use core::ptr;
+use core::mem;
 
 use alloc::raw_vec::RawVec;
 
@@ -47,11 +48,6 @@ extern "C" {
     static _image_begin: u8;
     static _image_end: u8;
     static _fxsave_task: u8;
-}
-
-struct Task {
-    context: TaskContext,
-    stack: Stack
 }
 
 #[repr(u8)]
@@ -84,9 +80,24 @@ struct TaskContext {
     r15: u64,
 
     // execution state
+    rflags: u64,
     rip: u64,
     rsp: u64,
-    cpl: PrivilegeLevel
+
+    // selectors
+    cs: u16,
+    ss: u16,
+    ds: u16,
+    es: u16,
+    fs: u16,
+    gs: u16
+}
+
+struct Task {
+    context: TaskContext,
+    entry: extern "C" fn(),
+    level: PrivilegeLevel,
+    stack: Stack
 }
 
 #[repr(packed)]
@@ -215,25 +226,14 @@ struct MBElfSymTag {
     shndx: u32
 }
 
-impl TaskContext {
-    fn create(level: PrivilegeLevel, entry: extern "C" fn(), stack: &Stack) -> TaskContext {
-        let rflags: u64;
-
-        unsafe {
-            // fxsave, use current floating point state in task
-            // TODO: actually figure out how to create a clear state and use that
-            // instead
-            asm!("fxsave $0"
-                 :: "i"(_fxsave_task)
-                 :: "intel");
-        }
-
+impl Default for TaskContext {
+    fn default() -> TaskContext {
         TaskContext {
-            fxsave: _fxsave_task,
-
+            fxsave: [0; 0x200],
             rax: 0,
             rbx: 0,
             rcx: 0,
+            rdx: 0,
             rbp: 0,
             rsi: 0,
             rdi: 0,
@@ -245,18 +245,39 @@ impl TaskContext {
             r13: 0,
             r14: 0,
             r15: 0,
-
-            rip: entry as u64,
-            rsp: stack.get_ptr() as u64,
-            cpl: level
+            rflags: 0,
+            rip: 0,
+            rsp: 0,
+            cs: 0,
+            ss: 0,
+            ds: 0,
+            es: 0,
+            fs: 0,
+            gs: 0
         }
     }
 }
 
 impl Task {
-    pub const fn new(context: TaskContext, stack: Stack) -> Task {
+    fn create(level: PrivilegeLevel, entry: extern "C" fn(), stack: Stack) -> Task {
+        unsafe {
+            // fxsave, use current floating point state in task
+            // TODO: actually figure out how to create a clear state and use that
+            // instead
+            asm!("fxsave $0"
+                 :: "i"(_fxsave_task)
+                 :: "intel");
+        }
+
+        let mut context = TaskContext::default();
+
+        context.rip = entry as u64;
+        context.rsp = stack.get_ptr() as u64;
+
         Task {
             context: context,
+            entry: entry,
+            level: level,
             stack: stack
         }
     }
@@ -269,7 +290,7 @@ impl Stack {
         }
     }
 
-    fn get(&self) -> *mut memory::Opaque {
+    fn get_ptr(&self) -> *mut memory::Opaque {
         let cap = self.buffer.cap();
         trace!("stack {:?} size {:x}", self.buffer.ptr(), cap);
         unsafe {self.buffer.ptr().offset(cap as isize) as *mut _}
@@ -388,7 +409,7 @@ impl TaskStateSegment {
         // stack pointers
         let ptrs: Vec<u64> = self.stack_pointers.iter().map(|stack| {
             if let &Some(ref stack) = stack {
-                stack.get() as u64
+                stack.get_ptr() as u64
             } else {
                 0
             }
@@ -403,7 +424,7 @@ impl TaskStateSegment {
         // interrupt stack table
         let ptrs: Vec<u64> = self.interrupt_stack_table.iter().map(|stack| {
             if let &Some(ref stack) = stack {
-                stack.get() as u64
+                stack.get_ptr() as u64
             } else {
                 0
             }

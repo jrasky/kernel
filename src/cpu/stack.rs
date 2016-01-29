@@ -2,15 +2,24 @@ use alloc::heap;
 
 use memory::Opaque;
 
+use constants::*;
+
+extern "C" {
+    static _stack_top: u8;
+}
+
 pub struct Stack {
     buffer: *mut u8,
-    size: usize
+    size: usize,
+    drop: bool
 }
 
 impl Drop for Stack {
     fn drop(&mut self) {
-        unsafe {
-            heap::deallocate(self.buffer, self.size, 16);
+        if self.drop {
+            unsafe {
+                heap::deallocate(self.buffer, self.size, 16);
+            }
         }
     }
 }
@@ -19,7 +28,16 @@ impl Stack {
     pub fn create(size: usize) -> Stack {
         Stack {
             buffer: unsafe {heap::allocate(size, 16)},
-            size: size
+            size: size,
+            drop: true
+        }
+    }
+
+    pub unsafe fn kernel() -> Stack {
+        Stack {
+            buffer: &_stack_top as *const _ as *mut _,
+            size: STACK_SIZE,
+            drop: false
         }
     }
 

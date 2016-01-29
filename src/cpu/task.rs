@@ -1,6 +1,10 @@
 use collections::VecDeque;
 
+use core::cell::UnsafeCell;
+
 use core::ptr;
+
+use alloc::boxed::Box;
 
 use spin::Mutex;
 
@@ -8,13 +12,22 @@ use cpu::stack::Stack;
 
 extern "C" {
     static mut _fxsave_task: u8;
-    fn _do_execute(regs: *const Regs);
+    fn _do_execute(regs: *const Regs, busy: *mut u16, core_regs: *mut Regs);
+    fn _do_execute_nobranch(regs: *const Regs);
+    fn _load_context(regs: *mut Regs);
 }
 
-static MANAGER: Mutex<Manager> = Mutex::new(Manager {
-    core: None,
-    tasks: None
-});
+extern "C" fn _dummy_entry() {
+    unreachable!("Tried to entry dummy entry");
+}
+
+static mut MANAGER: Manager = Manager::new();
+
+pub fn switch_core() {
+    unsafe {
+        MANAGER.switch_core();
+    }
+}
 
 #[repr(u8)]
 pub enum PrivilegeLevel {
@@ -25,8 +38,12 @@ pub enum PrivilegeLevel {
 }
 
 struct Manager {
-    core: Option<Task>,
-    tasks: Option<VecDeque<Task>>
+    inner: *mut ManagerInner
+}
+
+struct ManagerInner {
+    core: Task,
+    tasks: VecDeque<Task>
 }
 
 #[repr(packed)]
@@ -73,7 +90,7 @@ pub struct Task {
     entry: extern "C" fn(),
     level: PrivilegeLevel,
     stack: Stack,
-    busy: bool
+    busy: u16
 }
 
 impl Regs {
@@ -107,6 +124,103 @@ impl Regs {
     }
 }
 
+impl Manager {
+    const fn new() -> Manager {
+        Manager {
+            inner: ptr::null_mut()
+        }
+    }
+
+    #[inline]
+    fn get_inner(&mut self) -> &mut ManagerInner {
+        unsafe {
+            if let Some(inner) = self.inner.as_mut() {
+                inner
+            } else {
+                let inner = Box::new(ManagerInner::new());
+                self.inner = Box::into_raw(inner);
+                self.inner.as_mut().unwrap()
+            }
+        }
+    }
+
+    #[inline]
+    pub fn switch_task(&mut self, context: &mut Context) {
+        self.get_inner().switch_task(context)
+    }
+
+    #[inline]
+    pub fn switch_core(&mut self) {
+        self.get_inner().switch_core()
+    }
+}
+
+impl ManagerInner {
+    fn new() -> ManagerInner {
+        ManagerInner {
+            core: Task {
+                context: Context::empty(),
+                entry: _dummy_entry,
+                level: PrivilegeLevel::CORE,
+                stack: unsafe {Stack::kernel()},
+                busy: !0
+            },
+            tasks: VecDeque::new()
+        }
+    }
+
+    fn switch_task(&mut self, context: &mut Context) {
+        if self.core.busy == 0 {
+            panic!("Tried to switch tasks while not in core task");
+        }
+
+        unsafe {
+            // save our 
+            asm!("fxsave $0"
+                 : "=*m"(&mut _fxsave_task)
+                 ::: "intel");
+
+            ptr::copy(&mut _fxsave_task, self.core.context.fxsave.as_mut_ptr(),
+                      self.core.context.fxsave.len());
+
+            ptr::copy(context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
+                      context.fxsave.len());
+
+            asm!("fxrstor $0"
+                 :: "*m"(&_fxsave_task)
+                 :: "intel");
+
+            debug!("Executing task");
+
+            _do_execute(&context.regs, &mut self.core.busy, &mut self.core.context.regs);
+
+            debug!("Switched back");
+        }
+    }
+
+    fn switch_core(&mut self) {
+        // switch back to the core task
+        if self.core.busy != 0 {
+            panic!("Tried to switch back to core task while in core task");
+        }
+
+        unsafe {
+            ptr::copy(self.core.context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
+                      self.core.context.fxsave.len());
+
+            asm!("fxrstor $0"
+                 :: "*m"(&_fxsave_task)
+                 :: "intel");
+
+            debug!("Switching back to core");
+            
+            _do_execute_nobranch(&self.core.context.regs);
+
+            unreachable!("_do_execute_nobranch() returned");
+        }
+    }
+}
+
 impl Context {
     pub const fn empty() -> Context {
         Context {
@@ -118,16 +232,20 @@ impl Context {
 
 impl Task {
     pub fn create(level: PrivilegeLevel, entry: extern "C" fn(), stack: Stack) -> Task {
+        // create a blank context
+        let mut context = Context::empty();
+
         unsafe {
             // fxsave, use current floating point state in task
             // TODO: generate a compliant FPU state instead of just using the current one
             asm!("fxsave $0"
-                 : "=*m"(&_fxsave_task)
+                 : "=*m"(&mut _fxsave_task)
                  ::: "intel");
-        }
 
-        // create a blank context
-        let mut context = Context::empty();
+            // copy fxsave area
+            ptr::copy(&mut _fxsave_task, context.fxsave.as_mut_ptr(),
+                      context.fxsave.len());
+        }
 
         // set the initial parameters
         context.regs.rip = entry as u64;
@@ -147,35 +265,20 @@ impl Task {
             entry: entry,
             level: level,
             stack: stack,
-            busy: false
+            busy: 0
         }
     }
 
     pub fn execute(&mut self) {
         // save core task
 
-        if !self.busy {
+        if self.busy == 0 {
             // start task
-            unsafe {self.execute_inner();}
+            self.busy = !0;
+            unsafe {MANAGER.switch_task(&mut self.context);}
         } else {
             // clean up
-            self.busy = false;
+            self.busy = 0;
         }
-    }
-
-    unsafe fn execute_inner(&mut self) -> ! {
-        // copy fxsave for task to the fxsave area
-        ptr::copy(self.context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
-                  self.context.fxsave.len());
-
-        // fxrstor
-        asm!("fxrstor $0"
-             :: "i"(_fxsave_task)
-             :: "intel");
-
-        // restore register values and jump to proceedure
-        _do_execute(&self.context.regs);
-
-        unreachable!("_do_execute() returned");
     }
 }

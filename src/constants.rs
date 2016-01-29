@@ -4,6 +4,7 @@ pub const VGA_BUFFER_WIDTH: usize = 80;
 pub const VGA_BUFFER_HEIGHT: usize = 25;
 pub const VGA_BUFFER_ADDR: usize = 0xb8000;
 pub const SIMPLE_MAGIC: u64 = 4128539181889869321;
+pub const STACK_SIZE: usize = 0xf000;
 
 #[inline]
 pub const fn align(n: usize, to: usize) -> usize {

@@ -56,7 +56,7 @@ extern "C" {
 
 extern "C" fn test_task() {
     info!("Hello from a task!");
-    panic!();
+    cpu::task::switch_core();
 }
 
 #[no_mangle]

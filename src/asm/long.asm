@@ -12,6 +12,8 @@
     global _bp_handler
     global _gp_handler
     global _do_execute
+    global _do_execute_nobranch
+    global _load_context
 
     extern kernel_main
     extern _boot_info
@@ -168,14 +170,72 @@ _gp_handler:
     jmp .with_error             ;has an error code
     interrupt_handler interrupt_general_protection_fault
 
+;;; load context object
+_load_context:
+    ;; rdi is a pointer to the regs field of the context object
+    mov [rdi + 0x00], rax
+    mov [rdi + 0x08], rbx
+    mov [rdi + 0x10], rcx
+    mov [rdi + 0x18], rdx
+    mov [rdi + 0x20], rbp
+    mov [rdi + 0x28], rsi
+    mov [rdi + 0x30], rdi
+    mov [rdi + 0x38], r8
+    mov [rdi + 0x40], r9
+    mov [rdi + 0x48], r10
+    mov [rdi + 0x50], r11
+    mov [rdi + 0x58], r12
+    mov [rdi + 0x60], r13
+    mov [rdi + 0x68], r14
+    mov [rdi + 0x70], r15
+    pushfq
+    pop QWORD [rdi + 0x78]            ;rflags
+    mov QWORD [rdi + 0x80], .end      ;rip
+    mov [rdi + 0x88], rsp
+    mov [rdi + 0x90], cs
+    mov [rdi + 0x92], ss
+    mov [rdi + 0x94], ds
+    mov [rdi + 0x96], es
+    mov [rdi + 0x98], fs
+    mov [rdi + 0x9a], gs
+.end:
+    ret
+
 ;;; Context switch and far jump
 
 _do_execute:
     ;; rdi is a pointer to the context after the fxsave area
+    ;; rsi is a pointer to the branch factor
+    ;; rdx is a pointer to the core context registers
 
     ;; note that this makes bad assumptions
     ;; fix with swapgs etc once I get around to it
 
+    ;; save core context
+    xchg rdi, rdx
+    call _load_context
+    xchg rdi, rdx
+
+    ;; save stack here
+    mov [rdx + 0x88], rsp
+    ;; set return point to here
+    mov QWORD [rdx + 0x80], .return
+.return:
+
+    ;; branch
+    mov ax, [rsi]
+    cmp ax, 0
+    jne .continue
+
+    ;; clean up and return
+    mov WORD [rsi], ~0
+    ret
+
+.continue:
+    ;; set not busy
+    mov WORD [rsi], 0
+
+_do_execute_nobranch:   
     ;; rax: rdi + 0x00
     mov rbx, [rdi + 0x08]
     mov rcx, [rdi + 0x10]

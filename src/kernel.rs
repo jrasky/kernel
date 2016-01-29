@@ -8,7 +8,6 @@
 #![feature(unwind_attributes)]
 #![feature(stmt_expr_attributes)]
 #![feature(asm)]
-#![feature(num_bits_bytes)]
 #![feature(heap_api)]
 #![no_std]
 extern crate rlibc;
@@ -18,18 +17,7 @@ extern crate alloc;
 extern crate collections;
 extern crate elfloader;
 
-use collections::{Vec, String};
-
 use core::fmt;
-use core::slice;
-use core::str;
-use core::ptr;
-use core::mem;
-
-use alloc::raw_vec::RawVec;
-use alloc::boxed::Box;
-
-use constants::*;
 
 #[macro_use]
 mod log;
@@ -145,20 +133,14 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
         debug!("Installed IDT");
     }
 
-    let mut task1 = Box::new(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task,
-                                                     cpu::stack::Stack::create(0x1000)));
+    cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task,
+                                           cpu::stack::Stack::create(0x1000)));
 
-    let mut task2 = Box::new(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_2,
-                                                     cpu::stack::Stack::create(0x1000)));
+    cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_2,
+                                           cpu::stack::Stack::create(0x1000)));
 
-    while !task1.is_done() || !task2.is_done() {
-        if !task1.is_done() {
-            task1 = cpu::task::switch_task(task1);
-        }
-
-        if !task2.is_done() {
-            task2 = cpu::task::switch_task(task2);
-        }
+    while cpu::task::run_next() {
+        // run next task
     }
 
     unreachable!("kernel_main tried to return");

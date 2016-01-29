@@ -1,12 +1,8 @@
 use collections::VecDeque;
 
-use core::cell::UnsafeCell;
-
 use core::ptr;
 
 use alloc::boxed::Box;
-
-use spin::Mutex;
 
 use cpu::stack::Stack;
 
@@ -23,13 +19,26 @@ extern "C" fn _dummy_entry() -> ! {
 
 static mut MANAGER: Manager = Manager::new();
 
+pub fn run_next() -> bool {
+    unsafe {
+        MANAGER.run_next()
+    }
+}
+
 pub fn exit() -> ! {
     unsafe {
         MANAGER.exit()
     }
 }
 
-pub fn switch_task(mut task: Box<Task>) -> Box<Task> {
+pub fn add(task: Task) {
+    unsafe {
+        MANAGER.add(task)
+    }
+}
+
+#[allow(dead_code)] // may be used in the future
+pub fn switch_task(task: Task) -> Task {
     unsafe {
         MANAGER.switch_task(task)
     }
@@ -44,8 +53,11 @@ pub fn switch_core() {
 #[repr(u8)]
 pub enum PrivilegeLevel {
     CORE = 0,       // privileged instructions
+    #[allow(dead_code)] // may be used later
     DRIVER = 1,     // permissioned-mapped i/o
+    #[allow(dead_code)] // may be used later
     EXECUTIVE = 2,  // identity page-map
+    #[allow(dead_code)] // may be used later
     USER = 3        // isolated
 }
 
@@ -56,10 +68,10 @@ struct Manager {
 struct ManagerInner {
     core: Task,
     tasks: VecDeque<Task>,
-    current: Option<Box<Task>>
+    current: Option<Task>
 }
 
-#[repr(packed)]
+#[repr(C, packed)]
 struct Regs {
     // GP register state
     rax: u64,
@@ -99,12 +111,38 @@ struct Context {
 }
 
 pub struct Task {
+    inner: Box<TaskInner>
+}
+
+struct TaskInner {
     context: Context,
+    #[allow(dead_code)] // may be used later
     entry: extern "C" fn() -> !,
+    #[allow(dead_code)] // may be used later
     level: PrivilegeLevel,
+    #[allow(dead_code)] // may be used later
     stack: Stack,
     busy: u16,
     done: bool
+}
+
+impl Task {
+    #[inline]
+    pub fn create(level: PrivilegeLevel, entry: extern "C" fn() -> !, stack: Stack) -> Task {
+        Task {
+            inner: Box::new(TaskInner::create(level, entry, stack))
+        }
+    }
+
+    #[inline]
+    pub fn set_done(&mut self) {
+        self.inner.set_done()
+    }
+
+    #[inline]
+    pub fn is_done(&mut self) -> bool {
+        self.inner.is_done()
+    }
 }
 
 impl Regs {
@@ -158,12 +196,23 @@ impl Manager {
         }
     }
 
+    #[inline]
+    pub fn run_next(&mut self) -> bool {
+        self.get_inner().run_next()
+    }
+
+    #[inline]
+    pub fn add(&mut self, task: Task) {
+        self.get_inner().add(task)
+    }
+
+    #[inline]
     pub fn exit(&mut self) -> ! {
         self.get_inner().exit()
     }
 
     #[inline]
-    pub fn switch_task(&mut self, mut task: Box<Task>) -> Box<Task> {
+    pub fn switch_task(&mut self, task: Task) -> Task {
         self.get_inner().switch_task(task)
     }
 
@@ -177,20 +226,51 @@ impl ManagerInner {
     fn new() -> ManagerInner {
         ManagerInner {
             core: Task {
-                context: Context::empty(),
-                entry: _dummy_entry,
-                level: PrivilegeLevel::CORE,
-                stack: unsafe {Stack::kernel()},
-                busy: !0,
-                done: false
+                inner: Box::new(TaskInner {
+                    context: Context::empty(),
+                    entry: _dummy_entry,
+                    level: PrivilegeLevel::CORE,
+                    stack: unsafe {Stack::kernel()},
+                    busy: !0,
+                    done: false
+                })
             },
             tasks: VecDeque::new(),
             current: None
         }
     }
 
+    #[inline]
+    fn in_core(&self) -> bool {
+        self.core.inner.busy != 0
+    }
+
+    fn add(&mut self, task: Task) {
+        self.tasks.push_back(task);
+    }
+
+    fn run_next(&mut self) -> bool {
+        // get the next task
+        if let Some(mut task) = self.tasks.pop_front() {
+
+            // switch to it
+            task = self.switch_task(task);
+
+            // add it if it isn't done
+            if !task.is_done() {
+                self.tasks.push_back(task);
+            }
+
+            // done
+            true
+        } else {
+            // no tasks
+            false
+        }
+    }
+
     fn exit(&mut self) -> ! {
-        if self.core.busy != 0 {
+        if self.in_core() {
             panic!("Cannot exit core task");
         }
 
@@ -210,12 +290,12 @@ impl ManagerInner {
         }
     }
 
-    fn switch_task(&mut self, mut task: Box<Task>) -> Box<Task> {
-        if self.core.busy == 0 {
+    fn switch_task(&mut self, mut task: Task) -> Task {
+        if !self.in_core() {
             panic!("Tried to switch tasks while not in core task");
         }
 
-        if task.busy != 0 {
+        if task.inner.busy != 0 {
             panic!("Tried to execute a busy task");
         }
 
@@ -225,11 +305,11 @@ impl ManagerInner {
                  : "=*m"(&mut _fxsave_task)
                  ::: "intel");
 
-            ptr::copy(&mut _fxsave_task, self.core.context.fxsave.as_mut_ptr(),
-                      self.core.context.fxsave.len());
+            ptr::copy(&mut _fxsave_task, self.core.inner.context.fxsave.as_mut_ptr(),
+                      self.core.inner.context.fxsave.len());
 
-            ptr::copy(task.context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
-                      task.context.fxsave.len());
+            ptr::copy(task.inner.context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
+                      task.inner.context.fxsave.len());
 
             asm!("fxrstor $0"
                  :: "*m"(&_fxsave_task)
@@ -237,16 +317,16 @@ impl ManagerInner {
 
             debug!("Executing task");
 
-            task.busy = !0;
+            task.inner.busy = !0;
 
             self.current = Some(task);
 
-            _do_execute(&self.current.as_ref().unwrap().context.regs,
-                        &mut self.core.busy, &mut self.core.context.regs);
+            _do_execute(&self.current.as_ref().unwrap().inner.context.regs,
+                        &mut self.core.inner.busy, &mut self.core.inner.context.regs);
 
             let mut task = self.current.take().unwrap();
 
-            task.busy = 0;
+            task.inner.busy = 0;
 
             debug!("Switched back");
 
@@ -255,15 +335,17 @@ impl ManagerInner {
     }
 
     fn switch_core(&mut self) {
+        // NOTE: this mechanism will probably have to change
+
         // switch back to the core task
-        if self.core.busy != 0 {
+        if self.in_core() {
             panic!("Tried to switch back to core task while in core task");
         }
 
         let mut task = self.current.as_mut()
             .expect("Tried to switch to core, but there was no current task");
 
-        if task.busy == 0 {
+        if task.inner.busy == 0 {
             panic!("Tried to switch te core, but current task was not busy");
         }
 
@@ -273,11 +355,11 @@ impl ManagerInner {
                  : "=*m"(&mut _fxsave_task)
                  ::: "intel");
 
-            ptr::copy(&mut _fxsave_task as *mut u8, task.context.fxsave.as_mut_ptr(),
-                      task.context.fxsave.len());
+            ptr::copy(&mut _fxsave_task as *mut u8, task.inner.context.fxsave.as_mut_ptr(),
+                      task.inner.context.fxsave.len());
 
-            ptr::copy(self.core.context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
-                      self.core.context.fxsave.len());
+            ptr::copy(self.core.inner.context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
+                      self.core.inner.context.fxsave.len());
 
             asm!("fxrstor $0"
                  :: "*m"(&_fxsave_task)
@@ -285,8 +367,8 @@ impl ManagerInner {
 
             debug!("Switching back to core");
 
-            _do_execute(&self.core.context.regs,
-                        &mut task.busy, &mut task.context.regs);
+            _do_execute(&self.core.inner.context.regs,
+                        &mut task.inner.busy, &mut task.inner.context.regs);
 
             debug!("Switched back to task");
         }
@@ -302,8 +384,8 @@ impl Context {
     }
 }
 
-impl Task {
-    pub fn create(level: PrivilegeLevel, entry: extern "C" fn() -> !, stack: Stack) -> Task {
+impl TaskInner {
+    pub fn create(level: PrivilegeLevel, entry: extern "C" fn() -> !, stack: Stack) -> TaskInner {
         // create a blank context
         let mut context = Context::empty();
 
@@ -332,7 +414,7 @@ impl Task {
         context.regs.fs = 0x02 << 3;
         context.regs.gs = 0x02 << 3;
 
-        Task {
+        TaskInner {
             context: context,
             entry: entry,
             level: level,

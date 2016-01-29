@@ -1,4 +1,5 @@
-#[repr(packed)]
+#[allow(dead_code)] // may be used more later
+#[repr(C, packed)]
 pub struct Context {
     rax: u64,
     rbx: u64,

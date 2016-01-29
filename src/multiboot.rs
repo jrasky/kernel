@@ -1,12 +1,7 @@
-use collections::{Vec, String};
+use collections::String;
 
-use core::fmt;
 use core::slice;
 use core::str;
-use core::ptr;
-use core::mem;
-
-use alloc::raw_vec::RawVec;
 
 use elfloader::elf;
 

@@ -17,15 +17,27 @@ extern "C" {
     fn _load_context(regs: *mut Regs);
 }
 
-extern "C" fn _dummy_entry() {
+extern "C" fn _dummy_entry() -> ! {
     unreachable!("Tried to entry dummy entry");
 }
 
 static mut MANAGER: Manager = Manager::new();
 
+pub fn exit() -> ! {
+    unsafe {
+        MANAGER.exit()
+    }
+}
+
+pub fn switch_task(mut task: Box<Task>) -> Box<Task> {
+    unsafe {
+        MANAGER.switch_task(task)
+    }
+}
+
 pub fn switch_core() {
     unsafe {
-        MANAGER.switch_core();
+        MANAGER.switch_core()
     }
 }
 
@@ -43,7 +55,8 @@ struct Manager {
 
 struct ManagerInner {
     core: Task,
-    tasks: VecDeque<Task>
+    tasks: VecDeque<Task>,
+    current: Option<Box<Task>>
 }
 
 #[repr(packed)]
@@ -87,10 +100,11 @@ struct Context {
 
 pub struct Task {
     context: Context,
-    entry: extern "C" fn(),
+    entry: extern "C" fn() -> !,
     level: PrivilegeLevel,
     stack: Stack,
-    busy: u16
+    busy: u16,
+    done: bool
 }
 
 impl Regs {
@@ -144,9 +158,13 @@ impl Manager {
         }
     }
 
+    pub fn exit(&mut self) -> ! {
+        self.get_inner().exit()
+    }
+
     #[inline]
-    pub fn switch_task(&mut self, context: &mut Context) {
-        self.get_inner().switch_task(context)
+    pub fn switch_task(&mut self, mut task: Box<Task>) -> Box<Task> {
+        self.get_inner().switch_task(task)
     }
 
     #[inline]
@@ -163,15 +181,42 @@ impl ManagerInner {
                 entry: _dummy_entry,
                 level: PrivilegeLevel::CORE,
                 stack: unsafe {Stack::kernel()},
-                busy: !0
+                busy: !0,
+                done: false
             },
-            tasks: VecDeque::new()
+            tasks: VecDeque::new(),
+            current: None
         }
     }
 
-    fn switch_task(&mut self, context: &mut Context) {
+    fn exit(&mut self) -> ! {
+        if self.core.busy != 0 {
+            panic!("Cannot exit core task");
+        }
+
+        if let Some(mut task) = self.current.take() {
+            debug!("Exiting task");
+            task.set_done();
+
+            // restore current task
+            self.current = Some(task);
+
+            // switch back to core
+            self.switch_core();
+
+            unreachable!("Switched back to exited task");
+        } else {
+            panic!("Tried to exit, but there was no current task");
+        }
+    }
+
+    fn switch_task(&mut self, mut task: Box<Task>) -> Box<Task> {
         if self.core.busy == 0 {
             panic!("Tried to switch tasks while not in core task");
+        }
+
+        if task.busy != 0 {
+            panic!("Tried to execute a busy task");
         }
 
         unsafe {
@@ -183,8 +228,8 @@ impl ManagerInner {
             ptr::copy(&mut _fxsave_task, self.core.context.fxsave.as_mut_ptr(),
                       self.core.context.fxsave.len());
 
-            ptr::copy(context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
-                      context.fxsave.len());
+            ptr::copy(task.context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
+                      task.context.fxsave.len());
 
             asm!("fxrstor $0"
                  :: "*m"(&_fxsave_task)
@@ -192,9 +237,20 @@ impl ManagerInner {
 
             debug!("Executing task");
 
-            _do_execute(&context.regs, &mut self.core.busy, &mut self.core.context.regs);
+            task.busy = !0;
+
+            self.current = Some(task);
+
+            _do_execute(&self.current.as_ref().unwrap().context.regs,
+                        &mut self.core.busy, &mut self.core.context.regs);
+
+            let mut task = self.current.take().unwrap();
+
+            task.busy = 0;
 
             debug!("Switched back");
+
+            task
         }
     }
 
@@ -204,7 +260,22 @@ impl ManagerInner {
             panic!("Tried to switch back to core task while in core task");
         }
 
+        let mut task = self.current.as_mut()
+            .expect("Tried to switch to core, but there was no current task");
+
+        if task.busy == 0 {
+            panic!("Tried to switch te core, but current task was not busy");
+        }
+
         unsafe {
+            // save our 
+            asm!("fxsave $0"
+                 : "=*m"(&mut _fxsave_task)
+                 ::: "intel");
+
+            ptr::copy(&mut _fxsave_task as *mut u8, task.context.fxsave.as_mut_ptr(),
+                      task.context.fxsave.len());
+
             ptr::copy(self.core.context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
                       self.core.context.fxsave.len());
 
@@ -213,10 +284,11 @@ impl ManagerInner {
                  :: "intel");
 
             debug!("Switching back to core");
-            
-            _do_execute_nobranch(&self.core.context.regs);
 
-            unreachable!("_do_execute_nobranch() returned");
+            _do_execute(&self.core.context.regs,
+                        &mut task.busy, &mut task.context.regs);
+
+            debug!("Switched back to task");
         }
     }
 }
@@ -231,7 +303,7 @@ impl Context {
 }
 
 impl Task {
-    pub fn create(level: PrivilegeLevel, entry: extern "C" fn(), stack: Stack) -> Task {
+    pub fn create(level: PrivilegeLevel, entry: extern "C" fn() -> !, stack: Stack) -> Task {
         // create a blank context
         let mut context = Context::empty();
 
@@ -265,20 +337,16 @@ impl Task {
             entry: entry,
             level: level,
             stack: stack,
-            busy: 0
+            busy: 0,
+            done: false
         }
     }
 
-    pub fn execute(&mut self) {
-        // save core task
+    pub fn set_done(&mut self) {
+        self.done = true;
+    }
 
-        if self.busy == 0 {
-            // start task
-            self.busy = !0;
-            unsafe {MANAGER.switch_task(&mut self.context);}
-        } else {
-            // clean up
-            self.busy = 0;
-        }
+    pub fn is_done(&mut self) -> bool {
+        self.done
     }
 }

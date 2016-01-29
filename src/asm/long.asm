@@ -206,12 +206,12 @@ _load_context:
 _do_execute:
     ;; rdi is a pointer to the context after the fxsave area
     ;; rsi is a pointer to the branch factor
-    ;; rdx is a pointer to the core context registers
+    ;; rdx is a pointer to the return context registers
 
     ;; note that this makes bad assumptions
     ;; fix with swapgs etc once I get around to it
 
-    ;; save core context
+    ;; save return context
     xchg rdi, rdx
     call _load_context
     xchg rdi, rdx

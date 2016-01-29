@@ -27,6 +27,7 @@ use core::ptr;
 use core::mem;
 
 use alloc::raw_vec::RawVec;
+use alloc::boxed::Box;
 
 use constants::*;
 
@@ -54,9 +55,28 @@ extern "C" {
     fn _gp_handler();
 }
 
-extern "C" fn test_task() {
+extern "C" fn test_task() -> ! {
     info!("Hello from a task!");
-    cpu::task::switch_core();
+
+    for x in 0..7 {
+        info!("x: {}", x);
+        cpu::task::switch_core();
+    }
+
+    info!("Task 1 done!");
+    cpu::task::exit();
+}
+
+extern "C" fn test_task_2() -> ! {
+    info!("Hello from another task!");
+
+    for x2 in 0..5 {
+        info!("x2: {}", x2);
+        cpu::task::switch_core();
+    }
+
+    info!("Task 2 done!");
+    cpu::task::exit();
 }
 
 #[no_mangle]
@@ -125,10 +145,21 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
         debug!("Installed IDT");
     }
 
-    let mut task = cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task,
-                                           cpu::stack::Stack::create(0x10000));
+    let mut task1 = Box::new(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task,
+                                                     cpu::stack::Stack::create(0x1000)));
 
-    task.execute();
+    let mut task2 = Box::new(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_2,
+                                                     cpu::stack::Stack::create(0x1000)));
+
+    while !task1.is_done() || !task2.is_done() {
+        if !task1.is_done() {
+            task1 = cpu::task::switch_task(task1);
+        }
+
+        if !task2.is_done() {
+            task2 = cpu::task::switch_task(task2);
+        }
+    }
 
     unreachable!("kernel_main tried to return");
 }

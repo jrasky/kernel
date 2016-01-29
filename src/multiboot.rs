@@ -26,13 +26,15 @@ struct ElfSymbolTag {
     size: u32,
     num: u32,
     entsize: u32,
-    shndx: u32
+    shndx: u32,
 }
 
 unsafe fn parse_elf(ptr: *const u32) {
     let info = (ptr as *const ElfSymbolTag).as_ref().unwrap();
 
-    let sections = slice::from_raw_parts((ptr as *const ElfSymbolTag).offset(1) as *const elf::SectionHeader, info.num as usize);
+    let sections =
+        slice::from_raw_parts((ptr as *const ElfSymbolTag).offset(1) as *const elf::SectionHeader,
+                              info.num as usize);
 
     let mut sum: u64 = 0;
 
@@ -76,7 +78,7 @@ unsafe fn parse_cmdline(ptr: *const u32) {
                 }
 
                 acc = format!("");
-            },
+            }
             ' ' => {
                 if let Some(ref item) = item {
                     parse_command(item, &acc);
@@ -84,7 +86,7 @@ unsafe fn parse_cmdline(ptr: *const u32) {
 
                 item = None;
                 acc.clear();
-            },
+            }
             ch => {
                 acc.push(ch);
             }
@@ -161,16 +163,13 @@ unsafe fn parse_memory(ptr: *const u32) {
                     entry.base_addr as usize
                 };
 
-                if image_begin <= base_addr
-                    && base_addr <= image_end
-                    && base_addr + entry.length as usize > image_end {
+                if image_begin <= base_addr && base_addr <= image_end &&
+                   base_addr + entry.length as usize > image_end {
                     memory::register(image_end as *mut memory::Opaque,
                                      base_addr + entry.length as usize - image_end);
-                } else if base_addr < image_begin
-                    && image_end > base_addr + entry.length as usize
-                    && base_addr + entry.length as usize > image_begin {
-                    memory::register(image_begin as *mut memory::Opaque,
-                                     base_addr - image_begin);
+                } else if base_addr < image_begin && image_end > base_addr + entry.length as usize &&
+                   base_addr + entry.length as usize > image_begin {
+                    memory::register(image_begin as *mut memory::Opaque, base_addr - image_begin);
                 } else if base_addr + (entry.length as usize) < image_begin {
                     memory::register(base_addr as *mut memory::Opaque, entry.length as usize);
                 } else {

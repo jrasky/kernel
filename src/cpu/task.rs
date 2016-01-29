@@ -20,55 +20,45 @@ extern "C" fn _dummy_entry() -> ! {
 static mut MANAGER: Manager = Manager::new();
 
 pub fn run_next() -> bool {
-    unsafe {
-        MANAGER.run_next()
-    }
+    unsafe { MANAGER.run_next() }
 }
 
 pub fn exit() -> ! {
-    unsafe {
-        MANAGER.exit()
-    }
+    unsafe { MANAGER.exit() }
 }
 
 pub fn add(task: Task) {
-    unsafe {
-        MANAGER.add(task)
-    }
+    unsafe { MANAGER.add(task) }
 }
 
 #[allow(dead_code)] // may be used in the future
 pub fn switch_task(task: Task) -> Task {
-    unsafe {
-        MANAGER.switch_task(task)
-    }
+    unsafe { MANAGER.switch_task(task) }
 }
 
 pub fn switch_core() {
-    unsafe {
-        MANAGER.switch_core()
-    }
+    unsafe { MANAGER.switch_core() }
 }
 
 #[repr(u8)]
 pub enum PrivilegeLevel {
-    CORE = 0,       // privileged instructions
-    #[allow(dead_code)] // may be used later
-    DRIVER = 1,     // permissioned-mapped i/o
-    #[allow(dead_code)] // may be used later
-    EXECUTIVE = 2,  // identity page-map
-    #[allow(dead_code)] // may be used later
-    USER = 3        // isolated
+    CORE = 0, // privileged instructions
+    #[allow(dead_code)]
+    DRIVER = 1, // permissioned-mapped i/o
+    #[allow(dead_code)]
+    EXECUTIVE = 2, // identity page-map
+    #[allow(dead_code)]
+    USER = 3, // isolated
 }
 
 struct Manager {
-    inner: *mut ManagerInner
+    inner: *mut ManagerInner,
 }
 
 struct ManagerInner {
     core: Task,
     tasks: VecDeque<Task>,
-    current: Option<Task>
+    current: Option<Task>,
 }
 
 #[repr(C, packed)]
@@ -101,37 +91,35 @@ struct Regs {
     ds: u16,
     es: u16,
     fs: u16,
-    gs: u16
+    gs: u16,
 }
 
 struct Context {
     // FP/MMX/SSE state
     fxsave: [u8; 0x200],
-    regs: Regs
+    regs: Regs,
 }
 
 pub struct Task {
-    inner: Box<TaskInner>
+    inner: Box<TaskInner>,
 }
 
 struct TaskInner {
     context: Context,
-    #[allow(dead_code)] // may be used later
+    #[allow(dead_code)]
     entry: extern "C" fn() -> !,
-    #[allow(dead_code)] // may be used later
+    #[allow(dead_code)]
     level: PrivilegeLevel,
-    #[allow(dead_code)] // may be used later
+    #[allow(dead_code)]
     stack: Stack,
     busy: u16,
-    done: bool
+    done: bool,
 }
 
 impl Task {
     #[inline]
     pub fn create(level: PrivilegeLevel, entry: extern "C" fn() -> !, stack: Stack) -> Task {
-        Task {
-            inner: Box::new(TaskInner::create(level, entry, stack))
-        }
+        Task { inner: Box::new(TaskInner::create(level, entry, stack)) }
     }
 
     #[inline]
@@ -171,16 +159,14 @@ impl Regs {
             ds: 0,
             es: 0,
             fs: 0,
-            gs: 0
+            gs: 0,
         }
     }
 }
 
 impl Manager {
     const fn new() -> Manager {
-        Manager {
-            inner: ptr::null_mut()
-        }
+        Manager { inner: ptr::null_mut() }
     }
 
     #[inline]
@@ -230,13 +216,13 @@ impl ManagerInner {
                     context: Context::empty(),
                     entry: _dummy_entry,
                     level: PrivilegeLevel::CORE,
-                    stack: unsafe {Stack::kernel()},
+                    stack: unsafe { Stack::kernel() },
                     busy: !0,
-                    done: false
-                })
+                    done: false,
+                }),
             },
             tasks: VecDeque::new(),
-            current: None
+            current: None,
         }
     }
 
@@ -300,15 +286,17 @@ impl ManagerInner {
         }
 
         unsafe {
-            // save our 
+            // save our
             asm!("fxsave $0"
                  : "=*m"(&mut _fxsave_task)
                  ::: "intel");
 
-            ptr::copy(&mut _fxsave_task, self.core.inner.context.fxsave.as_mut_ptr(),
+            ptr::copy(&mut _fxsave_task,
+                      self.core.inner.context.fxsave.as_mut_ptr(),
                       self.core.inner.context.fxsave.len());
 
-            ptr::copy(task.inner.context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
+            ptr::copy(task.inner.context.fxsave.as_ptr(),
+                      &mut _fxsave_task as *mut u8,
                       task.inner.context.fxsave.len());
 
             asm!("fxrstor $0"
@@ -322,7 +310,8 @@ impl ManagerInner {
             self.current = Some(task);
 
             _do_execute(&self.current.as_ref().unwrap().inner.context.regs,
-                        &mut self.core.inner.busy, &mut self.core.inner.context.regs);
+                        &mut self.core.inner.busy,
+                        &mut self.core.inner.context.regs);
 
             let mut task = self.current.take().unwrap();
 
@@ -342,23 +331,26 @@ impl ManagerInner {
             panic!("Tried to switch back to core task while in core task");
         }
 
-        let mut task = self.current.as_mut()
-            .expect("Tried to switch to core, but there was no current task");
+        let mut task = self.current
+                           .as_mut()
+                           .expect("Tried to switch to core, but there was no current task");
 
         if task.inner.busy == 0 {
             panic!("Tried to switch te core, but current task was not busy");
         }
 
         unsafe {
-            // save our 
+            // save our
             asm!("fxsave $0"
                  : "=*m"(&mut _fxsave_task)
                  ::: "intel");
 
-            ptr::copy(&mut _fxsave_task as *mut u8, task.inner.context.fxsave.as_mut_ptr(),
+            ptr::copy(&mut _fxsave_task as *mut u8,
+                      task.inner.context.fxsave.as_mut_ptr(),
                       task.inner.context.fxsave.len());
 
-            ptr::copy(self.core.inner.context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
+            ptr::copy(self.core.inner.context.fxsave.as_ptr(),
+                      &mut _fxsave_task as *mut u8,
                       self.core.inner.context.fxsave.len());
 
             asm!("fxrstor $0"
@@ -368,7 +360,8 @@ impl ManagerInner {
             debug!("Switching back to core");
 
             _do_execute(&self.core.inner.context.regs,
-                        &mut task.inner.busy, &mut task.inner.context.regs);
+                        &mut task.inner.busy,
+                        &mut task.inner.context.regs);
 
             debug!("Switched back to task");
         }
@@ -379,7 +372,7 @@ impl Context {
     pub const fn empty() -> Context {
         Context {
             fxsave: [0; 0x200],
-            regs: Regs::empty()
+            regs: Regs::empty(),
         }
     }
 }
@@ -397,7 +390,8 @@ impl TaskInner {
                  ::: "intel");
 
             // copy fxsave area
-            ptr::copy(&mut _fxsave_task, context.fxsave.as_mut_ptr(),
+            ptr::copy(&mut _fxsave_task,
+                      context.fxsave.as_mut_ptr(),
                       context.fxsave.len());
         }
 
@@ -420,7 +414,7 @@ impl TaskInner {
             level: level,
             stack: stack,
             busy: 0,
-            done: false
+            done: false,
         }
     }
 

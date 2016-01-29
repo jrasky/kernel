@@ -1,4 +1,5 @@
-#[allow(dead_code)] // may be used more later
+#[allow(dead_code)]
+// may be used more later
 #[repr(C, packed)]
 pub struct Context {
     rax: u64,
@@ -23,7 +24,7 @@ pub struct Context {
     cs: u64,
     rflags: u64,
     rsp: u64,
-    ss: u64
+    ss: u64,
 }
 
 #[no_mangle]
@@ -37,5 +38,7 @@ pub unsafe extern "C" fn interrupt_breakpoint(context: *const Context) {
 pub unsafe extern "C" fn interrupt_general_protection_fault(context: *const Context) {
     let context = context.as_ref().unwrap();
 
-    panic!("General protection fault at 0x{:x}, error 0x{:x}", context.rip, context.error_code);
+    panic!("General protection fault at 0x{:x}, error 0x{:x}",
+           context.rip,
+           context.error_code);
 }

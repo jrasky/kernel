@@ -11,7 +11,7 @@ extern "C" {
 pub struct Stack {
     buffer: *mut u8,
     size: usize,
-    drop: bool
+    drop: bool,
 }
 
 impl Drop for Stack {
@@ -27,9 +27,9 @@ impl Drop for Stack {
 impl Stack {
     pub fn create(size: usize) -> Stack {
         Stack {
-            buffer: unsafe {heap::allocate(size, 16)},
+            buffer: unsafe { heap::allocate(size, 16) },
             size: size,
-            drop: true
+            drop: true,
         }
     }
 
@@ -37,12 +37,12 @@ impl Stack {
         Stack {
             buffer: &_stack_top as *const _ as *mut _,
             size: STACK_SIZE,
-            drop: false
+            drop: false,
         }
     }
 
     pub fn get_ptr(&self) -> *mut Opaque {
         trace!("stack {:?} size {:x}", self.buffer, self.size);
-        unsafe {self.buffer.offset(self.size as isize) as *mut _}
+        unsafe { self.buffer.offset(self.size as isize) as *mut _ }
     }
 }

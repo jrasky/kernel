@@ -10,7 +10,7 @@ struct Descriptor {
     base: u64,
     size: u32,
     privilege_level: u8,
-    busy: bool
+    busy: bool,
 }
 
 pub struct Segment {
@@ -18,22 +18,22 @@ pub struct Segment {
     privilege_level: u8,
     io_offset: u16,
     interrupt_stack_table: [Option<Stack>; 7],
-    stack_pointers: [Option<Stack>; 3]
+    stack_pointers: [Option<Stack>; 3],
 }
 
 impl Descriptor {
     fn as_entry(&self) -> [u64; 2] {
         trace!("a1: {:?}", self.size);
         trace!("a2: {:?}", self.base);
-        let mut lower =
-            ((self.base & (0xff << 24)) << 32) | ((self.base & 0xffffff) << 16) // base address
-            | (self.size & (0xf << 16)) as u64 | (self.size - 1 & 0xffff) as u64 // limit
-            | (1 << 47) | (1 << 43) | (1 << 40); // present, 64-bit, TSS
+        let mut lower = ((self.base & (0xff << 24)) << 32) | ((self.base & 0xffffff) << 16) |
+                        (self.size & (0xf << 16)) as u64 |
+                        (self.size - 1 & 0xffff) as u64 | (1 << 47) |
+                        (1 << 43) | (1 << 40); // present, 64-bit, TSS
 
         assert!(self.privilege_level < 4);
 
         lower |= (self.privilege_level as u64) << 45; // privilege level
-        
+
         if self.busy {
             lower |= 1 << 41; // busy
         }
@@ -46,13 +46,15 @@ impl Descriptor {
 
 impl Segment {
     pub fn new(interrupt_stack_table: [Option<Stack>; 7],
-               stack_pointers: [Option<Stack>; 3], privilege_level: u8) -> Segment {
+               stack_pointers: [Option<Stack>; 3],
+               privilege_level: u8)
+               -> Segment {
         Segment {
             buffer: RawVec::with_capacity(0x68),
             privilege_level: privilege_level,
             io_offset: 0, // don't handle this right now
             interrupt_stack_table: interrupt_stack_table,
-            stack_pointers: stack_pointers
+            stack_pointers: stack_pointers,
         }
     }
 
@@ -61,10 +63,10 @@ impl Segment {
             base: self.buffer.ptr() as u64,
             size: 0x68,
             privilege_level: self.privilege_level,
-            busy: false
+            busy: false,
         };
 
-        unsafe {ptr::copy(desc.as_entry().as_ptr(), buffer, 2)};
+        unsafe { ptr::copy(desc.as_entry().as_ptr(), buffer, 2) };
     }
 
     pub unsafe fn save(&mut self) -> *mut u8 {
@@ -87,13 +89,16 @@ impl Segment {
         tss = tss.offset(4);
 
         // stack pointers
-        let ptrs: Vec<u64> = self.stack_pointers.iter().map(|stack| {
-            if let &Some(ref stack) = stack {
-                stack.get_ptr() as u64
-            } else {
-                0
-            }
-        }).collect();
+        let ptrs: Vec<u64> = self.stack_pointers
+                                 .iter()
+                                 .map(|stack| {
+                                     if let &Some(ref stack) = stack {
+                                         stack.get_ptr() as u64
+                                     } else {
+                                         0
+                                     }
+                                 })
+                                 .collect();
         ptr::copy(ptrs.as_ptr(), tss as *mut u64, 3);
         tss = tss.offset(8 as isize * 3);
 
@@ -102,13 +107,16 @@ impl Segment {
         tss = tss.offset(8);
 
         // interrupt stack table
-        let ptrs: Vec<u64> = self.interrupt_stack_table.iter().map(|stack| {
-            if let &Some(ref stack) = stack {
-                stack.get_ptr() as u64
-            } else {
-                0
-            }
-        }).collect();
+        let ptrs: Vec<u64> = self.interrupt_stack_table
+                                 .iter()
+                                 .map(|stack| {
+                                     if let &Some(ref stack) = stack {
+                                         stack.get_ptr() as u64
+                                     } else {
+                                         0
+                                     }
+                                 })
+                                 .collect();
         ptr::copy(ptrs.as_ptr(), tss as *mut u64, 7);
         tss = tss.offset(8 as isize * 7);
 

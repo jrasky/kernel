@@ -8,7 +8,7 @@ use alloc::raw_vec::RawVec;
 #[derive(Debug)]
 struct Register {
     size: u16,
-    base: u64
+    base: u64,
 }
 
 #[derive(Debug)]
@@ -16,12 +16,12 @@ pub struct Descriptor {
     target: u64,
     segment: u16,
     present: bool,
-    stack: u8
+    stack: u8,
 }
 
 pub struct Table {
     buffer: RawVec<u8>,
-    descriptors: Vec<Descriptor>
+    descriptors: Vec<Descriptor>,
 }
 
 impl Descriptor {
@@ -30,7 +30,7 @@ impl Descriptor {
             target: 0,
             segment: 0,
             present: false,
-            stack: 0
+            stack: 0,
         }
     }
 
@@ -39,7 +39,7 @@ impl Descriptor {
             target: target,
             segment: 1 << 3, // second segment, GDT, RPL 0
             present: true,
-            stack: stack
+            stack: stack,
         }
     }
 
@@ -53,10 +53,9 @@ impl Descriptor {
         // this is because it's not very rustic to be reentrant, so avoid it
         // if possible
 
-        let lower = ((self.target & (0xffff << 16)) << 32) | (self.target & 0xffff) // base address
-            | ((self.segment as u64) << 16) // Segment Selector
-            | ((self.stack as u64) << 32) // IST selector
-            | (1 << 47) | (0x0e << 40); // present, interrupt gate
+        let lower = ((self.target & (0xffff << 16)) << 32) | (self.target & 0xffff) |
+                    ((self.segment as u64) << 16) |
+                    ((self.stack as u64) << 32) | (1 << 47) | (0x0e << 40); // present, interrupt gate
 
         trace!("{:?}, {:?}", lower, self.target >> 32);
 
@@ -68,15 +67,12 @@ impl Table {
     pub fn new(descriptors: Vec<Descriptor>) -> Table {
         Table {
             buffer: RawVec::new(),
-            descriptors: descriptors
+            descriptors: descriptors,
         }
     }
 
     pub unsafe fn install(&mut self) {
-        static mut REGISTER: Register = Register {
-            size: 0,
-            base: 0
-        };
+        static mut REGISTER: Register = Register { size: 0, base: 0 };
 
         // write out IDT
         let res = self.save();
@@ -104,7 +100,7 @@ impl Table {
             // do nothing if we have no descriptors
             return Register {
                 size: 0,
-                base: self.buffer.ptr() as u64
+                base: self.buffer.ptr() as u64,
             };
         }
 
@@ -130,7 +126,7 @@ impl Table {
 
         Register {
             size: (idt as u64 - top - 1) as u16,
-            base: top
+            base: top,
         }
     }
 }

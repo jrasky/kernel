@@ -1,21 +1,36 @@
+use collections::VecDeque;
+
+use core::ptr;
+
+use spin::Mutex;
+
 use cpu::stack::Stack;
 
 extern "C" {
-    static _fxsave_task: u8;
+    static mut _fxsave_task: u8;
+    fn _do_execute(regs: *const Regs);
 }
 
+static MANAGER: Mutex<Manager> = Mutex::new(Manager {
+    core: None,
+    tasks: None
+});
+
 #[repr(u8)]
-enum PrivilegeLevel {
+pub enum PrivilegeLevel {
     CORE = 0,       // privileged instructions
     DRIVER = 1,     // permissioned-mapped i/o
     EXECUTIVE = 2,  // identity page-map
     USER = 3        // isolated
 }
 
-struct Context {
-    // FP/MMX/SSE state
-    fxsave: [u8; 0x200],
+struct Manager {
+    core: Option<Task>,
+    tasks: Option<VecDeque<Task>>
+}
 
+#[repr(packed)]
+struct Regs {
     // GP register state
     rax: u64,
     rbx: u64,
@@ -47,17 +62,23 @@ struct Context {
     gs: u16
 }
 
-struct Task {
+struct Context {
+    // FP/MMX/SSE state
+    fxsave: [u8; 0x200],
+    regs: Regs
+}
+
+pub struct Task {
     context: Context,
     entry: extern "C" fn(),
     level: PrivilegeLevel,
-    stack: Stack
+    stack: Stack,
+    busy: bool
 }
 
-impl Default for Context {
-    fn default() -> Context {
-        Context {
-            fxsave: [0; 0x200],
+impl Regs {
+    pub const fn empty() -> Regs {
+        Regs {
             rax: 0,
             rbx: 0,
             rcx: 0,
@@ -86,27 +107,75 @@ impl Default for Context {
     }
 }
 
+impl Context {
+    pub const fn empty() -> Context {
+        Context {
+            fxsave: [0; 0x200],
+            regs: Regs::empty()
+        }
+    }
+}
+
 impl Task {
-    fn create(level: PrivilegeLevel, entry: extern "C" fn(), stack: Stack) -> Task {
+    pub fn create(level: PrivilegeLevel, entry: extern "C" fn(), stack: Stack) -> Task {
         unsafe {
             // fxsave, use current floating point state in task
-            // TODO: actually figure out how to create a clear state and use that
-            // instead
+            // TODO: generate a compliant FPU state instead of just using the current one
             asm!("fxsave $0"
-                 :: "i"(_fxsave_task)
-                 :: "intel");
+                 : "=*m"(&_fxsave_task)
+                 ::: "intel");
         }
 
-        let mut context = Context::default();
+        // create a blank context
+        let mut context = Context::empty();
 
-        context.rip = entry as u64;
-        context.rsp = stack.get_ptr() as u64;
+        // set the initial parameters
+        context.regs.rip = entry as u64;
+        // correctly align the stack. Assumes the stack pointer is 16-bytes aligned
+        context.regs.rsp = stack.get_ptr() as u64 - 0x08;
+
+        // only use kernel segments for now
+        context.regs.cs = 0x01 << 3; // second segment, GDT, RPL 0
+        context.regs.ss = 0x02 << 3; // third segment, GDT, RPL 0
+        context.regs.ds = 0x02 << 3;
+        context.regs.es = 0x02 << 3;
+        context.regs.fs = 0x02 << 3;
+        context.regs.gs = 0x02 << 3;
 
         Task {
             context: context,
             entry: entry,
             level: level,
-            stack: stack
+            stack: stack,
+            busy: false
         }
+    }
+
+    pub fn execute(&mut self) {
+        // save core task
+
+        if !self.busy {
+            // start task
+            unsafe {self.execute_inner();}
+        } else {
+            // clean up
+            self.busy = false;
+        }
+    }
+
+    unsafe fn execute_inner(&mut self) -> ! {
+        // copy fxsave for task to the fxsave area
+        ptr::copy(self.context.fxsave.as_ptr(), &mut _fxsave_task as *mut u8,
+                  self.context.fxsave.len());
+
+        // fxrstor
+        asm!("fxrstor $0"
+             :: "i"(_fxsave_task)
+             :: "intel");
+
+        // restore register values and jump to proceedure
+        _do_execute(&self.context.regs);
+
+        unreachable!("_do_execute() returned");
     }
 }

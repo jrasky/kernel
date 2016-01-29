@@ -9,6 +9,7 @@
 #![feature(stmt_expr_attributes)]
 #![feature(asm)]
 #![feature(num_bits_bytes)]
+#![feature(heap_api)]
 #![no_std]
 extern crate rlibc;
 extern crate spin;
@@ -51,6 +52,11 @@ pub use cpu::interrupt::{interrupt_breakpoint,
 extern "C" {
     fn _bp_handler();
     fn _gp_handler();
+}
+
+extern "C" fn test_task() {
+    info!("Hello from a task!");
+    panic!();
 }
 
 #[no_mangle]
@@ -118,6 +124,11 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
         debug!("Installed IDT");
     }
+
+    let mut task = cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task,
+                                           cpu::stack::Stack::create(0x10000));
+
+    task.execute();
 
     unreachable!("kernel_main tried to return");
 }

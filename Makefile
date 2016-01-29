@@ -7,7 +7,7 @@
 # http://opensource.org/licenses/MIT>, at your option. This file may not be
 # copied, modified, or distributed except according to those terms.
 
-SOURCES = multiboot2.asm bootstrap.asm long.asm kernel.rs memory/mod.rs memory/reserve.rs memory/simple.rs constants.rs error.rs log/mod.rs log/vga.rs
+SOURCES = multiboot2.asm bootstrap.asm long.asm kernel.rs multiboot.rs memory/mod.rs memory/reserve.rs memory/simple.rs constants.rs error.rs log/mod.rs log/vga.rs cpu/mod.rs cpu/init.rs cpu/interrupt.rs cpu/stack.rs cpu/task.rs
 
 SOURCE_DIR = src
 TARGET_DIR = target

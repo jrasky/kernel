@@ -11,6 +11,7 @@
     global _reload_segments
     global _bp_handler
     global _gp_handler
+    global _do_execute
 
     extern kernel_main
     extern _boot_info
@@ -166,3 +167,54 @@ _bp_handler:
 _gp_handler:
     jmp .with_error             ;has an error code
     interrupt_handler interrupt_general_protection_fault
+
+;;; Context switch and far jump
+
+_do_execute:
+    ;; rdi is a pointer to the context after the fxsave area
+
+    ;; note that this makes bad assumptions
+    ;; fix with swapgs etc once I get around to it
+
+    ;; rax: rdi + 0x00
+    mov rbx, [rdi + 0x08]
+    mov rcx, [rdi + 0x10]
+    mov rdx, [rdi + 0x18]
+    mov rbp, [rdi + 0x20]
+    mov rsi, [rdi + 0x28]
+    ;; mov rdi, [rdi + 0x30]
+    mov r8, [rdi + 0x38]
+    mov r9, [rdi + 0x40]
+    mov r10, [rdi + 0x48]
+    mov r11, [rdi + 0x50]
+    mov r12, [rdi + 0x58]
+    mov r13, [rdi + 0x60]
+    mov r14, [rdi + 0x68]
+    mov r15, [rdi + 0x70]
+    ;; rflags: 0x78
+    ;; rip: 0x80
+    ;; rsp: 0x88
+    ;; cs: 0x90
+    ;; ss: 0x92
+    mov ds, [rdi + 0x94]
+    mov es, [rdi + 0x96]
+    mov fs, [rdi + 0x98]
+    mov gs, [rdi + 0x9a]
+
+    ;; set up stack for iret
+    xor rax, rax
+    mov ax, WORD [rdi + 0x92]
+    push rax                    ;ss
+    push QWORD [rdi + 0x88]     ;rsp
+    push QWORD [rdi + 0x78]     ;rflags
+    xor rax, rax
+    mov ax, WORD [rdi + 0x90]   ;cs
+    push rax
+    push QWORD [rdi + 0x80]     ;rip
+
+    ;; restore our scratch registers
+    mov rax, [rdi]
+    mov rdi, [rdi + 0x30]
+
+    ;; iret to procedure
+    iretq

@@ -1,8 +1,14 @@
 use collections::VecDeque;
 
 use core::ptr;
+use core::mem;
 
 use alloc::boxed::Box;
+
+use alloc::heap;
+
+use core::sync::atomic::{AtomicUsize, Ordering};
+use core::cell::UnsafeCell;
 
 use cpu::stack::Stack;
 
@@ -100,7 +106,13 @@ struct Context {
 }
 
 pub struct Task {
-    inner: Box<TaskInner>,
+    inner: Box<UnsafeCell<TaskInner>>,
+    rref: Option<TaskRef>
+}
+
+pub struct TaskRef {
+    inner: *mut TaskInner, // borrowed
+    count: *mut AtomicUsize
 }
 
 struct TaskInner {
@@ -115,20 +127,74 @@ struct TaskInner {
     done: bool,
 }
 
+impl Drop for Task {
+    fn drop(&mut self) {
+        if let Some(ref mut rref) = self.rref {
+            // delete any task refs
+            unsafe {
+                rref.count.as_ref().unwrap().store(0, Ordering::Relaxed);
+                heap::deallocate(rref.count as *mut _, mem::size_of::<AtomicUsize>(), 8);
+            }
+        }
+    }
+}
+
+impl Clone for TaskRef {
+    fn clone(&self) -> TaskRef {
+        unsafe {self.count.as_ref().unwrap().fetch_add(1, Ordering::Relaxed)};
+
+        TaskRef {
+            inner: self.inner,
+            count: self.count
+        }
+    }
+}
+
+impl Drop for TaskRef {
+    fn drop(&mut self) {
+        unsafe {
+            if self.count.as_ref().unwrap().fetch_sub(1, Ordering::Relaxed) == 0 {
+                // no more references
+                heap::deallocate(self.count as *mut _, mem::size_of::<AtomicUsize>(), 8);
+            }
+        }
+    }
+}
+
 impl Task {
     #[inline]
     pub fn create(level: PrivilegeLevel, entry: extern "C" fn() -> !, stack: Stack) -> Task {
-        Task { inner: Box::new(TaskInner::create(level, entry, stack)) }
+        Task { 
+            inner: Box::new(UnsafeCell::new(TaskInner::create(level, entry, stack))),
+            rref: None
+        }
     }
 
     #[inline]
     pub fn set_done(&mut self) {
-        self.inner.set_done()
+        unsafe {self.inner.get().as_mut().unwrap().set_done()}
     }
 
     #[inline]
     pub fn is_done(&mut self) -> bool {
-        self.inner.is_done()
+        unsafe {self.inner.get().as_mut().unwrap().is_done()}
+    }
+
+    pub fn get_ref(&mut self) -> TaskRef {
+        if let Some(ref rref) = self.rref {
+            rref.clone()
+        } else {
+            let count = unsafe {heap::allocate(mem::size_of::<AtomicUsize>(), 8)} as *mut AtomicUsize;
+            unsafe {*count.as_mut().unwrap() = AtomicUsize::new(0)};
+
+            let rref = TaskRef {
+                inner: self.inner.get(),
+                count: count
+            };
+
+            self.rref = Some(rref.clone());
+            rref
+        }
     }
 }
 
@@ -211,23 +277,24 @@ impl ManagerInner {
     fn new() -> ManagerInner {
         ManagerInner {
             core: Task {
-                inner: Box::new(TaskInner {
+                inner: Box::new(UnsafeCell::new(TaskInner {
                     context: Context::empty(),
                     entry: _dummy_entry,
                     level: PrivilegeLevel::CORE,
                     stack: unsafe { Stack::kernel() },
                     busy: !0,
-                    done: false,
-                }),
+                    done: false
+                })),
+                rref: None
             },
             tasks: VecDeque::new(),
-            current: None,
+            current: None
         }
     }
 
     #[inline]
     fn in_core(&self) -> bool {
-        self.core.inner.busy != 0
+        unsafe {self.core.inner.get().as_ref().unwrap().busy != 0}
     }
 
     fn add(&mut self, task: Task) {
@@ -280,7 +347,8 @@ impl ManagerInner {
             panic!("Tried to switch tasks while not in core task");
         }
 
-        if task.inner.busy != 0 {
+
+        if unsafe {task.inner.get().as_ref().unwrap().busy} != 0 {
             panic!("Tried to execute a busy task");
         }
 
@@ -290,13 +358,13 @@ impl ManagerInner {
                  : "=*m"(&mut _fxsave_task)
                  ::: "intel");
 
-            ptr::copy(&mut _fxsave_task,
-                      self.core.inner.context.fxsave.as_mut_ptr(),
-                      self.core.inner.context.fxsave.len());
+            ptr::copy(&_fxsave_task,
+                      self.core.inner.get().as_mut().unwrap().context.fxsave.as_mut_ptr(),
+                      self.core.inner.get().as_mut().unwrap().context.fxsave.len());
 
-            ptr::copy(task.inner.context.fxsave.as_ptr(),
+            ptr::copy(task.inner.get().as_ref().unwrap().context.fxsave.as_ptr(),
                       &mut _fxsave_task as *mut u8,
-                      task.inner.context.fxsave.len());
+                      task.inner.get().as_ref().unwrap().context.fxsave.len());
 
             asm!("fxrstor $0"
                  :: "*m"(&_fxsave_task)
@@ -304,17 +372,17 @@ impl ManagerInner {
 
             debug!("Executing task");
 
-            task.inner.busy = !0;
+            task.inner.get().as_mut().unwrap().busy = !0;
 
             self.current = Some(task);
 
-            _do_execute(&self.current.as_ref().unwrap().inner.context.regs,
-                        &mut self.core.inner.busy,
-                        &mut self.core.inner.context.regs);
+            _do_execute(&self.current.as_ref().unwrap().inner.get().as_ref().unwrap().context.regs,
+                        &mut self.core.inner.get().as_mut().unwrap().busy,
+                        &mut self.core.inner.get().as_mut().unwrap().context.regs);
 
             let mut task = self.current.take().unwrap();
 
-            task.inner.busy = 0;
+            task.inner.get().as_mut().unwrap().busy = 0;
 
             debug!("Switched back");
 
@@ -334,7 +402,7 @@ impl ManagerInner {
                            .as_mut()
                            .expect("Tried to switch to core, but there was no current task");
 
-        if task.inner.busy == 0 {
+        if unsafe {task.inner.get().as_ref().unwrap().busy} == 0 {
             panic!("Tried to switch te core, but current task was not busy");
         }
 
@@ -344,13 +412,13 @@ impl ManagerInner {
                  : "=*m"(&mut _fxsave_task)
                  ::: "intel");
 
-            ptr::copy(&mut _fxsave_task as *mut u8,
-                      task.inner.context.fxsave.as_mut_ptr(),
-                      task.inner.context.fxsave.len());
+            ptr::copy(&_fxsave_task as *const u8,
+                      task.inner.get().as_mut().unwrap().context.fxsave.as_mut_ptr(),
+                      task.inner.get().as_ref().unwrap().context.fxsave.len());
 
-            ptr::copy(self.core.inner.context.fxsave.as_ptr(),
+            ptr::copy(self.core.inner.get().as_ref().unwrap().context.fxsave.as_ptr(),
                       &mut _fxsave_task as *mut u8,
-                      self.core.inner.context.fxsave.len());
+                      self.core.inner.get().as_ref().unwrap().context.fxsave.len());
 
             asm!("fxrstor $0"
                  :: "*m"(&_fxsave_task)
@@ -358,9 +426,9 @@ impl ManagerInner {
 
             debug!("Switching back to core");
 
-            _do_execute(&self.core.inner.context.regs,
-                        &mut task.inner.busy,
-                        &mut task.inner.context.regs);
+            _do_execute(&self.core.inner.get().as_ref().unwrap().context.regs,
+                        &mut task.inner.get().as_mut().unwrap().busy,
+                        &mut task.inner.get().as_mut().unwrap().context.regs);
 
             debug!("Switched back to task");
         }

@@ -1,4 +1,5 @@
 #![feature(lang_items)]
+#![feature(num_bits_bytes)]
 #![feature(ptr_as_ref)]
 #![feature(const_fn)]
 #![feature(unique)]
@@ -38,17 +39,12 @@ pub use memory::{__rust_allocate,
 pub use cpu::interrupt::{interrupt_breakpoint,
                          interrupt_general_protection_fault};
 
-extern "C" {
-    fn _bp_handler();
-    fn _gp_handler();
-}
-
 extern "C" fn test_task() -> ! {
     info!("Hello from a task!");
 
     for x in 0..7 {
         info!("x: {}", x);
-        cpu::task::switch_core();
+        cpu::task::release();
     }
 
     info!("Task 1 done!");
@@ -60,7 +56,7 @@ extern "C" fn test_task_2() -> ! {
 
     for x2 in 0..5 {
         info!("x2: {}", x2);
-        cpu::task::switch_core();
+        cpu::task::release();
     }
 
     info!("Task 2 done!");
@@ -72,67 +68,23 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // kernel main
     info!("Hello!");
 
-    debug!("Multiboot info at: {:#x}", boot_info as usize);
-
-    unsafe {
-        multiboot::parse_multiboot_tags(boot_info);
-    }
+    // parse multiboot info
+    unsafe { multiboot::parse_multiboot_tags(boot_info) };
 
     debug!("Done parsing tags");
 
-    // once we're done with multiboot info, we can safely exit reserve memory
+    // exit reserved memory
     memory::exit_reserved();
 
     debug!("Out of reserve memory");
 
-    // create a new GDT with a TSS
-    let tss = cpu::init::tss::Segment::new([None, None, None, None, None, None, None],
-                                           [None, None, None], 0);
+    // set up cpu data structures and other settings
+    // keep references around so we don't break things
+    let (gdt, idt) = cpu::init::setup();
 
-    let mut gdt = cpu::init::gdt::Table::new(vec![tss]);
+    info!("Starting tasks");
 
-    debug!("Created new GDT");
-
-    unsafe {
-        // install the gdt
-        gdt.install();
-
-        debug!("Installed GDT");
-
-        // set the task
-        gdt.set_task(0);
-
-        debug!("Set new task");
-    }
-
-    let mut descriptors = vec![];
-
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 0
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 1
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 2
-    descriptors.push(cpu::init::idt::Descriptor::new(_bp_handler as u64, 0)); // 3
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 4
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 5
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 6
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 7
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 8
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 9
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 10
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 11
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 13
-    descriptors.push(cpu::init::idt::Descriptor::new(_gp_handler as u64, 0)); // 14
-    descriptors.push(cpu::init::idt::Descriptor::placeholder()); // 15
-
-    let mut idt = cpu::init::idt::Table::new(descriptors);
-
-    debug!("Created IDT");
-
-    unsafe {
-        idt.install();
-
-        debug!("Installed IDT");
-    }
-
+    // start some tasks
     cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task,
                                            cpu::stack::Stack::create(0x1000)));
 

@@ -9,7 +9,6 @@ use cpu::stack::Stack;
 extern "C" {
     static mut _fxsave_task: u8;
     fn _do_execute(regs: *const Regs, busy: *mut u16, core_regs: *mut Regs);
-    fn _do_execute_nobranch(regs: *const Regs);
     fn _load_context(regs: *mut Regs);
 }
 
@@ -36,7 +35,7 @@ pub fn switch_task(task: Task) -> Task {
     unsafe { MANAGER.switch_task(task) }
 }
 
-pub fn switch_core() {
+pub fn release() {
     unsafe { MANAGER.switch_core() }
 }
 

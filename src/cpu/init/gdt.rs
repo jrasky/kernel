@@ -8,19 +8,19 @@ use core::ptr;
 #[derive(Debug)]
 struct Register {
     size: u16,
-    base: u64,
+    base: u64
 }
 
 pub struct Table {
     buffer: RawVec<u8>,
-    tss: Vec<super::tss::Segment>,
+    tss: Vec<super::tss::Segment>
 }
 
 impl Table {
     pub fn new(tss: Vec<super::tss::Segment>) -> Table {
         Table {
             buffer: RawVec::new(),
-            tss: tss,
+            tss: tss
         }
     }
 
@@ -36,7 +36,10 @@ impl Table {
     pub unsafe fn install(&mut self) {
         // lgdt needs a compile-time constant location
         // we basically have to use a mutable static for this
-        static mut REGISTER: Register = Register { size: 0, base: 0 };
+        static mut REGISTER: Register = Register {
+            size: 0,
+            base: 0
+        };
 
         // write out to buffer
         let res = self.save();
@@ -84,9 +87,11 @@ impl Table {
         let mut gdt = gdt as *mut u64;
 
         // first three entries are static
-        let header: [u64; 3] = [0, // null
-                                (1 << 44) | (1 << 47) | (1 << 41) | (1 << 43) | (1 << 53), // code
-                                (1 << 44) | (1 << 47) | (1 << 41)]; // data
+        let header: [u64; 3] = [
+            0, // null
+            (1 << 44) | (1 << 47) | (1 << 41) | (1 << 43) | (1 << 53), // code
+            (1 << 44) | (1 << 47) | (1 << 41) // data
+        ];
 
         trace!("{:?}", gdt);
         trace!("{:?}", header);
@@ -99,13 +104,13 @@ impl Table {
         // copy TSS descriptors
 
         for desc in self.tss.iter() {
-            desc.copy_register(gdt);
+            ptr::copy(desc.get_register().as_entry().as_ptr(), gdt, 2);
             gdt = gdt.offset(2);
         }
 
         Register {
             size: (gdt as u64 - top - 1) as u16,
-            base: top,
+            base: top
         }
     }
 }

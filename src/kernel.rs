@@ -80,7 +80,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
     // set up cpu data structures and other settings
     // keep references around so we don't break things
-    let (gdt, idt) = cpu::init::setup();
+    let (gdt, idt) = unsafe {cpu::init::setup()};
 
     info!("Starting tasks");
 

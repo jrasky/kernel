@@ -4,10 +4,11 @@ use core::ptr;
 use core::mem;
 
 use alloc::boxed::Box;
+use alloc::arc::{Arc, Weak};
 
 use alloc::heap;
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicUsize, AtomicPtr, Ordering};
 use core::cell::UnsafeCell;
 
 use cpu::stack::Stack;
@@ -110,9 +111,13 @@ pub struct Task {
     rref: Option<TaskRef>
 }
 
+#[derive(Clone)]
 pub struct TaskRef {
-    inner: *mut TaskInner, // borrowed
-    count: *mut AtomicUsize
+    inner: Arc<UnsafeCell<TaskRefInner>>
+}
+
+struct TaskRefInner {
+    task: *mut TaskInner
 }
 
 struct TaskInner {
@@ -129,34 +134,19 @@ struct TaskInner {
 
 impl Drop for Task {
     fn drop(&mut self) {
-        if let Some(ref mut rref) = self.rref {
-            // delete any task refs
+        if let Some(rref) = self.rref.take() {
             unsafe {
-                rref.count.as_ref().unwrap().store(0, Ordering::Relaxed);
-                heap::deallocate(rref.count as *mut _, mem::size_of::<AtomicUsize>(), 8);
+                // null out the reference to the inner task
+                rref.inner.get().as_mut().unwrap().task = ptr::null_mut();
             }
         }
     }
 }
 
-impl Clone for TaskRef {
-    fn clone(&self) -> TaskRef {
-        unsafe {self.count.as_ref().unwrap().fetch_add(1, Ordering::Relaxed)};
-
-        TaskRef {
-            inner: self.inner,
-            count: self.count
-        }
-    }
-}
-
-impl Drop for TaskRef {
-    fn drop(&mut self) {
+impl TaskRefInner {
+    fn get_inner(&self) -> Option<&mut TaskInner> {
         unsafe {
-            if self.count.as_ref().unwrap().fetch_sub(1, Ordering::Relaxed) == 0 {
-                // no more references
-                heap::deallocate(self.count as *mut _, mem::size_of::<AtomicUsize>(), 8);
-            }
+            self.task.as_mut()
         }
     }
 }
@@ -184,15 +174,14 @@ impl Task {
         if let Some(ref rref) = self.rref {
             rref.clone()
         } else {
-            let count = unsafe {heap::allocate(mem::size_of::<AtomicUsize>(), 8)} as *mut AtomicUsize;
-            unsafe {*count.as_mut().unwrap() = AtomicUsize::new(0)};
-
             let rref = TaskRef {
-                inner: self.inner.get(),
-                count: count
+                inner: Arc::new(UnsafeCell::new(TaskRefInner {
+                    task: unsafe {self.inner.get()}
+                }))
             };
 
             self.rref = Some(rref.clone());
+
             rref
         }
     }
@@ -342,7 +331,7 @@ impl ManagerInner {
         }
     }
 
-    fn switch_task(&mut self, mut task: Task) -> Task {
+    fn switch_task(&mut self, task: Task) -> Task {
         if !self.in_core() {
             panic!("Tried to switch tasks while not in core task");
         }

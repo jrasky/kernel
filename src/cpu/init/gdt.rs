@@ -16,6 +16,12 @@ pub struct Table {
     tss: Vec<super::tss::Segment>
 }
 
+impl Drop for Table {
+    fn drop(&mut self) {
+        panic!("Tried to drop GDT");
+    }
+}
+
 impl Table {
     pub fn new(tss: Vec<super::tss::Segment>) -> Table {
         Table {

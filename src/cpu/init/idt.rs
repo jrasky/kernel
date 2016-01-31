@@ -24,6 +24,12 @@ pub struct Table {
     descriptors: Vec<Descriptor>,
 }
 
+impl Drop for Table {
+    fn drop(&mut self) {
+        panic!("Tried to drop IDT");
+    }
+}
+
 impl Descriptor {
     pub const fn placeholder() -> Descriptor {
         Descriptor {

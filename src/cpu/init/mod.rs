@@ -7,7 +7,8 @@ extern "C" {
     fn _gp_handler();
 }
 
-pub fn setup() -> (gdt::Table, idt::Table) {
+/// Unsafe because dropping gdt or idt leaks a reference
+pub unsafe fn setup() -> (gdt::Table, idt::Table) {
     // create a new GDT with a TSS
     let tss = tss::Segment::new([None, None, None, None, None, None, None],
                                 [None, None, None], 0);
@@ -16,17 +17,15 @@ pub fn setup() -> (gdt::Table, idt::Table) {
 
     debug!("Created new GDT");
 
-    unsafe {
-        // install the gdt
-        gdt.install();
+    // install the gdt
+    gdt.install();
 
-        debug!("Installed GDT");
+    debug!("Installed GDT");
 
-        // set the task
-        gdt.set_task(0);
+    // set the task
+    gdt.set_task(0);
 
-        debug!("Set new task");
-    }
+    debug!("Set new task");
 
     let mut descriptors = vec![];
 
@@ -50,11 +49,9 @@ pub fn setup() -> (gdt::Table, idt::Table) {
 
     debug!("Created IDT");
 
-    unsafe {
-        idt.install();
+    idt.install();
 
-        debug!("Installed IDT");
-    }
+    debug!("Installed IDT");
 
     (gdt, idt)
 }

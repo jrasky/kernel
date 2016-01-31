@@ -62,7 +62,7 @@ struct Manager {
 }
 
 struct ManagerInner {
-    core: Task,
+    core: TaskInner,
     tasks: VecDeque<Task>,
     current: Option<Task>,
 }
@@ -134,11 +134,17 @@ struct TaskInner {
 
 impl Drop for Task {
     fn drop(&mut self) {
-        if let Some(rref) = self.rref.take() {
-            unsafe {
-                // null out the reference to the inner task
-                rref.inner.get().as_mut().unwrap().task = ptr::null_mut();
-            }
+        if let Some(mut rref) = self.rref.take() {
+            // delete the reference
+            rref.drop_ref();
+        }
+    }
+}
+
+impl TaskRef {
+    fn drop_ref(&mut self) {
+        unsafe {
+            self.inner.get().as_mut().unwrap().task = ptr::null_mut();
         }
     }
 }
@@ -176,13 +182,27 @@ impl Task {
         } else {
             let rref = TaskRef {
                 inner: Arc::new(UnsafeCell::new(TaskRefInner {
-                    task: unsafe {self.inner.get()}
+                    task: self.inner.get()
                 }))
             };
 
             self.rref = Some(rref.clone());
 
             rref
+        }
+    }
+
+    #[inline]
+    fn get_mut(&mut self) -> &mut TaskInner {
+        unsafe {
+            self.inner.get().as_mut().unwrap()
+        }
+    }
+
+    #[inline]
+    fn get_inner(&self) -> &TaskInner {
+        unsafe {
+            self.inner.get().as_ref().unwrap()
         }
     }
 }
@@ -265,16 +285,13 @@ impl Manager {
 impl ManagerInner {
     fn new() -> ManagerInner {
         ManagerInner {
-            core: Task {
-                inner: Box::new(UnsafeCell::new(TaskInner {
-                    context: Context::empty(),
-                    entry: _dummy_entry,
-                    level: PrivilegeLevel::CORE,
-                    stack: unsafe { Stack::kernel() },
-                    busy: !0,
-                    done: false
-                })),
-                rref: None
+            core: TaskInner {
+                context: Context::empty(),
+                entry: _dummy_entry,
+                level: PrivilegeLevel::CORE,
+                stack: unsafe { Stack::kernel() },
+                busy: !0,
+                done: false
             },
             tasks: VecDeque::new(),
             current: None
@@ -283,7 +300,7 @@ impl ManagerInner {
 
     #[inline]
     fn in_core(&self) -> bool {
-        unsafe {self.core.inner.get().as_ref().unwrap().busy != 0}
+        self.core.busy != 0
     }
 
     fn add(&mut self, task: Task) {
@@ -331,13 +348,13 @@ impl ManagerInner {
         }
     }
 
-    fn switch_task(&mut self, task: Task) -> Task {
+    fn switch_task(&mut self, mut task: Task) -> Task {
         if !self.in_core() {
             panic!("Tried to switch tasks while not in core task");
         }
 
 
-        if unsafe {task.inner.get().as_ref().unwrap().busy} != 0 {
+        if task.get_inner().busy != 0 {
             panic!("Tried to execute a busy task");
         }
 
@@ -348,12 +365,12 @@ impl ManagerInner {
                  ::: "intel");
 
             ptr::copy(&_fxsave_task,
-                      self.core.inner.get().as_mut().unwrap().context.fxsave.as_mut_ptr(),
-                      self.core.inner.get().as_mut().unwrap().context.fxsave.len());
+                      self.core.context.fxsave.as_mut_ptr(),
+                      self.core.context.fxsave.len());
 
-            ptr::copy(task.inner.get().as_ref().unwrap().context.fxsave.as_ptr(),
+            ptr::copy(task.get_inner().context.fxsave.as_ptr(),
                       &mut _fxsave_task as *mut u8,
-                      task.inner.get().as_ref().unwrap().context.fxsave.len());
+                      task.get_inner().context.fxsave.len());
 
             asm!("fxrstor $0"
                  :: "*m"(&_fxsave_task)
@@ -361,17 +378,17 @@ impl ManagerInner {
 
             debug!("Executing task");
 
-            task.inner.get().as_mut().unwrap().busy = !0;
+            task.get_mut().busy = !0;
 
             self.current = Some(task);
 
-            _do_execute(&self.current.as_ref().unwrap().inner.get().as_ref().unwrap().context.regs,
-                        &mut self.core.inner.get().as_mut().unwrap().busy,
-                        &mut self.core.inner.get().as_mut().unwrap().context.regs);
+            _do_execute(&self.current.as_ref().unwrap().get_inner().context.regs,
+                        &mut self.core.busy,
+                        &mut self.core.context.regs);
 
             let mut task = self.current.take().unwrap();
 
-            task.inner.get().as_mut().unwrap().busy = 0;
+            task.get_mut().busy = 0;
 
             debug!("Switched back");
 
@@ -391,7 +408,7 @@ impl ManagerInner {
                            .as_mut()
                            .expect("Tried to switch to core, but there was no current task");
 
-        if unsafe {task.inner.get().as_ref().unwrap().busy} == 0 {
+        if task.get_inner().busy == 0 {
             panic!("Tried to switch te core, but current task was not busy");
         }
 
@@ -402,12 +419,12 @@ impl ManagerInner {
                  ::: "intel");
 
             ptr::copy(&_fxsave_task as *const u8,
-                      task.inner.get().as_mut().unwrap().context.fxsave.as_mut_ptr(),
-                      task.inner.get().as_ref().unwrap().context.fxsave.len());
+                      task.get_mut().context.fxsave.as_mut_ptr(),
+                      task.get_mut().context.fxsave.len());
 
-            ptr::copy(self.core.inner.get().as_ref().unwrap().context.fxsave.as_ptr(),
+            ptr::copy(self.core.context.fxsave.as_ptr(),
                       &mut _fxsave_task as *mut u8,
-                      self.core.inner.get().as_ref().unwrap().context.fxsave.len());
+                      self.core.context.fxsave.len());
 
             asm!("fxrstor $0"
                  :: "*m"(&_fxsave_task)
@@ -415,9 +432,9 @@ impl ManagerInner {
 
             debug!("Switching back to core");
 
-            _do_execute(&self.core.inner.get().as_ref().unwrap().context.regs,
-                        &mut task.inner.get().as_mut().unwrap().busy,
-                        &mut task.inner.get().as_mut().unwrap().context.regs);
+            _do_execute(&self.core.context.regs,
+                        &mut task.get_mut().busy,
+                        &mut task.get_mut().context.regs);
 
             debug!("Switched back to task");
         }

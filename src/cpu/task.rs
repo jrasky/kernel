@@ -1,14 +1,10 @@
 use collections::VecDeque;
 
 use core::ptr;
-use core::mem;
 
 use alloc::boxed::Box;
-use alloc::arc::{Arc, Weak};
+use alloc::arc::Arc;
 
-use alloc::heap;
-
-use core::sync::atomic::{AtomicUsize, AtomicPtr, Ordering};
 use core::cell::UnsafeCell;
 
 use cpu::stack::Stack;

@@ -1,11 +1,15 @@
-use collections::VecDeque;
+use collections::{VecDeque, Vec};
+
+use core::iter::{IntoIterator, FromIterator, Iterator};
 
 use core::ptr;
 
 use alloc::boxed::Box;
-use alloc::arc::Arc;
+use alloc::arc::{Arc, Weak};
 
 use core::cell::UnsafeCell;
+
+use spin::Mutex;
 
 use cpu::stack::Stack;
 
@@ -21,7 +25,7 @@ extern "C" fn _dummy_entry() -> ! {
 
 static mut MANAGER: Manager = Manager::new();
 
-pub fn run_next() -> bool {
+pub fn run_next() -> Result<TaskRef, RunNextResult> {
     unsafe { MANAGER.run_next() }
 }
 
@@ -29,7 +33,11 @@ pub fn exit() -> ! {
     unsafe { MANAGER.exit() }
 }
 
-pub fn add(task: Task) {
+pub fn wait() {
+    unsafe { MANAGER.wait() }
+}
+
+pub fn add(task: Task) -> TaskRef {
     unsafe { MANAGER.add(task) }
 }
 
@@ -40,6 +48,11 @@ pub fn switch_task(task: Task) -> Task {
 
 pub fn release() {
     unsafe { MANAGER.switch_core() }
+}
+
+pub enum RunNextResult {
+    NoTasks,
+    Blocked(TaskRef)
 }
 
 #[repr(u8)]
@@ -103,17 +116,12 @@ struct Context {
 }
 
 pub struct Task {
-    inner: Box<UnsafeCell<TaskInner>>,
-    rref: Option<TaskRef>
+    inner: Arc<UnsafeCell<TaskInner>>
 }
 
 #[derive(Clone)]
 pub struct TaskRef {
-    inner: Arc<UnsafeCell<TaskRefInner>>
-}
-
-struct TaskRefInner {
-    task: *mut TaskInner
+    inner: Weak<UnsafeCell<TaskInner>>
 }
 
 struct TaskInner {
@@ -126,29 +134,114 @@ struct TaskInner {
     stack: Stack,
     busy: u16,
     done: bool,
+    blocked: bool
 }
 
-impl Drop for Task {
+#[derive(Clone)]
+pub struct Gate {
+    inner: Arc<Mutex<GateInner>>
+}
+
+struct GateInner {
+    tasks: Vec<TaskRef>
+}
+
+impl Drop for ManagerInner {
     fn drop(&mut self) {
-        if let Some(mut rref) = self.rref.take() {
-            // delete the reference
-            rref.drop_ref();
+        panic!("Tried to drop task manager");
+    }
+}
+
+impl Gate {
+    pub fn new<T: IntoIterator<Item=TaskRef>>(tasks: T) -> Gate {
+        Gate {
+            inner: Arc::new(Mutex::new(GateInner::new(tasks)))
+        }
+    }
+
+    pub fn add_task(&mut self, task: TaskRef) {
+        self.inner.lock().add_task(task)
+    }
+
+    pub fn finish(&mut self) {
+        self.inner.lock().finish()
+    }
+}
+
+impl GateInner {
+    fn new<T: IntoIterator<Item=TaskRef>>(tasks: T) -> GateInner {
+        GateInner {
+            tasks: tasks.into_iter().collect()
+        }
+    }
+
+    fn add_task(&mut self, mut task: TaskRef) {
+        self.tasks.push(task);
+    }
+
+    fn finish(self) {
+        for mut task in self.tasks.drain(..) {
+            task.unblock();
         }
     }
 }
 
 impl TaskRef {
-    fn drop_ref(&mut self) {
-        unsafe {
-            self.inner.get().as_mut().unwrap().task = ptr::null_mut();
+    #[inline]
+    pub fn dropped(&self) -> bool {
+        self.get_inner().is_some()
+    }
+
+    #[inline]
+    pub fn set_done(&mut self) {
+        if let Some(inner) = self.get_mut() {
+            inner.set_done()
         }
     }
-}
 
-impl TaskRefInner {
-    fn get_inner(&self) -> Option<&mut TaskInner> {
+    #[inline]
+    pub fn is_done(&self) -> bool {
+        if let Some(inner) = self.get_inner() {
+            inner.is_done()
+        } else {
+            true
+        }
+    }
+
+    #[inline]
+    pub fn block(&mut self) {
+        if let Some(inner) = self.get_mut() {
+            inner.block()
+        }
+    }
+
+    #[inline]
+    pub fn unblock(&mut self) {
+        if let Some(inner) = self.get_mut() {
+            inner.unblock()
+        }
+    }
+
+    #[inline]
+    pub fn is_blocked(&self) -> bool {
+        if let Some(inner) = self.get_inner() {
+            inner.is_blocked()
+        } else {
+            false
+        }
+    }
+
+    #[inline]
+    fn get_mut(&mut self) -> Option<&mut TaskInner> {
         unsafe {
-            self.task.as_mut()
+            self.inner.upgrade().map(|inner| inner.get().as_mut().unwrap())
+        }
+    }
+
+    #[inline]
+    fn get_inner(&self) -> Option<&TaskInner> {
+        unsafe {
+            self.inner.upgrade().map(|inner| inner.get().as_ref().unwrap())
         }
     }
 }
@@ -157,8 +250,14 @@ impl Task {
     #[inline]
     pub fn create(level: PrivilegeLevel, entry: extern "C" fn() -> !, stack: Stack) -> Task {
         Task { 
-            inner: Box::new(UnsafeCell::new(TaskInner::create(level, entry, stack))),
-            rref: None
+            inner: Arc::new(UnsafeCell::new(TaskInner::create(level, entry, stack)))
+        }
+    }
+
+    #[inline]
+    pub fn get_ref(&self) -> TaskRef {
+        TaskRef {
+            inner: Arc::downgrade(&self.inner)
         }
     }
 
@@ -168,24 +267,23 @@ impl Task {
     }
 
     #[inline]
-    pub fn is_done(&mut self) -> bool {
-        unsafe {self.inner.get().as_mut().unwrap().is_done()}
+    pub fn is_done(&self) -> bool {
+        unsafe {self.inner.get().as_ref().unwrap().is_done()}
     }
 
-    pub fn get_ref(&mut self) -> TaskRef {
-        if let Some(ref rref) = self.rref {
-            rref.clone()
-        } else {
-            let rref = TaskRef {
-                inner: Arc::new(UnsafeCell::new(TaskRefInner {
-                    task: self.inner.get()
-                }))
-            };
+    #[inline]
+    pub fn block(&mut self) {
+        unsafe {self.inner.get().as_mut().unwrap().block()}
+    }
 
-            self.rref = Some(rref.clone());
+    #[inline]
+    pub fn unblock(&mut self) {
+        unsafe {self.inner.get().as_mut().unwrap().unblock()}
+    }
 
-            rref
-        }
+    #[inline]
+    pub fn is_blocked(&self) -> bool {
+        unsafe {self.inner.get().as_mut().unwrap().is_blocked()}
     }
 
     #[inline]
@@ -253,18 +351,23 @@ impl Manager {
     }
 
     #[inline]
-    pub fn run_next(&mut self) -> bool {
+    pub fn run_next(&mut self) -> Result<TaskRef, RunNextResult> {
         self.get_inner().run_next()
     }
 
     #[inline]
-    pub fn add(&mut self, task: Task) {
+    pub fn add(&mut self, task: Task) -> TaskRef {
         self.get_inner().add(task)
     }
 
     #[inline]
     pub fn exit(&mut self) -> ! {
         self.get_inner().exit()
+    }
+
+    #[inline]
+    pub fn wait(&mut self) {
+        self.get_inner().wait()
     }
 
     #[inline]
@@ -287,7 +390,8 @@ impl ManagerInner {
                 level: PrivilegeLevel::CORE,
                 stack: unsafe { Stack::kernel() },
                 busy: !0,
-                done: false
+                done: false,
+                blocked: false
             },
             tasks: VecDeque::new(),
             current: None
@@ -299,27 +403,38 @@ impl ManagerInner {
         self.core.busy != 0
     }
 
-    fn add(&mut self, task: Task) {
+    fn add(&mut self, task: Task) -> TaskRef {
+        let rref = task.get_ref();
         self.tasks.push_back(task);
+        rref
     }
 
-    fn run_next(&mut self) -> bool {
+    fn run_next(&mut self) -> Result<TaskRef, RunNextResult> {
         // get the next task
         if let Some(mut task) = self.tasks.pop_front() {
+            // don't run if blocked
+            if task.is_blocked() {
+                let rref = task.get_ref();
+                self.tasks.push_back(task);
+                return Err(RunNextResult::Blocked(rref));
+            }
 
             // switch to it
             task = self.switch_task(task);
-
+            
+            // get a ref to it
+            let rref = task.get_ref();
+            
             // add it if it isn't done
             if !task.is_done() {
                 self.tasks.push_back(task);
             }
-
+            
             // done
-            true
+            Ok(rref)
         } else {
             // no tasks
-            false
+            Err(RunNextResult::NoTasks)
         }
     }
 
@@ -344,6 +459,20 @@ impl ManagerInner {
         }
     }
 
+    fn wait(&mut self) {
+        if self.in_core() {
+            panic!("Cannot block core task");
+        }
+
+        // set our status to blocked
+        if let Some(task) = self.current.as_mut() {
+            task.block();
+        }
+
+        // then switch out
+        self.switch_core();
+    }
+
     fn switch_task(&mut self, mut task: Task) -> Task {
         if !self.in_core() {
             panic!("Tried to switch tasks while not in core task");
@@ -352,6 +481,11 @@ impl ManagerInner {
 
         if task.get_inner().busy != 0 {
             panic!("Tried to execute a busy task");
+        }
+
+        if task.get_inner().blocked {
+            warn!("Tried to switch to a blocked task");
+            return task;
         }
 
         unsafe {
@@ -484,14 +618,32 @@ impl TaskInner {
             stack: stack,
             busy: 0,
             done: false,
+            blocked: false
         }
     }
 
+    #[inline]
     pub fn set_done(&mut self) {
         self.done = true;
     }
 
-    pub fn is_done(&mut self) -> bool {
+    #[inline]
+    pub fn is_done(&self) -> bool {
         self.done
+    }
+
+    #[inline]
+    pub fn block(&mut self) {
+        self.blocked = true;
+    }
+
+    #[inline]
+    pub fn unblock(&mut self) {
+        self.blocked = false;
+    }
+
+    #[inline]
+    pub fn is_blocked(&self) -> bool {
+        self.blocked
     }
 }

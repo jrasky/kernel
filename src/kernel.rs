@@ -19,6 +19,7 @@ extern crate collections;
 extern crate elfloader;
 
 use core::fmt;
+use core::mem;
 
 #[macro_use]
 mod log;
@@ -42,10 +43,25 @@ pub use cpu::interrupt::{interrupt_breakpoint,
 extern "C" fn test_task() -> ! {
     info!("Hello from a task!");
 
+    info!("Spawning another task...");
+
+    let mut gate = cpu::task::Gate::new(vec![]);
+
+    let task = cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_2,
+                                                      cpu::stack::Stack::create(0x10000)));
+
+    gate.add_task(task);
+
+    cpu::task::release();
+
     for x in 0..7 {
         info!("x: {}", x);
         cpu::task::release();
     }
+
+    info!("Unblocking other task...");
+
+    gate.finish();
 
     info!("Task 1 done!");
     cpu::task::exit();
@@ -53,6 +69,12 @@ extern "C" fn test_task() -> ! {
 
 extern "C" fn test_task_2() -> ! {
     info!("Hello from another task!");
+
+    info!("Waiting...");
+
+    cpu::task::wait();
+
+    info!("Unblocked!");
 
     for x2 in 0..5 {
         info!("x2: {}", x2);
@@ -82,17 +104,26 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // keep references around so we don't break things
     let (gdt, idt) = unsafe {cpu::init::setup()};
 
+    // explicity leak gdt and idt
+    mem::forget(gdt);
+    mem::forget(idt);
+
     info!("Starting tasks");
 
     // start some tasks
     cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task,
-                                           cpu::stack::Stack::create(0x1000)));
+                                           cpu::stack::Stack::create(0x10000)));
 
-    cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_2,
-                                           cpu::stack::Stack::create(0x1000)));
-
-    while cpu::task::run_next() {
-        // run next task
+    loop {
+        match cpu::task::run_next() {
+            Ok(_) | Err(cpu::task::RunNextResult::Blocked(_)) => {
+                // do nothing
+            },
+            Err(cpu::task::RunNextResult::NoTasks) => {
+                // done
+                break;
+            }
+        }
     }
 
     unreachable!("kernel_main tried to return");

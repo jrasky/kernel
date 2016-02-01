@@ -179,7 +179,7 @@ impl GateInner {
         self.tasks.push(task);
     }
 
-    fn finish(self) {
+    fn finish(&mut self) {
         for mut task in self.tasks.drain(..) {
             task.unblock();
         }
@@ -502,15 +502,15 @@ impl ManagerInner {
                       &mut _fxsave_task as *mut u8,
                       task.get_inner().context.fxsave.len());
 
-            asm!("fxrstor $0"
-                 :: "*m"(&_fxsave_task)
-                 :: "intel");
-
             debug!("Executing task");
 
             task.get_mut().busy = !0;
 
             self.current = Some(task);
+
+            asm!("fxrstor $0"
+                 :: "*m"(&_fxsave_task)
+                 :: "intel");
 
             _do_execute(&self.current.as_ref().unwrap().get_inner().context.regs,
                         &mut self.core.busy,
@@ -519,6 +519,14 @@ impl ManagerInner {
             let mut task = self.current.take().unwrap();
 
             task.get_mut().busy = 0;
+
+            ptr::copy(self.core.context.fxsave.as_mut_ptr(),
+                      &mut _fxsave_task as *mut u8,
+                      self.core.context.fxsave.len());
+
+            asm!("fxrstor $0"
+                 :: "*m"(&_fxsave_task)
+                 :: "intel");
 
             debug!("Switched back");
 
@@ -556,15 +564,23 @@ impl ManagerInner {
                       &mut _fxsave_task as *mut u8,
                       self.core.context.fxsave.len());
 
+            debug!("Switching back to core");
+
             asm!("fxrstor $0"
                  :: "*m"(&_fxsave_task)
                  :: "intel");
 
-            debug!("Switching back to core");
-
             _do_execute(&self.core.context.regs,
                         &mut task.get_mut().busy,
                         &mut task.get_mut().context.regs);
+
+            ptr::copy(task.get_inner().context.fxsave.as_ptr(),
+                      &mut _fxsave_task as *mut u8,
+                      task.get_inner().context.fxsave.len());
+
+            asm!("fxrstor $0"
+                 :: "*m"(&_fxsave_task)
+                 :: "intel");
 
             debug!("Switched back to task");
         }

@@ -46,6 +46,10 @@ pub fn switch_task(task: Task) -> Task {
     unsafe { MANAGER.switch_task(task) }
 }
 
+pub fn switch_core() {
+    unsafe { MANAGER.switch_core() }
+}
+
 pub fn release() {
     unsafe { MANAGER.switch_core() }
 }
@@ -59,9 +63,9 @@ pub enum RunNextResult {
 pub enum PrivilegeLevel {
     CORE = 0, // privileged instructions
     #[allow(dead_code)]
-    DRIVER = 1, // permissioned-mapped i/o
+    DRIVER = 1, // identity page mapping, i/o
     #[allow(dead_code)]
-    EXECUTIVE = 2, // identity page-map
+    EXECUTIVE = 2, // program supervisor
     #[allow(dead_code)]
     USER = 3, // isolated
 }

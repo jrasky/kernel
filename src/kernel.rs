@@ -39,6 +39,7 @@ pub use memory::{__rust_allocate,
 // pub use since we want to export
 pub use cpu::interrupt::{interrupt_breakpoint,
                          interrupt_general_protection_fault};
+pub use cpu::syscall::sysenter_handler;
 
 extern "C" fn test_task() -> ! {
     info!("Hello from a task!");
@@ -102,11 +103,12 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
     // set up cpu data structures and other settings
     // keep references around so we don't break things
-    let (gdt, idt) = unsafe {cpu::init::setup()};
+    let (gdt, idt, syscall_stack) = unsafe {cpu::init::setup()};
 
-    // explicity leak gdt and idt
+    // explicity leak gdt and idt and the syscall stack
     mem::forget(gdt);
     mem::forget(idt);
+    mem::forget(syscall_stack);
 
     info!("Starting tasks");
 

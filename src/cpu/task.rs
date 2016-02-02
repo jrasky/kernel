@@ -15,7 +15,7 @@ use cpu::stack::Stack;
 
 extern "C" {
     static mut _fxsave_task: u8;
-    fn _do_execute(regs: *const Regs, busy: *mut u16, core_regs: *mut Regs);
+    fn _do_execute(regs: *const Regs, core_regs: *mut Regs);
     fn _load_context(regs: *mut Regs);
 }
 
@@ -44,10 +44,6 @@ pub fn add(task: Task) -> TaskRef {
 #[allow(dead_code)] // may be used in the future
 pub fn switch_task(task: Task) -> Task {
     unsafe { MANAGER.switch_task(task) }
-}
-
-pub fn switch_core() {
-    unsafe { MANAGER.switch_core() }
 }
 
 pub fn release() {
@@ -509,6 +505,7 @@ impl ManagerInner {
             debug!("Executing task");
 
             task.get_mut().busy = !0;
+            self.core.busy = 0;
 
             self.current = Some(task);
 
@@ -517,12 +514,9 @@ impl ManagerInner {
                  :: "intel");
 
             _do_execute(&self.current.as_ref().unwrap().get_inner().context.regs,
-                        &mut self.core.busy,
                         &mut self.core.context.regs);
 
             let mut task = self.current.take().unwrap();
-
-            task.get_mut().busy = 0;
 
             ptr::copy(self.core.context.fxsave.as_mut_ptr(),
                       &mut _fxsave_task as *mut u8,
@@ -533,6 +527,9 @@ impl ManagerInner {
                  :: "intel");
 
             debug!("Switched back");
+
+            self.core.busy = !0;
+            task.get_mut().busy = 0;
 
             task
         }
@@ -575,7 +572,6 @@ impl ManagerInner {
                  :: "intel");
 
             _do_execute(&self.core.context.regs,
-                        &mut task.get_mut().busy,
                         &mut task.get_mut().context.regs);
 
             ptr::copy(task.get_inner().context.fxsave.as_ptr(),

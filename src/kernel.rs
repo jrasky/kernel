@@ -53,11 +53,11 @@ extern "C" fn test_task() -> ! {
 
     gate.add_task(task);
 
-    cpu::task::release();
+    cpu::syscall::release();
 
     for x in 0..7 {
         info!("x: {}", x);
-        cpu::task::release();
+        cpu::syscall::release();
     }
 
     info!("Unblocking other task...");
@@ -65,7 +65,7 @@ extern "C" fn test_task() -> ! {
     gate.finish();
 
     info!("Task 1 done!");
-    cpu::task::exit();
+    cpu::syscall::exit();
 }
 
 extern "C" fn test_task_2() -> ! {
@@ -73,17 +73,17 @@ extern "C" fn test_task_2() -> ! {
 
     info!("Waiting...");
 
-    cpu::task::wait();
+    cpu::syscall::wait();
 
     info!("Unblocked!");
 
     for x2 in 0..5 {
         info!("x2: {}", x2);
-        cpu::task::release();
+        cpu::syscall::release();
     }
 
     info!("Task 2 done!");
-    cpu::task::exit();
+    cpu::syscall::exit();
 }
 
 #[no_mangle]

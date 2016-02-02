@@ -12,12 +12,11 @@
     global _bp_handler
     global _gp_handler
     global _do_execute
-    global _do_execute_nobranch
     global _load_context
     global _sysenter_landing
     global _sysenter_return
-
-    global test_sysenter
+    global _sysenter_launch
+    global _sysenter_execute
 
     extern kernel_main
     extern _boot_info
@@ -246,39 +245,27 @@ _load_context:
 
 ;;; Context switch and far jump
 
+_do_execute_landing:
+    xchg rdi, rsi
+    ret
+
 _do_execute:
     ;; rdi is a pointer to the context after the fxsave area
-    ;; rsi is a pointer to the branch factor
-    ;; rdx is a pointer to the return context registers
+    ;; rsi is a pointer to the return context registers
 
     ;; note that this makes bad assumptions
     ;; fix with swapgs etc once I get around to it
 
     ;; save return context
-    xchg rdi, rdx
+    xchg rdi, rsi
     call _load_context
-    xchg rdi, rdx
+    xchg rdi, rsi
 
     ;; save stack here
-    mov [rdx + 0x88], rsp
-    ;; set return point to here
-    mov QWORD [rdx + 0x80], .return
-.return:
+    mov [rsi + 0x88], rsp
+    ;; set return point
+    mov QWORD [rsi + 0x80], _do_execute_landing
 
-    ;; branch
-    mov ax, [rsi]
-    cmp ax, 0
-    jne .continue
-
-    ;; clean up and return
-    mov WORD [rsi], ~0
-    ret
-
-.continue:
-    ;; set not busy
-    mov WORD [rsi], 0
-
-_do_execute_nobranch:   
     ;; rax: rdi + 0x00
     mov rbx, [rdi + 0x08]
     mov rcx, [rdi + 0x10]
@@ -337,27 +324,64 @@ _sysenter_landing:
     jmp _error
 
 _sysenter_return:
-    push rcx                    ;ss
-    push rsi                    ;rsp
-    pushfq                      ;rflags
-    push rdx                    ;cs
-    push rdi                    ;rip
+    mov rax, rsi                ;result
+    mov rsp, rdi
     iretq
 
     mov al, "R"
     jmp _error
 
-test_sysenter:
+_sysenter_launch:
     push rbp
-    mov rdi, .continue
-    mov rsi, rsp
-    xor rdx, rdx
-    xor rcx, rcx
-    mov dx, cs
-    mov cx, ss
+    mov rbp, rsp
+
+    ;; move arguments around
+    mov rdx, rsi
+    mov rsi, rdi
+
+    ;; push iretq
+    xor rax, rax
+    mov ax, ss
+    push rax                    ;old ss
+    push rbp                    ;old rsp
+    pushfq                      ;flags
+    mov ax, cs                  
+    push rax                    ;old cs
+    push .continue              ;return instruction
+    mov rdi, rsp                ;return rsp
+
+    ;; rsi: branch
+    ;; rdx: argument
     
     sysenter
+
+    ;; rax: result
     
 .continue:
     pop rbp
     ret
+
+_sysenter_execute:
+    ;; execute a function on another stack
+    ;; then return to original procedure
+
+    ;; rdi: new rsp
+    ;; rsi: callback
+    ;; rdx: argument
+
+    mov rsp, rdi
+    mov rdi, rdx
+
+    ;; align stack, just in case
+    mov rbp, rsp
+    and rsp, -16
+
+    call rsi
+
+    ;; restore old rsp
+    mov rsp, rbp
+    ;; rax should have the result of the function
+    iretq
+
+    mov al, "E"
+    jmp _error

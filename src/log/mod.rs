@@ -1,5 +1,9 @@
 use core::fmt::Display;
 
+use core::fmt;
+
+use collections::String;
+
 use spin::Mutex;
 
 mod vga;
@@ -135,6 +139,13 @@ static LOGGER: Mutex<Logger> = Mutex::new(Logger::new());
 
 struct Logger {
     level: Option<usize>
+}
+
+pub struct Request {
+    pub level: usize,
+    pub location: Location,
+    pub target: String,
+    pub message: String
 }
 
 pub struct Location {

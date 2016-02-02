@@ -98,7 +98,7 @@ impl Manager {
 
         // search in the list for a place to insert this block
         loop {
-            trace!("{:?}", block.base);
+            trace!("{:?}", block);
             if block.next.is_null() {
                 // insert here
                 if ptr > block.end {
@@ -259,8 +259,10 @@ impl Manager {
         }
     }
 
-    unsafe fn allocate(&mut self, size: usize, align: usize) -> Option<*mut Opaque> {
+    unsafe fn allocate(&mut self, mut size: usize, align: usize) -> Option<*mut Opaque> {
         let mut block = self.free;
+
+        size = granularity(size, align);
 
         let mut aligned_base;
         let mut header_base;
@@ -278,29 +280,48 @@ impl Manager {
                 {
                     // we've found a spot!
                     debug!("Allocating at 0x{:x} to 0x{:x}", header_base as u64, end as u64);
+                    trace!("{:?}", block_ref);
                     trace!("{:?}, {:?}, {:?}", aligned_base, header_base, end);
                     // truncate the block
                     if header_base as *mut Opaque <= block_ref.base {
-                        // move the block forward
-                        trace!("Moving forward");
-                        let new_block = Block {
-                            base: (end as *mut Block).offset(1) as *mut Opaque,
-                            end: block_ref.end,
-                            next: block_ref.next,
-                            last: block_ref.last
-                        };
+                        if ((end as *mut Block).offset(1) as *mut Opaque) <= block_ref.end {
+                            // move the block forward
+                            trace!("Moving forward");
+                            let new_block = Block {
+                                base: (end as *mut Block).offset(1) as *mut Opaque,
+                                end: block_ref.end,
+                                next: block_ref.next,
+                                last: block_ref.last
+                            };
+                            
+                            if let Some(next) = new_block.next.as_mut() {
+                                next.last = end as *mut Block;
+                            }
 
-                        if let Some(next) = new_block.next.as_mut() {
-                            next.last = end as *mut Block;
-                        }
+                            if let Some(last) = new_block.last.as_mut() {
+                                last.next = end as *mut Block;
+                            } else {
+                                self.free = end as *mut Block;
+                            }
 
-                        if let Some(last) = new_block.last.as_mut() {
-                            last.next = end as *mut Block;
+                            *(end as *mut Block).as_mut().unwrap() = new_block;
                         } else {
-                            self.free = end as *mut Block;
-                        }
+                            // delete the block
+                            trace!("deleting block");
 
-                        *(end as *mut Block).as_mut().unwrap() = new_block;
+                            // this is at least as big as size
+                            size = block_ref.end as usize - aligned_base as usize;
+
+                            if let Some(next) = block_ref.next.as_mut() {
+                                next.last = block_ref.last;
+                            }
+
+                            if let Some(last) = block_ref.last.as_mut() {
+                                last.next = block_ref.next;
+                            } else {
+                                self.free = block_ref.next;
+                            }
+                        }
                     } else {
                         // split block in two
                         trace!("Splitting in two");
@@ -375,7 +396,7 @@ impl Manager {
         }
     }
 
-    unsafe fn grow(&mut self, ptr: *mut Opaque, size: usize) -> bool {
+    unsafe fn grow(&mut self, ptr: *mut Opaque, mut size: usize) -> bool {
         let header = match self.get_header(ptr) {
             None => {
                 error!("Failed to get allocation header on grow");
@@ -384,7 +405,14 @@ impl Manager {
             Some(header) => header
         };
 
-        debug_assert!(size > header.size);
+        // adjust size, alignment does not matter in this case
+        size = granularity(size, 0);
+
+        if size <= header.size {
+            // done
+            return true;
+        }
+
         let end = (ptr as *mut u8).offset(header.size as isize) as *mut Opaque;
         let new_end = (ptr as *mut u8).offset(size as isize) as *mut Opaque;
 
@@ -444,7 +472,7 @@ impl Manager {
         }
     }
 
-    unsafe fn shrink(&mut self, ptr: *mut Opaque, size: usize) -> bool {
+    unsafe fn shrink(&mut self, ptr: *mut Opaque, mut size: usize) -> bool {
         let header = match self.get_header(ptr) {
             None => {
                 error!("Failed to get header on shrink");
@@ -454,9 +482,19 @@ impl Manager {
                 header
             }
         };
-        debug_assert!(size < header.size);
+
+        // adjust size
+        size = granularity(size, 0);
+        
+        if size >= granularity(header.size, 0) {
+            return true;
+        }
+
         let difference = size - header.size;
         let registered_size = self.register((ptr as *mut u8).offset(size as isize) as *mut Opaque, difference);
+
+        trace!("f: {}, {}", difference, registered_size);
+
         if registered_size < difference {
             return false;
         } else {
@@ -478,16 +516,19 @@ impl Manager {
         if (ptr as usize) & (align - 1) == 0 {
             // pointer is already aligned
             trace!("Trying inplace");
-            if size > header.size {
+            if granularity(size, align) > granularity(header.size, align) {
+                trace!("Growing");
                 if self.grow(ptr, size) {
                     return Some(ptr);
                 }
-            } else if size < header.size {
+            } else if granularity(size, align) < granularity(header.size, align) {
+                trace!("Shrinking");
                 if self.shrink(ptr, size) {
                     return Some(ptr);
                 }
             } else {
                 // pointer is aligned and the right size, do nothing
+                trace!("Doing nothing");
                 return Some(ptr);
             }
         }
@@ -495,6 +536,7 @@ impl Manager {
         // keep data that might be clobbered by release
         let diff_size: usize = cmp::min(mem::size_of::<Block>() - mem::size_of::<Header>(), size);
         let mut store: Block = mem::zeroed();
+        trace!("Copying");
         ptr::copy(ptr as *mut u8, (&mut store as *mut _ as *mut u8)
                   .offset(diff_size as isize), diff_size);
 
@@ -618,6 +660,10 @@ pub unsafe fn resize(ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut
 }
 
 #[inline]
-pub const fn granularity(size: usize, _: usize) -> usize {
-    size
+pub fn granularity(size: usize, _: usize) -> usize {
+    if size < 32 {
+        32
+    } else {
+        size
+    }
 }

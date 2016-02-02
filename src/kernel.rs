@@ -77,8 +77,20 @@ extern "C" fn test_task_2() -> ! {
 
     info!("Unblocked!");
 
+    let mut request = log::Request {
+        level: 3,
+        location: log::Location {
+            module_path: module_path!(),
+            file: file!(),
+            line: line!()
+        },
+        target: module_path!().into(),
+        message: "".into()
+    };
+
     for x2 in 0..5 {
-        info!("x2: {}", x2);
+        request.message = format!("x2: {}", x2);
+        cpu::syscall::log(&request);
         cpu::syscall::release();
     }
 

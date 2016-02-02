@@ -1,5 +1,8 @@
 use cpu::stack::Stack;
 
+use log;
+use cpu;
+
 use constants::*;
 
 // things that are clobbered by sysenter:
@@ -21,22 +24,22 @@ pub unsafe fn setup() -> Stack {
     let stack = Stack::create(0x10000);
 
     // write MSRs
-    ::cpu::write_msr(SYSENTER_CS_MSR, CORE_CS as u64);
-    ::cpu::write_msr(SYSENTER_EIP_MSR, _sysenter_landing as u64);
-    ::cpu::write_msr(SYSENTER_ESP_MSR, stack.get_ptr() as u64);
+    cpu::write_msr(SYSENTER_CS_MSR, CORE_CS as u64);
+    cpu::write_msr(SYSENTER_EIP_MSR, _sysenter_landing as u64);
+    cpu::write_msr(SYSENTER_ESP_MSR, stack.get_ptr() as u64);
 
     // return stack
     stack
 }
 
-pub extern "C" fn release() {
+pub fn release() {
     trace!("release");
     unsafe {
         _sysenter_launch(0, 0);
     }
 }
 
-pub extern "C" fn exit() -> ! {
+pub fn exit() -> ! {
     trace!("exit");
     unsafe {
         _sysenter_launch(0, 1);
@@ -45,28 +48,35 @@ pub extern "C" fn exit() -> ! {
     unreachable!("Exited task restarted");
 }
 
-pub extern "C" fn wait() {
+pub fn wait() {
     trace!("wait");
     unsafe {
         _sysenter_launch(0, 2);
     }
 }
 
+pub fn log(request: &log::Request) {
+    trace!("log");
+    unsafe {
+        _sysenter_launch(1, request as *const _ as u64);
+    }
+}
+
 extern "C" fn release_callback(_: u64) -> u64 {
     // release the task
-    ::cpu::task::release();
+    cpu::task::release();
 
     1
 }
 
 extern "C" fn exit_callback(_: u64) -> u64 {
     // exit the task
-    ::cpu::task::exit();
+    cpu::task::exit();
 }
 
 extern "C" fn wait_callback(_: u64) -> u64 {
     // wait
-    ::cpu::task::wait();
+    cpu::task::wait();
 
     1
 }
@@ -93,13 +103,22 @@ pub unsafe extern "C" fn sysenter_handler(rsp: u64, branch: u64, argument: u64) 
                 },
                 _ => {
                     error!("Unknown argument to branch 0: {}", argument);
+                    _sysenter_return(rsp, 0);
                 }
             }
         },
+        1 => {
+            // log
+            // argument is pointer to log::Request structure
+            let request: &log::Request = (argument as *const log::Request).as_ref().unwrap();
+            log::log(request.level, &request.location,
+                     &request.target, &request.message);
+            // done
+            _sysenter_return(rsp, 1)
+        },
         _ => {
             error!("Unknown branch: {}", branch);
+            _sysenter_return(rsp, 0);
         }
     }
-
-    _sysenter_return(rsp, 0);
 }

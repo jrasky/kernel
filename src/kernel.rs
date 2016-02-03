@@ -69,14 +69,6 @@ extern "C" fn test_task() -> ! {
 }
 
 extern "C" fn test_task_2() -> ! {
-    info!("Hello from another task!");
-
-    info!("Waiting...");
-
-    cpu::syscall::wait();
-
-    info!("Unblocked!");
-
     let mut request = log::Request {
         level: 3,
         location: log::Location {
@@ -88,13 +80,24 @@ extern "C" fn test_task_2() -> ! {
         message: "".into()
     };
 
+    request.message = format!("Hello from another task!");
+    cpu::syscall::log(&request);
+
+    request.message = format!("Waiting...");
+    cpu::syscall::log(&request);
+
+    cpu::syscall::wait();
+
+    info!("Unblocked!");
+
     for x2 in 0..5 {
         request.message = format!("x2: {}", x2);
         cpu::syscall::log(&request);
         cpu::syscall::release();
     }
 
-    info!("Task 2 done!");
+    request.message = format!("Task 2 done!");
+    cpu::syscall::log(&request);
     cpu::syscall::exit();
 }
 

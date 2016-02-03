@@ -89,9 +89,19 @@ _test_features:
     test edx, 1<<24
     jz .no_FXSR
 
+    ;; check for NX
+    mov rax, 0x80000001
+    cpuid
+    test edx, 1<<20
+    jz .no_NX
+
     ;; done with checks
     ret
-	
+
+.no_NX:
+    mov al, "n"
+    jmp _error
+
 .no_SSE:
     mov al, "a"
     jmp _error

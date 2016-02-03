@@ -19,6 +19,7 @@ extern crate collections;
 extern crate elfloader;
 
 use core::fmt;
+use core::mem;
 
 #[macro_use]
 mod log;
@@ -38,29 +39,66 @@ pub use memory::{__rust_allocate,
 // pub use since we want to export
 pub use cpu::interrupt::{interrupt_breakpoint,
                          interrupt_general_protection_fault};
+pub use cpu::syscall::sysenter_handler;
 
 extern "C" fn test_task() -> ! {
     info!("Hello from a task!");
 
+    info!("Spawning another task...");
+
+    let mut gate = cpu::task::Gate::new(vec![]);
+
+    let task = cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_2,
+                                                      cpu::stack::Stack::create(0x10000)));
+
+    gate.add_task(task);
+
+    cpu::syscall::release();
+
     for x in 0..7 {
         info!("x: {}", x);
-        cpu::task::release();
+        cpu::syscall::release();
     }
 
+    info!("Unblocking other task...");
+
+    gate.finish();
+
     info!("Task 1 done!");
-    cpu::task::exit();
+    cpu::syscall::exit();
 }
 
 extern "C" fn test_task_2() -> ! {
-    info!("Hello from another task!");
+    let mut request = log::Request {
+        level: 3,
+        location: log::Location {
+            module_path: module_path!(),
+            file: file!(),
+            line: line!()
+        },
+        target: module_path!().into(),
+        message: "".into()
+    };
+
+    request.message = format!("Hello from another task!");
+    cpu::syscall::log(&request);
+
+    request.message = format!("Waiting...");
+    cpu::syscall::log(&request);
+
+    cpu::syscall::wait();
+
+    info!("Unblocked!");
 
     for x2 in 0..5 {
-        info!("x2: {}", x2);
-        cpu::task::release();
+        request.message = format!("x2: {}", x2);
+        cpu::syscall::log(&request);
+        cpu::syscall::release();
     }
 
-    info!("Task 2 done!");
-    cpu::task::exit();
+    request.message = format!("Task 2 done!");
+    cpu::syscall::log(&request);
+    cpu::syscall::exit();
 }
 
 #[no_mangle]
@@ -80,19 +118,29 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
     // set up cpu data structures and other settings
     // keep references around so we don't break things
-    let (gdt, idt) = unsafe {cpu::init::setup()};
+    let (gdt, idt, syscall_stack) = unsafe {cpu::init::setup()};
+
+    // explicity leak gdt and idt and the syscall stack
+    mem::forget(gdt);
+    mem::forget(idt);
+    mem::forget(syscall_stack);
 
     info!("Starting tasks");
 
     // start some tasks
     cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task,
-                                           cpu::stack::Stack::create(0x1000)));
+                                           cpu::stack::Stack::create(0x10000)));
 
-    cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_2,
-                                           cpu::stack::Stack::create(0x1000)));
-
-    while cpu::task::run_next() {
-        // run next task
+    loop {
+        match cpu::task::run_next() {
+            Ok(_) | Err(cpu::task::RunNextResult::Blocked(_)) => {
+                // do nothing
+            },
+            Err(cpu::task::RunNextResult::NoTasks) => {
+                // done
+                break;
+            }
+        }
     }
 
     unreachable!("kernel_main tried to return");

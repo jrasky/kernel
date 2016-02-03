@@ -12,8 +12,11 @@
     global _bp_handler
     global _gp_handler
     global _do_execute
-    global _do_execute_nobranch
     global _load_context
+    global _sysenter_landing
+    global _sysenter_return
+    global _sysenter_launch
+    global _sysenter_execute
 
     extern kernel_main
     extern _boot_info
@@ -22,6 +25,7 @@
     extern _fxsave_task
     extern interrupt_breakpoint
     extern interrupt_general_protection_fault
+    extern sysenter_handler
 
     section .text
     bits 64
@@ -58,27 +62,60 @@ _error:
     mov byte [0xb800e], al
     jmp _hang
 
-    ;; check for, then enable SSE
-    ;; Not supported: error "a"
-_setup_SSE:
+_test_features:
     ;; check for SSE
     mov rax, 0x1
     cpuid
     test edx, 1<<25
     jz .no_SSE
+    test edx, 1<<26
+    jz .no_SSE
+    test ecx, 1<<0
+    jz .no_SSE
+    test ecx, 1<<9
+    jz .no_SSE
+    test edx, 1<<19
+    jz .no_SSE
 
-    ;; enable SSE
-    mov rax, cr0
-    and ax, 0xFFFB              ;clear coprocessor emulation CR0.EM
-    or ax, 0x2                  ;set coprocessor monitoring CR0.MP
-    mov cr0, rax
-    mov rax, cr4
-    or ax, 3 << 9               ;set CR4.OSFXSR and CR4.OSXMMEXCPT at the same time
-    mov cr4, rax
+    ;; check for MSR
+    test edx, 1<<5
+    jz .no_MSR
 
+    ;; check for SEP
+    test edx, 1<<11
+    jz .no_SEP
+
+    ;; check for FXSAVE/FXRSTOR
+    test edx, 1<<24
+    jz .no_FXSR
+
+    ;; check for NX
+    mov rax, 0x80000001
+    cpuid
+    test edx, 1<<20
+    jz .no_NX
+
+    ;; done with checks
     ret
+
+.no_NX:
+    mov al, "n"
+    jmp _error
+
 .no_SSE:
     mov al, "a"
+    jmp _error
+
+.no_MSR:
+    mov al, "b"
+    jmp _error
+
+.no_SEP:
+    mov al, "c"
+    jmp _error
+
+.no_FXSR:
+    mov al, "d"
     jmp _error
 
 _reload_segments:
@@ -92,6 +129,18 @@ _reload_segments:
     mov fs, ax
     mov gs, ax
     mov ss, ax
+    ret
+
+_setup_SSE: 
+    ;; enable SSE
+    mov rax, cr0
+    and ax, 0xFFFB              ;clear coprocessor emulation CR0.EM
+    or ax, 0x2                  ;set coprocessor monitoring CR0.MP
+    mov cr0, rax
+    mov rax, cr4
+    or ax, 3 << 9               ;set CR4.OSFXSR and CR4.OSXMMEXCPT at the same time
+    mov cr4, rax
+
     ret
 
 ;;; Interrupt handler macro
@@ -159,6 +208,9 @@ _reload_segments:
     
     ;; iret
     iretq
+
+    mov al, "I"
+    jmp _error
 %endmacro
 
 ;;; Some interrupts
@@ -203,39 +255,27 @@ _load_context:
 
 ;;; Context switch and far jump
 
+_do_execute_landing:
+    xchg rdi, rsi
+    ret
+
 _do_execute:
     ;; rdi is a pointer to the context after the fxsave area
-    ;; rsi is a pointer to the branch factor
-    ;; rdx is a pointer to the return context registers
+    ;; rsi is a pointer to the return context registers
 
     ;; note that this makes bad assumptions
     ;; fix with swapgs etc once I get around to it
 
     ;; save return context
-    xchg rdi, rdx
+    xchg rdi, rsi
     call _load_context
-    xchg rdi, rdx
+    xchg rdi, rsi
 
     ;; save stack here
-    mov [rdx + 0x88], rsp
-    ;; set return point to here
-    mov QWORD [rdx + 0x80], .return
-.return:
+    mov [rsi + 0x88], rsp
+    ;; set return point
+    mov QWORD [rsi + 0x80], _do_execute_landing
 
-    ;; branch
-    mov ax, [rsi]
-    cmp ax, 0
-    jne .continue
-
-    ;; clean up and return
-    mov WORD [rsi], ~0
-    ret
-
-.continue:
-    ;; set not busy
-    mov WORD [rsi], 0
-
-_do_execute_nobranch:   
     ;; rax: rdi + 0x00
     mov rbx, [rdi + 0x08]
     mov rcx, [rdi + 0x10]
@@ -278,3 +318,80 @@ _do_execute_nobranch:
 
     ;; iret to procedure
     iretq
+
+    mov al, "E"
+    jmp _error
+
+_sysenter_landing:
+    ;; align stack
+    and rsp, -16
+
+    ;; call handler procedure
+    call sysenter_handler
+
+    ;; should not return
+    mov al, "S"
+    jmp _error
+
+_sysenter_return:
+    mov rax, rsi                ;result
+    mov rsp, rdi
+    iretq
+
+    mov al, "R"
+    jmp _error
+
+_sysenter_launch:
+    push rbp
+    mov rbp, rsp
+
+    ;; move arguments around
+    mov rdx, rsi
+    mov rsi, rdi
+
+    ;; push iretq
+    xor rax, rax
+    mov ax, ss
+    push rax                    ;old ss
+    push rbp                    ;old rsp
+    pushfq                      ;flags
+    mov ax, cs                  
+    push rax                    ;old cs
+    push .continue              ;return instruction
+    mov rdi, rsp                ;return rsp
+
+    ;; rsi: branch
+    ;; rdx: argument
+    
+    sysenter
+
+    ;; rax: result
+    
+.continue:
+    pop rbp
+    ret
+
+_sysenter_execute:
+    ;; execute a function on another stack
+    ;; then return to original procedure
+
+    ;; rdi: new rsp
+    ;; rsi: callback
+    ;; rdx: argument
+
+    mov rsp, rdi
+    mov rdi, rdx
+
+    ;; align stack, just in case
+    mov rbp, rsp
+    and rsp, -16
+
+    call rsi
+
+    ;; restore old rsp
+    mov rsp, rbp
+    ;; rax should have the result of the function
+    iretq
+
+    mov al, "E"
+    jmp _error

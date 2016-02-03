@@ -8,7 +8,7 @@ extern "C" {
 }
 
 /// Unsafe because dropping gdt or idt leaks a reference
-pub unsafe fn setup() -> (gdt::Table, idt::Table) {
+pub unsafe fn setup() -> (gdt::Table, idt::Table, ::cpu::stack::Stack) {
     // create a new GDT with a TSS
     let tss = tss::Segment::new([None, None, None, None, None, None, None],
                                 [None, None, None], 0);
@@ -47,11 +47,13 @@ pub unsafe fn setup() -> (gdt::Table, idt::Table) {
 
     let mut idt = idt::Table::new(descriptors);
 
-    debug!("Created IDT");
-
     idt.install();
 
     debug!("Installed IDT");
 
-    (gdt, idt)
+    let syscall_stack = ::cpu::syscall::setup();
+
+    debug!("Set up syscalls");
+
+    (gdt, idt, syscall_stack)
 }

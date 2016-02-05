@@ -10,6 +10,7 @@ use memory;
 use cpu;
 use constants::*;
 
+#[cfg(not(test))]
 extern "C" {
     static _kernel_top: u8;
     static _kernel_end: u8;
@@ -19,12 +20,26 @@ extern "C" {
     static _rodata_end: u8;
     static _data_top: u8;
     static _data_end: u8;
+    static _godata_top: u8;
+    static _godata_end: u8;
+
+    static mut _core_pages: u64;
     
     fn _swap_pages(cr3: u64);
     fn _init_pages();
 
     fn _bp_handler();
     fn _gp_handler();
+}
+
+#[cfg(test)]
+unsafe fn _bp_handler() {
+    unreachable!("Breakpoint handler reached");
+}
+
+#[cfg(test)]
+unsafe fn _gp_handler() {
+    unreachable!("General protection fault handler reached");
 }
 
 /// Unsafe because dropping gdt or idt leaks a reference
@@ -72,7 +87,7 @@ pub unsafe fn setup(memory_regions: Vec<(*mut memory::Opaque, usize)>)
 
     debug!("Installed IDT");
 
-    let syscall_stack = ::cpu::syscall::setup();
+    let syscall_stack = cpu::syscall::setup();
 
     debug!("Set up syscalls");
 
@@ -82,7 +97,8 @@ pub unsafe fn setup(memory_regions: Vec<(*mut memory::Opaque, usize)>)
     (gdt, idt, syscall_stack, layout)
 }
 
-pub unsafe fn remap_kernel(mut memory_regions: Vec<(*mut memory::Opaque, usize)>) -> paging::Layout {
+#[cfg(not(test))]
+unsafe fn remap_kernel(mut memory_regions: Vec<(*mut memory::Opaque, usize)>) -> paging::Layout {
     // set up paging
     let mut layout = paging::Layout::new();
 
@@ -139,6 +155,9 @@ pub unsafe fn remap_kernel(mut memory_regions: Vec<(*mut memory::Opaque, usize)>
 
     // load the new cr3
     unsafe {
+        // save the cr3 value in a static place
+        _core_pages = new_cr3;
+
         // enable nx in EFER
         let mut efer: u64 = cpu::read_msr(EFER_MSR);
 
@@ -152,4 +171,9 @@ pub unsafe fn remap_kernel(mut memory_regions: Vec<(*mut memory::Opaque, usize)>
     }
 
     layout
+}
+
+#[cfg(test)]
+unsafe fn remap_kernel(_: Vec<(*mut memory::Opaque, usize)>) -> paging::Layout {
+    paging::Layout::new()
 }

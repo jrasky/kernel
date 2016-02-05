@@ -1,6 +1,12 @@
+#[cfg(not(test))]
 use core::fmt::Display;
+#[cfg(test)]
+use std::fmt::Display;
 
+#[cfg(not(test))]
 use core::fmt;
+#[cfg(test)]
+use std::fmt;
 
 use collections::String;
 

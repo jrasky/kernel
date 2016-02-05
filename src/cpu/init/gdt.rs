@@ -2,7 +2,10 @@ use collections::Vec;
 
 use alloc::raw_vec::RawVec;
 
+#[cfg(not(test))]
 use core::ptr;
+#[cfg(test)]
+use std::ptr;
 
 #[repr(packed)]
 #[derive(Debug)]
@@ -34,6 +37,7 @@ impl Table {
         assert!((task_index as usize) < self.tss.len());
 
         // task selector has to be indirected through a memory location
+        #[cfg(not(test))]
         asm!("ltr $0"
              :: "r"((task_index + 3) << 3)
              :: "volatile", "intel"); // could modify self
@@ -58,6 +62,7 @@ impl Table {
 
         // load the new global descriptor table,
         // and reload the segments
+        #[cfg(not(test))]
         asm!(concat!(
             "lgdt $0;",
             "call _reload_segments;")

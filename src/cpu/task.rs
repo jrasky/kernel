@@ -1,22 +1,37 @@
 use collections::{VecDeque, Vec};
 
+#[cfg(not(test))]
 use core::iter::{IntoIterator, FromIterator, Iterator};
-
+#[cfg(not(test))]
 use core::ptr;
+
+#[cfg(test)]
+use std::iter::{IntoIterator, FromIterator, Iterator};
+#[cfg(test)]
+use std::ptr;
 
 use alloc::boxed::Box;
 use alloc::arc::{Arc, Weak};
 
+#[cfg(not(test))]
 use core::cell::UnsafeCell;
+#[cfg(test)]
+use std::cell::UnsafeCell;
 
 use spin::Mutex;
 
 use cpu::stack::Stack;
 
+#[cfg(not(test))]
 extern "C" {
     static mut _fxsave_task: u8;
     fn _do_execute(regs: *const Regs, core_regs: *mut Regs);
     fn _load_context(regs: *mut Regs);
+}
+
+#[cfg(test)]
+unsafe fn _do_execute(regs: *const Regs, core_regs: *mut Regs) {
+    debug!("_do_execute(regs: {:?}, core_regs: {:?})", regs, core_regs);
 }
 
 extern "C" fn _dummy_entry() -> ! {
@@ -490,14 +505,17 @@ impl ManagerInner {
 
         unsafe {
             // save our
+            #[cfg(not(test))]
             asm!("fxsave $0"
                  : "=*m"(&mut _fxsave_task)
                  ::: "intel");
 
+            #[cfg(not(test))]
             ptr::copy(&_fxsave_task,
                       self.core.context.fxsave.as_mut_ptr(),
                       self.core.context.fxsave.len());
 
+            #[cfg(not(test))]
             ptr::copy(task.get_inner().context.fxsave.as_ptr(),
                       &mut _fxsave_task as *mut u8,
                       task.get_inner().context.fxsave.len());
@@ -509,6 +527,7 @@ impl ManagerInner {
 
             self.current = Some(task);
 
+            #[cfg(not(test))]
             asm!("fxrstor $0"
                  :: "*m"(&_fxsave_task)
                  :: "intel");
@@ -518,10 +537,12 @@ impl ManagerInner {
 
             let mut task = self.current.take().unwrap();
 
+            #[cfg(not(test))]
             ptr::copy(self.core.context.fxsave.as_mut_ptr(),
                       &mut _fxsave_task as *mut u8,
                       self.core.context.fxsave.len());
 
+            #[cfg(not(test))]
             asm!("fxrstor $0"
                  :: "*m"(&_fxsave_task)
                  :: "intel");
@@ -553,20 +574,24 @@ impl ManagerInner {
 
         unsafe {
             // save our
+            #[cfg(not(test))]
             asm!("fxsave $0"
                  : "=*m"(&mut _fxsave_task)
                  ::: "intel");
 
+            #[cfg(not(test))]
             ptr::copy(&_fxsave_task as *const u8,
                       task.get_mut().context.fxsave.as_mut_ptr(),
                       task.get_mut().context.fxsave.len());
 
+            #[cfg(not(test))]
             ptr::copy(self.core.context.fxsave.as_ptr(),
                       &mut _fxsave_task as *mut u8,
                       self.core.context.fxsave.len());
 
             debug!("Switching back to core");
 
+            #[cfg(not(test))]
             asm!("fxrstor $0"
                  :: "*m"(&_fxsave_task)
                  :: "intel");
@@ -574,10 +599,12 @@ impl ManagerInner {
             _do_execute(&self.core.context.regs,
                         &mut task.get_mut().context.regs);
 
+            #[cfg(not(test))]
             ptr::copy(task.get_inner().context.fxsave.as_ptr(),
                       &mut _fxsave_task as *mut u8,
                       task.get_inner().context.fxsave.len());
 
+            #[cfg(not(test))]
             asm!("fxrstor $0"
                  :: "*m"(&_fxsave_task)
                  :: "intel");
@@ -601,6 +628,7 @@ impl TaskInner {
         // create a blank context
         let mut context = Context::empty();
 
+        #[cfg(not(test))]
         unsafe {
             // fxsave, use current floating point state in task
             // TODO: generate a compliant FPU state instead of just using the current one

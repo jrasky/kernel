@@ -59,6 +59,17 @@ SECTIONS {
     . = .;
     _data_end = .;
 
+    /* global data page, for certain special kernel structures */
+    .godata ALIGN(4K) : {
+        _godata_top = .;
+        /* static place to shove the cr3 register for the core task */
+        _core_pages = .;
+        . += 0x8;
+    }
+
+    . = .;
+    _godata_end = .;
+
     /* uninitialized, read-write data, slab, and stack */
     .bss ALIGN(4K) : {
         _bss_top = .;

@@ -1,3 +1,6 @@
+#[cfg(test)]
+use std::panic;
+
 use cpu::stack::Stack;
 
 use log;
@@ -12,11 +15,40 @@ use constants::*;
 // branch, argument
 // r8, r9
 
+#[cfg(not(test))]
 extern "C" {
     fn _sysenter_landing(rsp: u64, branch: u64, argument: u64) -> !;
     fn _sysenter_return(rsp: u64, result: u64) -> !;
     fn _sysenter_launch(branch: u64, argument: u64) -> u64;
     fn _sysenter_execute(rsp: u64, callback: extern "C" fn(u64) -> u64, argument: u64) -> !;
+}
+
+#[cfg(test)]
+unsafe fn _sysenter_landing(_: u64, _: u64, _: u64) -> ! {
+    unreachable!("sysenter landing called");
+}
+
+#[cfg(test)]
+unsafe fn _sysenter_return(_: u64, result: u64) -> ! {
+    panic!(result);
+}
+
+#[cfg(test)]
+unsafe fn _sysenter_execute(_: u64, callback: extern "C" fn(u64) -> u64, argument: u64) -> ! {
+    panic!(callback(argument));
+}
+
+#[cfg(test)]
+unsafe fn _sysenter_launch(branch: u64, argument: u64) -> u64 {
+    if let Err(result) = panic::recover( || sysenter_handler(0, branch, argument)) {
+        if let Some(result) = result.downcast_ref::<u64>() {
+            *result
+        } else {
+            panic!("syscall panicked");
+        }
+    } else {
+        panic!("syscall did not panic");
+    }
 }
 
 pub unsafe fn setup() -> Stack {

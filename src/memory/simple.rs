@@ -1,8 +1,18 @@
 use super::{Opaque, Header};
 
+#[cfg(not(test))]
 use core::ptr;
+#[cfg(not(test))]
 use core::mem;
+#[cfg(not(test))]
 use core::cmp;
+
+#[cfg(test)]
+use std::ptr;
+#[cfg(test)]
+use std::mem;
+#[cfg(test)]
+use std::cmp;
 
 use spin::Mutex;
 

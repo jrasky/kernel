@@ -1,8 +1,18 @@
 use collections::{String, Vec};
 
+#[cfg(not(test))]
 use core::slice;
+#[cfg(not(test))]
 use core::str;
+#[cfg(not(test))]
 use core::cmp;
+
+#[cfg(test)]
+use std::slice;
+#[cfg(test)]
+use std::str;
+#[cfg(test)]
+use std::cmp;
 
 use elfloader::elf;
 

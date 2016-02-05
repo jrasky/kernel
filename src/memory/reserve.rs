@@ -1,23 +1,56 @@
+#[cfg(not(test))]
 use core::cell::UnsafeCell;
+#[cfg(not(test))]
 use core::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(test)]
+use std::cell::UnsafeCell;
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(not(test))]
 use core::mem;
+#[cfg(not(test))]
 use core::ptr;
+#[cfg(not(test))]
 use core::slice;
+
+#[cfg(test)]
+use std::mem;
+#[cfg(test)]
+use std::ptr;
+#[cfg(test)]
+use std::slice;
+
+#[cfg(test)]
+use alloc::heap;
+#[cfg(test)]
+use std::u64;
 
 use constants::*;
 
 use super::{Opaque, Header};
 
+#[cfg(not(test))]
 extern "C" {
     static _slab: u64;
     static _slab_map: u8;
 }
 
+#[cfg(not(test))]
 static RESERVE: Memory = Memory {
     inner: UnsafeCell::new(MemoryInner {
         slab: &_slab as *const _ as *mut _,
         map: &_slab_map as *const _ as *mut _
+    }),
+    borrowed: AtomicBool::new(false),
+};
+
+#[cfg(test)]
+static RESERVE: Memory = Memory {
+    inner: UnsafeCell::new(MemoryInner {
+        slab: ptr::null_mut(),
+        map: ptr::null_mut()
     }),
     borrowed: AtomicBool::new(false),
 };
@@ -52,6 +85,19 @@ impl Memory {
 }
 
 impl MemoryInner {
+    #[cfg(test)]
+    #[inline]
+    unsafe fn get_slab<'a, 'b>(&'a mut self) -> (&'b mut [u64], &'b mut [u8]) {
+        if self.slab.is_null() {
+            self.slab = heap::allocate(RESERVE_SLAB_SIZE * u64::BYTES, u64::BYTES) as *mut _;
+            self.map = heap::allocate((RESERVE_SLAB_SIZE + 7) / 8, u64::BYTES);
+        }
+
+        (slice::from_raw_parts_mut(self.slab, RESERVE_SLAB_SIZE),
+         slice::from_raw_parts_mut(self.map, (RESERVE_SLAB_SIZE + 7) / 8))
+    }
+
+    #[cfg(not(test))]
     #[inline]
     unsafe fn get_slab<'a, 'b>(&'a mut self) -> (&'b mut [u64], &'b mut [u8]) {
         (slice::from_raw_parts_mut(self.slab, RESERVE_SLAB_SIZE),

@@ -1,8 +1,17 @@
+#[cfg(not(test))]
 use core::fmt::Write;
+#[cfg(test)]
+use std::fmt::Write;
 
+#[cfg(not(test))]
 use core::fmt;
+#[cfg(test)]
+use std::fmt;
 
+#[cfg(not(test))]
 use core::ptr::Unique;
+#[cfg(test)]
+use std::ptr::Unique;
 
 use spin::Mutex;
 
@@ -38,7 +47,10 @@ struct ColorCode(u8);
 struct Writer {
     column_position: usize,
     color_code: ColorCode,
+    #[cfg(not(test))]
     buffer: Unique<Buffer>,
+    #[cfg(test)]
+    buffer: Buffer,
     deferred_newline: bool,
 }
 
@@ -60,7 +72,7 @@ impl ColorCode {
 }
 
 impl Write for Writer {
-    fn write_str(&mut self, s: &str) -> ::core::fmt::Result {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
         for byte in s.bytes() {
             self.write_byte(byte);
         }
@@ -69,11 +81,27 @@ impl Write for Writer {
 }
 
 impl Writer {
+    #[cfg(not(test))]
     const fn new(foreground: Color, background: Color) -> Writer {
         Writer {
             column_position: 0,
             color_code: ColorCode::new(foreground, background),
             buffer: unsafe { Unique::new(VGA_BUFFER_ADDR as *mut _) },
+            deferred_newline: false,
+        }
+    }
+
+    #[cfg(test)]
+    const fn new(foreground: Color, background: Color) -> Writer {
+        Writer {
+            column_position: 0,
+            color_code: ColorCode::new(foreground, background),
+            buffer: Buffer {
+                chars: [[ScreenChar {
+                    ascii_character: 0,
+                    color_code: ColorCode(0)
+                }; VGA_BUFFER_WIDTH]; VGA_BUFFER_HEIGHT]
+            },
             deferred_newline: false,
         }
     }
@@ -103,8 +131,14 @@ impl Writer {
         }
     }
 
+    #[cfg(not(test))]
     fn get_buffer(&mut self) -> &mut Buffer {
         unsafe { self.buffer.get_mut() }
+    }
+
+    #[cfg(test)]
+    fn get_buffer(&mut self) -> &mut Buffer {
+        &mut self.buffer
     }
 
     fn request_new_line(&mut self) {

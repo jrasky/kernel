@@ -11,7 +11,9 @@
 #![feature(stmt_expr_attributes)]
 #![feature(asm)]
 #![feature(heap_api)]
-#![no_std]
+#![cfg_attr(not(test), no_std)]
+#![cfg_attr(test, feature(std_panic))]
+#![cfg_attr(test, feature(recover))]
 extern crate rlibc;
 extern crate spin;
 extern crate alloc;
@@ -19,10 +21,21 @@ extern crate alloc;
 extern crate collections;
 extern crate elfloader;
 
+#[cfg(not(test))]
 use core::fmt;
+#[cfg(not(test))]
 use core::mem;
 
+#[cfg(not(test))]
 use core::sync::atomic::{Ordering, AtomicUsize};
+
+#[cfg(test)]
+use std::fmt;
+#[cfg(test)]
+use std::mem;
+
+#[cfg(test)]
+use std::sync::atomic::{Ordering, AtomicUsize};
 
 #[macro_use]
 mod log;
@@ -33,6 +46,7 @@ mod cpu;
 mod multiboot;
 
 // pub use since they're exported
+#[cfg(not(test))]
 pub use memory::{__rust_allocate,
                  __rust_deallocate,
                  __rust_reallocate,
@@ -40,10 +54,14 @@ pub use memory::{__rust_allocate,
                  __rust_usable_size};
 
 // pub use since we want to export
+#[cfg(not(test))]
 pub use cpu::interrupt::{interrupt_breakpoint,
                          interrupt_general_protection_fault};
+
+#[cfg(not(test))]
 pub use cpu::syscall::sysenter_handler;
 
+#[cfg(not(test))]
 extern "C" fn test_task() -> ! {
     info!("Hello from a task!");
 
@@ -71,6 +89,7 @@ extern "C" fn test_task() -> ! {
     cpu::syscall::exit();
 }
 
+#[cfg(not(test))]
 extern "C" fn test_task_2() -> ! {
     let mut request = log::Request {
         level: 3,
@@ -104,6 +123,7 @@ extern "C" fn test_task_2() -> ! {
     cpu::syscall::exit();
 }
 
+#[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // kernel main
@@ -151,6 +171,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     unreachable!("kernel_main tried to return");
 }
 
+#[cfg(not(test))]
 #[cold]
 #[inline(never)]
 #[lang = "eh_personality"]
@@ -158,6 +179,7 @@ extern "C" fn eh_personality() {
     unreachable!("C++ exception code called")
 }
 
+#[cfg(not(test))]
 #[cold]
 #[inline(never)]
 #[no_mangle]
@@ -179,6 +201,7 @@ pub extern "C" fn rust_begin_unwind(msg: fmt::Arguments, file: &'static str, lin
     }
 }
 
+#[cfg(not(test))]
 #[cold]
 #[inline(never)]
 fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
@@ -196,6 +219,7 @@ fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     panic_halt();
 }
 
+#[cfg(not(test))]
 #[cold]
 #[inline(never)]
 fn double_panic() -> ! {
@@ -211,6 +235,7 @@ fn double_panic() -> ! {
     panic_halt();
 }
 
+#[cfg(not(test))]
 #[cold]
 #[inline(never)]
 fn panic_halt() -> ! {
@@ -223,6 +248,7 @@ fn panic_halt() -> ! {
     }
 }
 
+#[cfg(not(test))]
 #[cold]
 #[inline(never)]
 #[no_mangle]

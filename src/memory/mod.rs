@@ -1,8 +1,15 @@
+#[cfg(not(test))]
 use core::prelude::v1::*;
 
+#[cfg(not(test))]
 use core::sync::atomic::{Ordering, AtomicBool};
+#[cfg(test)]
+use std::sync::atomic::{Ordering, AtomicBool};
 
+#[cfg(not(test))]
 use core::ptr;
+#[cfg(test)]
+use std::ptr;
 
 use constants::*;
 

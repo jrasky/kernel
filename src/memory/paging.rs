@@ -1,16 +1,36 @@
 use collections::{BTreeSet, Vec};
 
+#[cfg(not(test))]
 use core::cmp::{PartialEq, Eq, Ord, PartialOrd, Ordering};
+#[cfg(not(test))]
 use core::ptr::Unique;
+#[cfg(not(test))]
 use core::fmt::{Debug, Formatter};
+
+#[cfg(test)]
+use std::cmp::{PartialEq, Eq, Ord, PartialOrd, Ordering};
+#[cfg(test)]
+use std::ptr::Unique;
+#[cfg(test)]
+use std::fmt::{Debug, Formatter};
 
 use alloc::raw_vec::RawVec;
 
 use alloc::heap;
 
+#[cfg(not(test))]
 use core::fmt;
+#[cfg(not(test))]
 use core::mem;
+#[cfg(not(test))]
 use core::cmp;
+
+#[cfg(test)]
+use std::fmt;
+#[cfg(test)]
+use std::mem;
+#[cfg(test)]
+use std::cmp;
 
 use constants::*;
 

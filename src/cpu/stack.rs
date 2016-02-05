@@ -1,6 +1,9 @@
 use alloc::heap;
 
+#[cfg(not(test))]
 use core::ptr::Unique;
+#[cfg(test)]
+use std::ptr::Unique;
 
 use memory::Opaque;
 

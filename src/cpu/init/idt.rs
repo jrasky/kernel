@@ -1,6 +1,9 @@
 use collections::Vec;
 
+#[cfg(not(test))]
 use core::ptr;
+#[cfg(test)]
+use std::ptr;
 
 use alloc::raw_vec::RawVec;
 
@@ -94,6 +97,7 @@ impl Table {
 
         trace!("aoe: {:?}", REGISTER);
 
+        #[cfg(not(test))]
         asm!("lidt $0"
              :: "i"(&REGISTER)
              :: "intel");

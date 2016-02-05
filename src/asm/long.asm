@@ -17,6 +17,8 @@
     global _sysenter_return
     global _sysenter_launch
     global _sysenter_execute
+    global _swap_pages
+    global _init_pages
 
     extern kernel_main
     extern _boot_info
@@ -395,3 +397,13 @@ _sysenter_execute:
 
     mov al, "E"
     jmp _error
+
+_init_pages:
+    mov eax, cr4
+    or eax, 1 << 7
+    or eax, 1 << 4
+    ret
+
+_swap_pages:
+    mov cr3, rdi
+    ret

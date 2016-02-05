@@ -4,6 +4,10 @@ use core::cmp::{PartialEq, Eq, Ord, PartialOrd, Ordering};
 use core::ptr::Unique;
 use core::fmt::{Debug, Formatter};
 
+use alloc::raw_vec::RawVec;
+
+use alloc::heap;
+
 use core::fmt;
 use core::mem;
 use core::cmp;
@@ -40,13 +44,10 @@ pub struct Segment {
     global: bool
 }
 
-struct SegmentByPhysical(Segment);
-struct SegmentByVirtual(Segment);
-
-#[derive(Clone)]
 pub struct Layout {
     entries: Vec<Option<Frame>>,
-    map: BTreeSet<Segment> // use a map for convenience
+    map: BTreeSet<Segment>, // use a map for convenience
+    buffers: Vec<RawVec<u64>>
 }
 
 #[derive(Clone)]
@@ -73,6 +74,7 @@ struct Page {
     execute_disable: bool,
     attribute_table: bool,
     protection_key: u8,
+    global: bool,
     size: PageSize,
     base: usize
 }
@@ -198,6 +200,46 @@ impl PartialOrd for FrameSize {
     }
 }
 
+impl Page {
+    fn get_entry(&self) -> u64 {
+        let mut entry = (self.protection_key as u64) << 59 | self.base as u64 | (1 << 0);
+
+        if self.execute_disable {
+            entry |= 1 << 63;
+        }
+
+        if self.global {
+            entry |= 1 << 8;
+        }
+
+        if self.size != PageSize::Page || self.attribute_table {
+            entry |= 1 << 7;
+        } else if self.attribute_table {
+            entry |= 1 << 12;
+        }
+
+        if self.cache_disable {
+            entry |= 1 << 4;
+        }
+
+        if self.write_through {
+            entry |= 1 << 3;
+        }
+
+        if self.user {
+            entry |= 1 << 2;
+        }
+
+        if self.write {
+            entry |= 1 << 1;
+        }
+
+        trace!("Page entry: {:x}", entry);
+
+        entry
+    }
+}
+
 impl Segment {
     pub const fn new(physical_base: usize, virtual_base: usize, size: usize,
                      write: bool, user: bool, execute: bool, global: bool) -> Segment {
@@ -255,8 +297,36 @@ impl Layout {
 
         Layout {
             entries: entries,
-            map: BTreeSet::new()
+            map: BTreeSet::new(),
+            buffers: vec![]
         }
+    }
+
+    pub fn build_tables(&mut self) -> u64 {
+        let buffer: RawVec<u64> = unsafe {
+            // our buffer needs to be page-aligned
+            RawVec::from_raw_parts(heap::allocate(mem::size_of::<u64>() * 0x200, 0x1000) as *mut _, 0x200)
+        };
+
+        for idx in 0..0x200 {
+            match self.entries[idx] {
+                None => {
+                    unsafe {*buffer.ptr().offset(idx as isize).as_mut().unwrap() = 0};
+                },
+                Some(ref frame) => {
+                    unsafe {*buffer.ptr().offset(idx as isize).as_mut().unwrap() =
+                        frame.build_table(&mut self.buffers)};
+                }
+            }
+        }
+
+        let entry = buffer.ptr() as u64;
+
+        self.buffers.push(buffer);
+
+        trace!("Layout entry: 0x{:x}", entry);
+
+        entry
     }
 
     pub fn insert(&mut self, segment: Segment) -> bool {
@@ -332,6 +402,36 @@ impl Frame {
             base: base,
             entries: entries
         }
+    }
+
+    fn build_table(&self, buffers: &mut Vec<RawVec<u64>>) -> u64 {
+        let buffer: RawVec<u64> = unsafe {
+            // our buffer needs to be page-aligned
+            RawVec::from_raw_parts(heap::allocate(mem::size_of::<u64>() * 0x200, 0x1000) as *mut _, 0x200)
+        };
+
+        for idx in 0..0x200 {
+            match self.entries[idx] {
+                FrameEntry::Empty => {
+                    unsafe {*buffer.ptr().offset(idx as isize).as_mut().unwrap() = 0};
+                },
+                FrameEntry::Page(ref page) => {
+                    unsafe {*buffer.ptr().offset(idx as isize).as_mut().unwrap() = page.get_entry()};
+                },
+                FrameEntry::Frame(ref frame) => {
+                    unsafe {*buffer.ptr().offset(idx as isize).as_mut().unwrap() =
+                        frame.build_table(buffers)};
+                }
+            }
+        }
+
+        let entry = buffer.ptr() as u64 | 0x7;
+
+        buffers.push(buffer);
+
+        trace!("Frame entry: 0x{:x}", entry);
+
+        entry
     }
 
     fn merge(&mut self, segment: Segment, remove: bool) {
@@ -455,6 +555,7 @@ impl Frame {
             execute_disable: !segment.execute,
             attribute_table: false,
             protection_key: 0,
+            global: segment.global,
             size: self.size.get_pagesize(),
             base: physical_base
         });

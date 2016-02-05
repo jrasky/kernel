@@ -1,4 +1,4 @@
-use collections::String;
+use collections::{String, Vec};
 
 use core::slice;
 use core::str;
@@ -146,7 +146,7 @@ unsafe fn parse_bootloader(ptr: *const u32) {
     }
 }
 
-unsafe fn parse_memory(ptr: *const u32) {
+unsafe fn parse_memory(ptr: *const u32) -> Vec<(*mut memory::Opaque, usize)> {
     // memory map
     let entry_size = *ptr.offset(2).as_ref().unwrap();
     let mut entry_ptr = ptr.offset(4) as *const MemoryTag;
@@ -154,6 +154,8 @@ unsafe fn parse_memory(ptr: *const u32) {
 
     let image_begin = &_image_begin as *const _ as usize;
     let image_end = &_image_end as *const _ as usize;
+
+    let mut memory_regions = vec![];
 
     while entry_ptr < entry_end {
         let entry = entry_ptr.as_ref().unwrap();
@@ -171,13 +173,17 @@ unsafe fn parse_memory(ptr: *const u32) {
 
                 if image_begin <= base_addr && base_addr <= image_end &&
                    base_addr + entry.length as usize > image_end {
-                    memory::register(image_end as *mut memory::Opaque,
-                                     base_addr + entry.length as usize - image_end);
+                       memory::register(image_end as *mut memory::Opaque,
+                                        base_addr + entry.length as usize - image_end);
+                       memory_regions.push((image_end as *mut memory::Opaque,
+                                            base_addr + entry.length as usize - image_end));
                 } else if base_addr < image_begin && image_end > base_addr + entry.length as usize &&
                    base_addr + entry.length as usize > image_begin {
                     memory::register(image_begin as *mut memory::Opaque, base_addr - image_begin);
+                       memory_regions.push((image_begin as *mut memory::Opaque, base_addr - image_begin));
                 } else if base_addr + (entry.length as usize) < image_begin {
                     memory::register(base_addr as *mut memory::Opaque, entry.length as usize);
+                       memory_regions.push((base_addr as *mut memory::Opaque, entry.length as usize));
                 } else {
                     // do not register the section
                 }
@@ -201,9 +207,11 @@ unsafe fn parse_memory(ptr: *const u32) {
 
         entry_ptr = align(entry_ptr as usize + entry_size as usize, 8) as *const _;
     }
+
+    memory_regions
 }
 
-pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
+pub unsafe fn parse_multiboot_tags(boot_info: *const u32) -> Vec<(*mut memory::Opaque, usize)> {
     // read multiboot info
     let mut ptr: *const u32 = boot_info;
 
@@ -212,6 +220,8 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
     let end: *const u32 = (ptr as usize + total_size as usize) as *const _;
 
     ptr = align(ptr.offset(2) as usize, 8) as *const _;
+
+    let mut memory_regions = vec![];
 
     while ptr < end {
         match *ptr.as_ref().unwrap() {
@@ -226,7 +236,7 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
                 parse_bootloader(ptr);
             }
             6 => {
-                parse_memory(ptr);
+                memory_regions = parse_memory(ptr);
             }
             9 => {
                 parse_elf(ptr);
@@ -240,4 +250,6 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
         // advance to the next tag
         ptr = align(ptr as usize + *ptr.offset(1).as_ref().unwrap() as usize, 8) as *const _;
     }
+
+    memory_regions
 }

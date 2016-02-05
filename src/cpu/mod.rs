@@ -10,7 +10,7 @@ pub unsafe fn read_msr(id: u32) -> u64 {
 
     asm!("rdmsr" : "={eax}"(low), "={edx}"(high) : "{ecx}"(id) :: "intel");
 
-    (high as u64) << 32 + (low as u64)
+    ((high as u64) << 32) + (low as u64)
 }
 
 pub unsafe fn write_msr(id: u32, value: u64) {

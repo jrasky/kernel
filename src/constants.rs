@@ -8,6 +8,7 @@ pub const STACK_SIZE: usize = 0xf000;
 pub const SYSENTER_CS_MSR: u32 = 0x174;
 pub const SYSENTER_EIP_MSR: u32 = 0x176;
 pub const SYSENTER_ESP_MSR: u32 = 0x175;
+pub const EFER_MSR: u32 = 0xC0000080;
 pub const CORE_CS: u16 = 0x08;
 pub const CORE_DS: u16 = 0x10;
 pub const CORE_SS: u16 = 0x10;

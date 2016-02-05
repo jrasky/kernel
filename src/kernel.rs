@@ -44,6 +44,8 @@ pub use cpu::interrupt::{interrupt_breakpoint,
                          interrupt_general_protection_fault};
 pub use cpu::syscall::sysenter_handler;
 
+use constants::*;
+
 extern "C" {
     static _kernel_top: u8;
     static _kernel_end: u8;
@@ -54,6 +56,8 @@ extern "C" {
     static _data_top: u8;
     static _data_end: u8;
     
+    fn _swap_pages(cr3: u64);
+    fn _init_pages();
 }
 
 extern "C" fn test_task() -> ! {
@@ -122,7 +126,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     info!("Hello!");
 
     // parse multiboot info
-    unsafe { multiboot::parse_multiboot_tags(boot_info) };
+    let memory_regions = unsafe { multiboot::parse_multiboot_tags(boot_info) };
 
     debug!("Done parsing tags");
 
@@ -144,33 +148,73 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // set up paging
     let mut layout = memory::paging::Layout::new();
 
-    layout.insert(memory::paging::Segment::new(
+    // map sections of the kernel
+
+    // map I/O region
+    assert!(layout.insert(memory::paging::Segment::new(
+        0, 0, 0x100000,
+        true, false, false, false
+    )), "Could not register I/O region");
+
+    assert!(layout.insert(memory::paging::Segment::new(
         &_kernel_top as *const u8 as usize,
         &_kernel_top as *const u8 as usize,
         &_kernel_end as *const u8 as usize - &_kernel_top as *const u8 as usize,
-                  false, false, true, false));
+        false, false, true, false)),
+            "Could not register kernel text");
 
-    layout.insert(memory::paging::Segment::new(
+    assert!(layout.insert(memory::paging::Segment::new(
         &_bss_top as *const u8 as usize,
         &_bss_top as *const u8 as usize,
         &_stack_top as *const u8 as usize - &_bss_top as *const u8 as usize,
-                  true, false, false, false));
+        true, false, false, false)),
+            "Could not register kernel text");
 
     if &_rodata_top as *const u8 as usize != &_rodata_end as *const u8 as usize {
-        layout.insert(memory::paging::Segment::new(
+        assert!(layout.insert(memory::paging::Segment::new(
             &_rodata_top as *const u8 as usize,
             &_rodata_top as *const u8 as usize,
             &_rodata_end as *const u8 as usize - &_rodata_top as *const u8 as usize,
-                      false, false, false, false));
+            false, false, false, false)),
+                "Could not register kernel rodata");
     }
 
     if &_data_top as *const u8 as usize != &_data_end as *const u8 as usize {
-        layout.insert(memory::paging::Segment::new(
+        assert!(layout.insert(memory::paging::Segment::new(
             &_data_top as *const u8 as usize,
             &_data_top as *const u8 as usize,
             &_data_end as *const u8 as usize - &_data_top as *const u8 as usize,
-                      true, false, false, false));
+            true, false, false, false)),
+                "Could not register kernel data");
     }
+
+    // map heap
+    for (ptr, size) in memory_regions {
+        assert!(layout.insert(memory::paging::Segment::new(
+            ptr as usize, ptr as usize, size,
+            true, false, false, false
+        )), "Could not register heap section");
+    }
+
+    // create actual page tables
+    let new_cr3 = layout.build_tables();
+
+    // load the new cr3
+    unsafe {
+        // enable nx in EFER
+        let mut efer: u64 = cpu::read_msr(EFER_MSR);
+
+        efer |= 1 << 11;
+
+        cpu::write_msr(EFER_MSR, efer);
+
+        _init_pages();
+
+        _swap_pages(new_cr3);
+    }
+
+    // leak layout
+    mem::forget(layout);
 
     info!("Starting tasks");
 

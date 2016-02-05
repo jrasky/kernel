@@ -22,6 +22,8 @@ SECTIONS {
         KEEP(target/asm/multiboot2.o (.multiboot2))
     }
 
+    _text_begin = .;
+
     /* first the multiboot header */
     .text ALIGN(4K) : {
         _kernel_top = .;

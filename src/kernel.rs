@@ -1,4 +1,5 @@
 #![feature(lang_items)]
+#![feature(set_recovery)]
 #![feature(num_bits_bytes)]
 #![feature(ptr_as_ref)]
 #![feature(const_fn)]
@@ -20,6 +21,8 @@ extern crate elfloader;
 
 use core::fmt;
 use core::mem;
+
+use core::sync::atomic::{Ordering, AtomicUsize};
 
 #[macro_use]
 mod log;
@@ -107,14 +110,20 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     info!("Hello!");
 
     // parse multiboot info
-    unsafe { multiboot::parse_multiboot_tags(boot_info) };
-
-    debug!("Done parsing tags");
+    let elf_tag = unsafe { multiboot::parse_multiboot_tags(boot_info) };
 
     // exit reserved memory
     memory::exit_reserved();
 
+    // parse elf tags
     debug!("Out of reserve memory");
+
+    if let Some(elf_tag) = elf_tag {
+        let layout = unsafe {multiboot::parse_elf(elf_tag)};
+        info!("Memory layout: {:?}", layout);
+    }
+
+    debug!("Done parsing tags");
 
     // set up cpu data structures and other settings
     // keep references around so we don't break things
@@ -158,6 +167,25 @@ extern "C" fn eh_personality() {
 #[no_mangle]
 #[lang = "panic_fmt"]
 pub extern "C" fn rust_begin_unwind(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
+    static PANIC_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    match PANIC_COUNT.fetch_add(1, Ordering::Relaxed) {
+        0 => {
+            panic_fmt(msg, file, line)
+        },
+        1 => {
+            double_panic()
+        },
+        _ => {
+            // give up
+            panic_halt()
+        }
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     // enter reserve memory
     memory::enter_reserved();
 
@@ -169,6 +197,27 @@ pub extern "C" fn rust_begin_unwind(msg: fmt::Arguments, file: &'static str, lin
 
     log::log(0, &loc, module_path!(), msg);
 
+    panic_halt();
+}
+
+#[cold]
+#[inline(never)]
+fn double_panic() -> ! {
+    // reserve log
+    static LOCATION: log::Location = log::Location {
+        module_path: module_path!(),
+        file: file!(),
+        line: line!()
+    };
+
+    log::reserve_log(0, &LOCATION, module_path!(), "Double panic");
+
+    panic_halt();
+}
+
+#[cold]
+#[inline(never)]
+fn panic_halt() -> ! {
     // clear interrupts and halt
     // processory must be reset to continue
     loop {

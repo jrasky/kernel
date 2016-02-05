@@ -29,7 +29,7 @@ impl Manager {
     unsafe fn register(&mut self, ptr: *mut Opaque, size: usize) -> usize {
         debug_assert!(!ptr.is_null(), "Tried to register a null block");
 
-        debug!("Registering block at {:#x} of size {:#x}", ptr as usize, size);
+        trace!("Registering block at {:#x} of size {:#x}", ptr as usize, size);
 
         if self.free.is_null() {
             if size <= mem::size_of::<Block>() {
@@ -56,7 +56,7 @@ impl Manager {
         let end = (ptr as *mut u8).offset(size as isize) as *mut Opaque;
         let mut block = self.free.as_mut().unwrap();
 
-        debug!("Registration ends at 0x{:x}", end as u64);
+        trace!("Registration ends at 0x{:x}", end as u64);
 
         trace!("{:?}, {:?}, {:?}", base, end, self.free);
 
@@ -267,7 +267,7 @@ impl Manager {
         let mut aligned_base;
         let mut header_base;
 
-        debug!("Allocating size 0x{:x} align 0x{:x}", size, align);
+        trace!("Allocating size 0x{:x} align 0x{:x}", size, align);
 
         loop {
             if let Some(block_ref) = block.as_mut() {
@@ -279,7 +279,7 @@ impl Manager {
                     block_ref.end as usize - aligned_base as usize >= size
                 {
                     // we've found a spot!
-                    debug!("Allocating at 0x{:x} to 0x{:x}", header_base as u64, end as u64);
+                    trace!("Allocating at 0x{:x} to 0x{:x}", header_base as u64, end as u64);
                     trace!("{:?}", block_ref);
                     trace!("{:?}, {:?}, {:?}", aligned_base, header_base, end);
                     // truncate the block
@@ -416,7 +416,7 @@ impl Manager {
         let end = (ptr as *mut u8).offset(header.size as isize) as *mut Opaque;
         let new_end = (ptr as *mut u8).offset(size as isize) as *mut Opaque;
 
-        debug!("Trying to grow at 0x{:x} from 0x{:x} to 0x{:x}", ptr as u64, end as u64, new_end as u64);
+        trace!("Trying to grow at 0x{:x} from 0x{:x} to 0x{:x}", ptr as u64, end as u64, new_end as u64);
 
         let mut block = self.free;
 

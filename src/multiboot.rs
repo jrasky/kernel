@@ -2,16 +2,19 @@ use collections::String;
 
 use core::slice;
 use core::str;
+use core::cmp;
 
 use elfloader::elf;
 
 use constants::*;
+use memory::paging;
 use log;
 use memory;
 
 extern "C" {
     static _image_begin: u8;
     static _image_end: u8;
+    static _text_begin: u8;
 }
 
 struct MemoryTag {
@@ -29,7 +32,7 @@ struct ElfSymbolTag {
     shndx: u32,
 }
 
-unsafe fn parse_elf(ptr: *const u32) {
+pub unsafe fn parse_elf(ptr: *const u32) -> paging::Layout {
     let info = (ptr as *const ElfSymbolTag).as_ref().unwrap();
 
     let sections =
@@ -38,13 +41,31 @@ unsafe fn parse_elf(ptr: *const u32) {
 
     let mut sum: u64 = 0;
 
+    let mut layout = paging::Layout::new();
+
     for section in sections {
-        if section.flags.0 & elf::SHF_ALLOC.0 == elf::SHF_ALLOC.0 {
+        if section.addr >= (&_text_begin as *const u8 as u64) 
+            && section.flags.0 & elf::SHF_ALLOC.0 == elf::SHF_ALLOC.0
+        {
+            // section is allocated
             sum += section.size;
+
+            // identity map
+            let segment = paging::Segment::new(
+                section.addr as usize, section.addr as usize, section.size as usize,
+                section.flags.0 & elf::SHF_WRITE.0 == elf::SHF_WRITE.0,
+                false, // section is supervisor-mode
+                section.flags.0 & elf::SHF_EXECINSTR.0 == elf::SHF_EXECINSTR.0,
+                false // not global
+            );
+
+            layout.insert(segment.clone());
         }
     }
 
     info!("{:#x} bytes used by kernel", sum);
+
+    layout
 }
 
 unsafe fn parse_cmdline(ptr: *const u32) {
@@ -140,14 +161,14 @@ unsafe fn parse_bootloader(ptr: *const u32) {
     }
 }
 
-unsafe fn parse_memory(ptr: *const u32) {
+unsafe fn parse_memory(ptr: *const u32, multiboot_end: *const u32) {
     // memory map
     let entry_size = *ptr.offset(2).as_ref().unwrap();
     let mut entry_ptr = ptr.offset(4) as *const MemoryTag;
     let entry_end = (entry_ptr as usize + *ptr.offset(1) as usize) as *const _;
 
     let image_begin = &_image_begin as *const _ as usize;
-    let image_end = &_image_end as *const _ as usize;
+    let image_end = cmp::max(&_image_end as *const _ as usize, multiboot_end as usize);
 
     while entry_ptr < entry_end {
         let entry = entry_ptr.as_ref().unwrap();
@@ -197,7 +218,7 @@ unsafe fn parse_memory(ptr: *const u32) {
     }
 }
 
-pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
+pub unsafe fn parse_multiboot_tags(boot_info: *const u32) -> Option<*const u32> {
     // read multiboot info
     let mut ptr: *const u32 = boot_info;
 
@@ -206,6 +227,8 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
     let end: *const u32 = (ptr as usize + total_size as usize) as *const _;
 
     ptr = align(ptr.offset(2) as usize, 8) as *const _;
+
+    let mut elf_tag = None;
 
     while ptr < end {
         match *ptr.as_ref().unwrap() {
@@ -220,10 +243,10 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
                 parse_bootloader(ptr);
             }
             6 => {
-                parse_memory(ptr);
+                parse_memory(ptr, end);
             }
             9 => {
-                parse_elf(ptr);
+                elf_tag = Some(ptr);
             }
             _ => {
                 // unknown tags aren't a huge issue
@@ -235,4 +258,5 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
         ptr = align(ptr as usize + *ptr.offset(1).as_ref().unwrap() as usize, 8) as *const _;
     }
 
+    elf_tag
 }

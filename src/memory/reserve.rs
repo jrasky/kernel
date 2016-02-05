@@ -69,7 +69,7 @@ impl MemoryInner {
         let mut subpos: usize = 0;
         loop {
             // check for oom
-            if pos >= RESERVE_SLAB_SIZE {
+            if pos >= (RESERVE_SLAB_SIZE + 7) / 8 {
                 error!("Failed to allocate reserve memory");
                 return None;
             }

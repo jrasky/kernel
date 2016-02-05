@@ -13,9 +13,10 @@ mod reserve;
 // Identity page-table only
 mod simple;
 
-mod paging;
+pub mod paging;
 
 static MEMORY: Manager = Manager {
+    enabled: AtomicBool::new(true),
     use_reserve: AtomicBool::new(true)
 };
 
@@ -29,22 +30,45 @@ struct Header {
 
 // Memory Manager
 struct Manager {
+    enabled: AtomicBool,
     use_reserve: AtomicBool
 }
 
 impl Manager {
+    fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Relaxed)
+    }
+
+    fn disable(&self) {
+        self.enabled.store(false, Ordering::Relaxed);
+    }
+
+    fn enable(&self) {
+        self.enabled.store(true, Ordering::Relaxed);
+    }
+
     unsafe fn register(&self, ptr: *mut Opaque, size: usize) -> usize {
-        // don't register with reserve
-        simple::register(ptr, size)
+        if self.is_enabled() {
+            // don't register with reserve
+            simple::register(ptr, size)
+        } else {
+            0
+        }
     }
 
     unsafe fn forget(&self, ptr: *mut Opaque, size: usize) -> usize {
-        // don't forget from reserve
-        simple::forget(ptr, size)
+        if self.is_enabled() {
+            // don't forget from reserve
+            simple::forget(ptr, size)
+        } else {
+            0
+        }
     }
 
     unsafe fn allocate(&self, size: usize, align: usize) -> Option<*mut Opaque> {
-        if size == 0 {
+        if !self.is_enabled() {
+            None
+        } else if size == 0 {
             warn!("Tried to allocate zero bytes");
             Some(ptr::null_mut())
         } else {
@@ -57,6 +81,10 @@ impl Manager {
     }
 
     unsafe fn release(&self, ptr: *mut Opaque) -> Option<usize> {
+        if !self.is_enabled() {
+            return None;
+        }
+
         if ptr.is_null() {
             // do nothing
             warn!("Tried to free a null pointer");
@@ -82,6 +110,10 @@ impl Manager {
     }
 
     unsafe fn grow(&self, ptr: *mut Opaque, size: usize) -> bool {
+        if !self.is_enabled() {
+            return false;
+        }
+
         let header = match (ptr as *mut Header).offset(-1).as_mut() {
             None => {
                 error!("Failed to get header on grow");
@@ -101,6 +133,10 @@ impl Manager {
     }
 
     unsafe fn shrink(&self, ptr: *mut Opaque, size: usize) -> bool {
+        if !self.is_enabled() {
+            return false;
+        }
+
         let header = match (ptr as *mut Header).offset(-1).as_mut() {
             None => {
                 error!("Failed to get header on shrink");
@@ -120,6 +156,10 @@ impl Manager {
     }
 
     unsafe fn resize(&self, ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
+        if !self.is_enabled() {
+            return None;
+        }
+
         let header = match (ptr as *mut Header).offset(-1).as_mut() {
             None => {
                 error!("Failed to get header on resize");
@@ -194,6 +234,21 @@ pub unsafe fn resize(ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut
 }
 
 #[inline]
+pub fn is_enabled() -> bool {
+    MEMORY.is_enabled()
+}
+
+#[inline]
+pub fn enable() {
+    MEMORY.enable()
+}
+
+#[inline]
+pub fn disable() {
+    MEMORY.disable()
+}
+
+#[inline]
 pub fn enter_reserved() -> bool {
     MEMORY.enter_reserved()
 }
@@ -206,6 +261,10 @@ pub fn exit_reserved() -> bool {
 #[inline]
 pub fn granularity(size: usize, align: usize) -> usize {
     MEMORY.granularity(size, align)
+}
+
+fn oom() -> ! {
+    panic!("Out of memory");
 }
 
 #[no_mangle]

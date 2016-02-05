@@ -210,7 +210,7 @@ impl Logger {
         res
     }
 
-    fn log<T: Display, V: Display>(&mut self, level: usize, _: &Location,
+    fn log<T: Display, V: Display>(&mut self, level: usize, location: &Location,
                                    target: V, message: T) {
         // only one logger right now
         if let Some(log_level) = self.level {
@@ -221,7 +221,17 @@ impl Logger {
         }
 
         // otherwise log
-        vga::write_fmt(format_args!("{} {}: {}\n", target, self.level_name(level), message));
+        if level <= 1 {
+            vga::write_fmt(format_args!("{} {} at {}({}): {}\n", target, self.level_name(level), location.file, location.line, message));
+        } else {
+            vga::write_fmt(format_args!("{} {}: {}\n", target, self.level_name(level), message));
+        }
+    }
+
+    fn reserve_log<T: Display, V: Display>(&mut self, level: usize, location: &Location,
+                                           target: V, message: T) {
+        // use vga logger as reserve
+        vga::write_fmt(format_args!("{} {} at {}({}): {}\n", target, self.level_name(level), location.file, location.line, message));
     }
 
     fn level_name(&self, level: usize) -> &'static str {
@@ -238,6 +248,10 @@ impl Logger {
 }
 
 pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V, message: T) {
+    LOGGER.lock().log(level, location, target, message)
+}
+
+pub fn reserve_log<T: Display, V: Display>(level: usize, location: &Location, target: V, message: T) {
     LOGGER.lock().log(level, location, target, message)
 }
 

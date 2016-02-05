@@ -399,9 +399,9 @@ _sysenter_execute:
     jmp _error
 
 _init_pages:
-    mov eax, cr4
-    or eax, 1 << 7
-    or eax, 1 << 4
+    mov rax, cr4
+    or rax, 1 << 7
+    or rax, 1 << 4
     ret
 
 _swap_pages:

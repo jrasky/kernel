@@ -22,21 +22,27 @@ SECTIONS {
         KEEP(target/asm/multiboot2.o (.multiboot2))
     }
 
-    _text_begin = .;
-
     /* first the multiboot header */
     .text ALIGN(4K) : {
         _kernel_top = .;
         * (.text)
     }
 
+    . = .;
+    _kernel_end = .;
+
     /* read-only data */
     .rodata ALIGN(4K) : {
+        _rodata_top = .;
         * (.rodata)
     }
 
+    . = .;
+    _rodata_end = .;
+
     /* initialized, read-write data and slab map */
     .data ALIGN(4K) : {
+        _data_top = .;
         * (.data)
         _slab_map = .;
         /* slab map size = slab size / 8 */
@@ -55,6 +61,7 @@ SECTIONS {
 
     /* uninitialized, read-write data, slab, and stack */
     .bss ALIGN(4K) : {
+        _bss_top = .;
         * (.bss)
     }
 

@@ -44,6 +44,18 @@ pub use cpu::interrupt::{interrupt_breakpoint,
                          interrupt_general_protection_fault};
 pub use cpu::syscall::sysenter_handler;
 
+extern "C" {
+    static _kernel_top: u8;
+    static _kernel_end: u8;
+    static _bss_top: u8;
+    static _stack_top: u8;
+    static _rodata_top: u8;
+    static _rodata_end: u8;
+    static _data_top: u8;
+    static _data_end: u8;
+    
+}
+
 extern "C" fn test_task() -> ! {
     info!("Hello from a task!");
 
@@ -110,20 +122,15 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     info!("Hello!");
 
     // parse multiboot info
-    let elf_tag = unsafe { multiboot::parse_multiboot_tags(boot_info) };
+    unsafe { multiboot::parse_multiboot_tags(boot_info) };
+
+    debug!("Done parsing tags");
 
     // exit reserved memory
     memory::exit_reserved();
 
     // parse elf tags
     debug!("Out of reserve memory");
-
-    if let Some(elf_tag) = elf_tag {
-        let layout = unsafe {multiboot::parse_elf(elf_tag)};
-        info!("Memory layout: {:?}", layout);
-    }
-
-    debug!("Done parsing tags");
 
     // set up cpu data structures and other settings
     // keep references around so we don't break things
@@ -133,6 +140,37 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     mem::forget(gdt);
     mem::forget(idt);
     mem::forget(syscall_stack);
+
+    // set up paging
+    let mut layout = memory::paging::Layout::new();
+
+    layout.insert(memory::paging::Segment::new(
+        &_kernel_top as *const u8 as usize,
+        &_kernel_top as *const u8 as usize,
+        &_kernel_end as *const u8 as usize - &_kernel_top as *const u8 as usize,
+                  false, false, true, false));
+
+    layout.insert(memory::paging::Segment::new(
+        &_bss_top as *const u8 as usize,
+        &_bss_top as *const u8 as usize,
+        &_stack_top as *const u8 as usize - &_bss_top as *const u8 as usize,
+                  true, false, false, false));
+
+    if &_rodata_top as *const u8 as usize != &_rodata_end as *const u8 as usize {
+        layout.insert(memory::paging::Segment::new(
+            &_rodata_top as *const u8 as usize,
+            &_rodata_top as *const u8 as usize,
+            &_rodata_end as *const u8 as usize - &_rodata_top as *const u8 as usize,
+                      false, false, false, false));
+    }
+
+    if &_data_top as *const u8 as usize != &_data_end as *const u8 as usize {
+        layout.insert(memory::paging::Segment::new(
+            &_data_top as *const u8 as usize,
+            &_data_top as *const u8 as usize,
+            &_data_end as *const u8 as usize - &_data_top as *const u8 as usize,
+                      true, false, false, false));
+    }
 
     info!("Starting tasks");
 

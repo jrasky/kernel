@@ -12,52 +12,73 @@ OUTPUT_FORMAT("elf64-x86-64")
 ENTRY(_start)
 
 MEMORY {
-    boot_info (r!xw)     : ORIGIN = 1M, LENGTH = 1M
-    text_memory (x)      : ORIGIN = 2M, LENGTH = 2M
-    rodata_memory (r!xw) : ORIGIN = 4M, LENGTH = 2M
-    data_memory (w!x)    : ORIGIN = 6M, LENGTH = 2M
-    bss_memory (!ix)     : ORIGIN = 8M, LENGTH = 2M
+    identity (a)   : ORIGIN = 1M, LENGTH = 9M
+    text (ax)      : ORIGIN = 2M, LENGTH = 2M
+    rodata (ar!xw) : ORIGIN = 4M, LENGTH = 2M
+    data (aw!x)    : ORIGIN = 6M, LENGTH = 2M
+    bss (a!ix)     : ORIGIN = 8M, LENGTH = 2M
+}
+
+PHDRS {
+    headers PT_PHDR PHDRS FILEHDR;
+    boot PT_LOAD FLAGS(5);
+    text PT_LOAD FLAGS(5);
+    rodata PT_LOAD FLAGS(4);
+    data PT_LOAD FLAGS(6);
+    bss PT_LOAD FLAGS(6);
 }
 
 SECTIONS {
     /* start at one MiB */
     /* don't allocate before the end of the kernel image at all */
     _image_begin = 0;
-    . = ORIGIN(boot_info) + SIZEOF_HEADERS;
 
     /* multiboot2 header */
-    .boot ALIGN(8) : {
+    .boot ORIGIN(identity) : ALIGN(8) {
         KEEP(target/asm/multiboot2.o (.multiboot2))
-    } > boot_info
+        _boot_top = .;
+        * (.boot_text)
+        * (.boot_rodata)
+        * (.boot_data)
+        . = ALIGN(4k);
+        _p4_table = .;
+        . += 4K;
+        _p3_table = .;
+        . += 4K;
+        _p2_table = .;
+        . += 4K;
+        _boot_data = .;
+        * (.boot_bss)
+        . += 0x500; /* boot stack */
+        _boot_end = .;
+    } > identity :boot
 
-    . = ORIGIN(text_memory);
 
     /* first the multiboot header */
-    .text ALIGN(4K) : {
+    .text ORIGIN(text) : ALIGN(4K) {
         _kernel_top = .;
-        * (.text)
-    } > text_memory
+        * (.text*)
+    } > text AT> identity :text
 
     . = .;
+
     _kernel_end = .;
 
-    . = ORIGIN(rodata_memory);
-
     /* read-only data */
-    .rodata ALIGN(4K) : {
+    .rodata ORIGIN(rodata) : ALIGN(4K) {
         _rodata_top = .;
-        * (.rodata)
-    } > rodata_memory
+        * (.gcc_except_table)
+        * (.rodata*)
+    } > rodata AT> identity :rodata
 
     . = .;
+
     _rodata_end = .;
 
-    . = ORIGIN(data_memory);
-
     /* initialized, read-write data and slab map */
-    .data ALIGN(4K) : {
+    .data ORIGIN(data) : ALIGN(4K) {
         _data_top = .;
-        * (.data)
+        * (.data*)
         _slab_map = .;
         /* slab map size = slab size / 8 */
         . += 0x1000;
@@ -68,58 +89,37 @@ SECTIONS {
         . = ALIGN(16);
         _fxsave_task = .;
         . += 0x200;
-    } > data_memory
-
-    /* create space for page tables */
-    .pages ALIGN(4K) : {
-        _p4_table = .;
-        . += 4K;
-        _p3_table = .;
-        . += 4K;
-        _p2_table = .;
-        . += 4K;
-    } > data_memory
+    } > data AT> identity :data
 
     . = .;
+
     _data_end = .;
 
     /* global data page, for certain special kernel structures */
-    .godata ALIGN(4K) : {
+    .godata BLOCK(4K) : ALIGN(4K) {
         _godata_top = .;
         /* static place to shove the cr3 register for the core task */
         _core_pages = .;
-        . += 0x8;
-    } > data_memory
+        QUAD(0x0);
+    } > data AT> identity
 
     . = .;
+
     _godata_end = .;
 
-    . = ORIGIN(bss_memory);
-
     /* uninitialized, read-write data, slab, and stack */
-    .bss ALIGN(4K) : {
+    .bss ORIGIN(bss) : ALIGN(4K) {
         _bss_top = .;
-        * (.bss)
-    } > bss_memory
-
-    .slab ALIGN(4K) : {
+        * (.bss*)
+        * (COMMON)
         _slab = .;
         . += 0x8000;
-    } > bss_memory
-
-    /* create a stack */
-    .stack ALIGN(4K) : {
+        /* create a stack */
         . += 0xf000;
-    } > bss_memory
+    } >bss AT> identity :bss
 
     . = .;
+
     _stack_top = .;
-
-    /* other sections, which grub shouldn't zero out */
-    .common ALIGN(4K) : {
-        * (COMMON)
-    } > bss_memory
-
-    . = .;
     _image_end = .;
 }

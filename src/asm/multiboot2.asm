@@ -41,12 +41,12 @@ multiboot2_header_top:
     dw 2, 0                 ; type, flags
     dd 24                    ; size
     dd multiboot2_header_top ; header address
-    extern _kernel_top
-    dd _kernel_top           ; start of kernel .text
-    extern _data_end
-    dd _data_end                ; end of kernel .text
-    extern _stack_top
-    dd _stack_top            ; end of uninitialized data, including stack
+    extern _boot_top
+    dd _boot_top           ; start of kernel .text
+    extern _boot_data
+    dd _boot_data                ; end of kernel .text
+    extern _boot_end
+    dd _boot_end            ; end of uninitialized data, including stack
 
     align GNUALIGN
 

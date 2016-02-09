@@ -8,7 +8,7 @@
 ;;; copied, modified, or distributed except according to those terms.
 
     ;; externs
-    extern _stack_top
+    extern _boot_end
     extern _p3_table
     extern _p2_table
     extern _p4_table
@@ -20,7 +20,7 @@
     global _boot_info
     global _tss
 
-    section .rodata
+    section .boot_rodata
 gdt64:
     dq 0                        ;zero entry
 .code: equ $ - gdt64    
@@ -31,18 +31,18 @@ gdt64:
     dw $ - gdt64 - 1
     dq gdt64
 
-    section .data
+    section .boot_data
 _boot_info:
     dq 0
 
     ;; Define entry point
-    section .text
+    section .boot_text
     bits 32
 _start:
     ;; grub entry point
 
     ;; set up stack
-    mov esp, _stack_top
+    mov esp, _boot_end
 
     ;; save boot info
     mov dword [_boot_info], ebx

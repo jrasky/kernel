@@ -274,6 +274,7 @@ fn oom() -> ! {
     panic!("Out of memory");
 }
 
+#[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
     if let Some(ptr) = unsafe {allocate(size, align)} {
@@ -285,6 +286,7 @@ pub extern "C" fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
     }
 }
 
+#[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn __rust_deallocate(ptr: *mut u8, _: usize, _: usize) {
     if unsafe {release(ptr as *mut _)}.is_none() {
@@ -292,6 +294,7 @@ pub extern "C" fn __rust_deallocate(ptr: *mut u8, _: usize, _: usize) {
     }
 }
 
+#[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn __rust_reallocate(ptr: *mut u8, _: usize, size: usize, align: usize) -> *mut u8 {
     if let Some(new_ptr) = unsafe {resize(ptr as *mut _, size, align)} {
@@ -303,6 +306,7 @@ pub extern "C" fn __rust_reallocate(ptr: *mut u8, _: usize, size: usize, align: 
     }
 }
 
+#[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn __rust_reallocate_inplace(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> usize {
     if size > old_size {
@@ -325,6 +329,7 @@ pub extern "C" fn __rust_reallocate_inplace(ptr: *mut u8, old_size: usize, size:
     }
 }
 
+#[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn __rust_usable_size(size: usize, align: usize) -> usize {
     granularity(size, align)

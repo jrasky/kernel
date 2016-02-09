@@ -122,7 +122,7 @@ impl Debug for Layout {
 
 impl Debug for Frame {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
-        write!(fmt, "Layout [ ");
+        write!(fmt, "Frame {{ size: {:?}, entries: [ ", self.size);
         let mut first = true;
         for entry in self.entries.iter() {
             if let &FrameEntry::Page(ref page) = entry {
@@ -141,7 +141,7 @@ impl Debug for Frame {
                 }
             }
         }
-        write!(fmt, "]");
+        write!(fmt, "] }}");
 
         // done
         Ok(())
@@ -456,22 +456,23 @@ impl Frame {
 
     fn merge(&mut self, segment: Segment, remove: bool) {
         // maximum index into our entries that we should write
-        let max_idx = cmp::min(align(segment.virtual_base + segment.size,
+        let max_idx = cmp::min(align(segment.virtual_base + segment.size - self.base,
                                      self.size.get_pagesize() as usize)
                                >> self.size.get_pagesize().get_shift(), 0x200 - 1);
 
-        trace!("{:?}, {:?}", align(segment.virtual_base + segment.size,
-                                     self.size.get_pagesize() as usize), self.size.get_pagesize().get_shift());
+        trace!("{:x}, {:x}", align(segment.virtual_base + segment.size - self.base,
+                                     self.size.get_pagesize() as usize),
+               self.size.get_pagesize().get_shift());
 
         let min_idx;
 
-        trace!("{:?}, {:?}, {:?}, {:?}", segment.virtual_base, segment.size, self.base, self.size);
+        trace!("{:x}, {:x}, {:x}, {:?}", segment.virtual_base, segment.size, self.base, self.size);
 
         // figure out the starting index
         if align_back(segment.virtual_base, self.size.get_pagesize() as usize) >=
             self.base && segment.virtual_base < self.base + self.size as usize {
             // segment begins past or at our base, but before our end
-            min_idx = (align_back(segment.virtual_base, self.size.get_pagesize() as usize)
+            min_idx = (align_back(segment.virtual_base - self.base, self.size.get_pagesize() as usize)
                        >> self.size.get_pagesize().get_shift());
         } else if align(segment.virtual_base + segment.size, self.size.get_pagesize() as usize) > self.base {
             // segment starts before our base
@@ -480,7 +481,7 @@ impl Frame {
             unreachable!("Merge called with non-overlapping section");
         }
 
-        trace!("{:?}, {:?}", min_idx, max_idx);
+        trace!("{:x}, {:x}", min_idx, max_idx);
 
         // merge into those indexes
         for idx in min_idx..max_idx {
@@ -530,7 +531,7 @@ impl Frame {
         let subframe_base = self.base + (idx * (self.size.get_pagesize() as usize));
         let physical_base;
 
-        trace!("{:?}, {:?}, {:?}, {:?}, {:?}", segment.virtual_base, segment.size, subframe_base, self.size, self.size.get_pagesize() as usize);
+        trace!("{:x}, {:x}, {:x}, {:?}, {:x}", segment.virtual_base, segment.size, subframe_base, self.size, self.size.get_pagesize() as usize);
 
         if segment.virtual_base + segment.size < subframe_base + self.size.get_pagesize() as usize {
             if self.size.get_pagesize() as usize + subframe_base - segment.virtual_base - segment.size
@@ -579,5 +580,34 @@ impl Frame {
             size: self.size.get_pagesize(),
             base: physical_base
         });
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn test_layout() {
+    let mut layout = Layout::new();
+    layout.insert(Segment::new(0x200000, 0x200000, 0x4000, false, false, false, false));
+    if let Some(ref giant_frame) = layout.entries[0] { // giant
+        if let FrameEntry::Frame(ref huge_frame) = giant_frame.entries[0] { // huge
+            if let FrameEntry::Frame(ref big_frame) = huge_frame.entries[1] { // big
+                if let FrameEntry::Page(ref page) = big_frame.entries[0] { // page
+                    assert!(page.write == false, "Page was write-enabled");
+                    assert!(page.user == false, "Page was user-mod");
+                    assert!(page.execute_disable == true, "Page was executable");
+                    assert!(page.global == false, "Page was global");
+                    assert!(page.size == PageSize::Page, "Page was the wrong size");
+                    assert!(page.base == 0x200000, "Page was not in the right place");
+                } else {
+                    panic!("Did not find page inside big frame: {:?}", big_frame.entries[0]);
+                }
+            } else {
+                panic!("Did not find frame inside huge frame: {:?}", huge_frame.entries[1]);
+            }
+        } else {
+            panic!("Did not find frame inside giant frame: {:?}", giant_frame.entries[0]);
+        }
+    } else {
+        panic!("Did not find giant frame");
     }
 }

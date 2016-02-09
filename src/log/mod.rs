@@ -216,6 +216,14 @@ impl Logger {
         res
     }
 
+    #[cfg(test)]
+    fn log<T: Display, V: Display>(&mut self, level: usize, location: &Location,
+                                   target: V, message: T) {
+        // for testing, print everything
+        println!("{} {} at {}({}): {}", target, self.level_name(level), location.file, location.line, message);
+    }
+
+    #[cfg(not(test))]
     fn log<T: Display, V: Display>(&mut self, level: usize, location: &Location,
                                    target: V, message: T) {
         // only one logger right now

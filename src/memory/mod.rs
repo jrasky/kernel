@@ -245,7 +245,6 @@ pub unsafe fn resize(ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut
     MEMORY.resize(ptr, size, align)
 }
 
-#[allow(dead_code)] // will use eventually
 #[inline]
 pub fn is_enabled() -> bool {
     MEMORY.is_enabled()
@@ -286,6 +285,10 @@ fn oom() -> ! {
 #[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
+    if !is_enabled() {
+        panic!("Tried to allocate with memory disabled");
+    }
+
     if let Some(ptr) = unsafe {allocate(size, align)} {
         trace!("Allocated at: {:?}", ptr);
         ptr as *mut _
@@ -298,6 +301,10 @@ pub extern "C" fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
 #[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn __rust_deallocate(ptr: *mut u8, _: usize, _: usize) {
+    if !is_enabled() {
+        panic!("Tried to release with memory disabled");
+    }
+
     if unsafe {release(ptr as *mut _)}.is_none() {
         critical!("Failed to release pointer: {:?}", ptr);
     }
@@ -306,6 +313,10 @@ pub extern "C" fn __rust_deallocate(ptr: *mut u8, _: usize, _: usize) {
 #[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn __rust_reallocate(ptr: *mut u8, _: usize, size: usize, align: usize) -> *mut u8 {
+    if !is_enabled() {
+        panic!("Tried to reallocate with memory disabled");
+    }
+
     if let Some(new_ptr) = unsafe {resize(ptr as *mut _, size, align)} {
         trace!("Reallocated to: {:?}", new_ptr);
         new_ptr as *mut _
@@ -318,6 +329,10 @@ pub extern "C" fn __rust_reallocate(ptr: *mut u8, _: usize, size: usize, align: 
 #[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn __rust_reallocate_inplace(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> usize {
+    if !is_enabled() {
+        panic!("Tried to reallocate inplace with memory disabled");
+    }
+
     if size > old_size {
         if unsafe {grow(ptr as *mut _, size)} {
             granularity(size, align)

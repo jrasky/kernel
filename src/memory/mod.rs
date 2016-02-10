@@ -277,6 +277,9 @@ pub fn granularity(size: usize, align: usize) -> usize {
 }
 
 fn oom() -> ! {
+    // disable memory
+    disable();
+
     panic!("Out of memory");
 }
 

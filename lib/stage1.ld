@@ -8,12 +8,14 @@
  * or http://opensource.org/licenses/MIT>, at your option. This file may not be
  * copied, modified, or distributed except according to those terms.
  */
+OUTPUT_ARCH(i386:x86-64)
 OUTPUT_FORMAT("elf64-x86-64")
-ENTRY(_start)
+ENTRY(_lstart)
+
+KERNEL_OFFSET = 0xC0000000;
 
 MEMORY {
-    boot (a)       : ORIGIN = 1M, LENGTH = 1M
-    identity (a)   : ORIGIN = 2M, LENGTH = 9M
+    identity (a)   : ORIGIN = 2M, LENGTH = 8M
     text (ax)      : ORIGIN = 2M - 0x80000000, LENGTH = 2M
     rodata (ar!xw) : ORIGIN = 4M - 0x80000000, LENGTH = 2M
     data (aw!x)    : ORIGIN = 6M - 0x80000000, LENGTH = 2M
@@ -21,7 +23,6 @@ MEMORY {
 }
 
 PHDRS {
-    boot PT_LOAD FLAGS(5);
     text PT_LOAD FLAGS(5);
     rodata PT_LOAD FLAGS(4);
     data PT_LOAD FLAGS(6);
@@ -33,30 +34,10 @@ SECTIONS {
     /* don't allocate before the end of the kernel image at all */
     _image_begin = 0;
 
-    /* multiboot2 header */
-    .boot ORIGIN(boot) : ALIGN(8) {
-        KEEP(target/asm/multiboot2.o (.multiboot2))
-        _boot_top = .;
-        * (.boot_text)
-        * (.boot_rodata)
-        * (.boot_data)
-        . = ALIGN(4k);
-        _p4_table = .;
-        . += 4K;
-        _p3_table = .;
-        . += 4K;
-        _p2_table = .;
-        . += 4K;
-        _boot_data = .;
-        * (.boot_bss)
-        . += 0x500; /* boot stack */
-        _boot_end = .;
-    } > boot :boot
-
-
     /* first the multiboot header */
     .text ORIGIN(text) : ALIGN(4K) {
         _kernel_top = .;
+        _boot_info = .;
         * (.text*)
     } > text AT> identity :text
 
@@ -116,7 +97,7 @@ SECTIONS {
         . += 0x8000;
         /* create a stack */
         . += 0xf000;
-    } >bss AT> identity :bss
+    } > bss AT> identity :bss
 
     . = .;
 

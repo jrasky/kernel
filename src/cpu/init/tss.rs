@@ -5,16 +5,13 @@ use core::ptr;
 #[cfg(test)]
 use std::ptr;
 
-#[cfg(not(test))]
-use core::u64;
-#[cfg(test)]
-use std::u64;
-
 use alloc::raw_vec::RawVec;
 
 use cpu::stack::Stack;
 
-struct Descriptor {
+use constants::*;
+
+pub struct Descriptor {
     base: u64,
     size: u32,
     privilege_level: u8,
@@ -101,7 +98,7 @@ impl Segment {
             }
         }).collect();
         ptr::copy(ptrs.as_ptr(), tss as *mut u64, 3);
-        tss = tss.offset(u64::BYTES as isize * 3);
+        tss = tss.offset(U64_BYTES as isize * 3);
 
         // reserved
         ptr::copy([0u8; 8].as_ptr(), tss, 8);
@@ -116,7 +113,7 @@ impl Segment {
             }
         }).collect();
         ptr::copy(ptrs.as_ptr(), tss as *mut u64, 7);
-        tss = tss.offset(u64::BYTES as isize * 7);
+        tss = tss.offset(U64_BYTES as isize * 7);
 
         // reserved
         ptr::copy([0u8; 10].as_ptr(), tss, 10);

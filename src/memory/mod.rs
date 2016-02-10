@@ -11,6 +11,8 @@ use core::ptr;
 #[cfg(test)]
 use std::ptr;
 
+use alloc;
+
 use constants::*;
 
 // Reserve memory
@@ -23,7 +25,7 @@ mod simple;
 pub mod paging;
 
 static MEMORY: Manager = Manager {
-    enabled: AtomicBool::new(true),
+    enabled: AtomicBool::new(false),
     use_reserve: AtomicBool::new(true)
 };
 
@@ -51,6 +53,9 @@ impl Manager {
     }
 
     fn enable(&self) {
+        // set oom handler
+        alloc::oom::set_oom_handler(oom);
+
         self.enabled.store(true, Ordering::Relaxed);
     }
 
@@ -240,6 +245,7 @@ pub unsafe fn resize(ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut
     MEMORY.resize(ptr, size, align)
 }
 
+#[allow(dead_code)] // will use eventually
 #[inline]
 pub fn is_enabled() -> bool {
     MEMORY.is_enabled()

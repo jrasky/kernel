@@ -1,12 +1,12 @@
 use collections::{VecDeque, Vec};
 
 #[cfg(not(test))]
-use core::iter::{IntoIterator, FromIterator, Iterator};
+use core::iter::{IntoIterator, Iterator};
 #[cfg(not(test))]
 use core::ptr;
 
 #[cfg(test)]
-use std::iter::{IntoIterator, FromIterator, Iterator};
+use std::iter::{IntoIterator, Iterator};
 #[cfg(test)]
 use std::ptr;
 
@@ -190,7 +190,7 @@ impl GateInner {
         }
     }
 
-    fn add_task(&mut self, mut task: TaskRef) {
+    fn add_task(&mut self, task: TaskRef) {
         self.tasks.push(task);
     }
 
@@ -201,6 +201,7 @@ impl GateInner {
     }
 }
 
+#[allow(dead_code)] // will use eventually
 impl TaskRef {
     #[inline]
     pub fn dropped(&self) -> bool {
@@ -291,6 +292,7 @@ impl Task {
         unsafe {self.inner.get().as_mut().unwrap().block()}
     }
 
+    #[allow(dead_code)] // will use eventually
     #[inline]
     pub fn unblock(&mut self) {
         unsafe {self.inner.get().as_mut().unwrap().unblock()}

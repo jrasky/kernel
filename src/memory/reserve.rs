@@ -89,8 +89,8 @@ impl MemoryInner {
     #[inline]
     unsafe fn get_slab<'a, 'b>(&'a mut self) -> (&'b mut [u64], &'b mut [u8]) {
         if self.slab.is_null() {
-            self.slab = heap::allocate(RESERVE_SLAB_SIZE * u64::BYTES, u64::BYTES) as *mut _;
-            self.map = heap::allocate((RESERVE_SLAB_SIZE + 7) / 8, u64::BYTES);
+            self.slab = heap::allocate(RESERVE_SLAB_SIZE * U64_BYTES, U64_BYTES) as *mut _;
+            self.map = heap::allocate((RESERVE_SLAB_SIZE + 7) / 8, U64_BYTES);
         }
 
         (slice::from_raw_parts_mut(self.slab, RESERVE_SLAB_SIZE),

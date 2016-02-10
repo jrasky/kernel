@@ -1,9 +1,9 @@
 #![feature(lang_items)]
 #![feature(set_recovery)]
-#![feature(num_bits_bytes)]
 #![feature(ptr_as_ref)]
 #![feature(const_fn)]
 #![feature(unique)]
+#![feature(oom)]
 #![feature(reflect_marker)]
 #![feature(alloc)]
 #![feature(collections)]
@@ -129,6 +129,9 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // kernel main
     info!("Hello!");
 
+    // enable memory
+    memory::enable();
+
     // parse multiboot info
     let memory_regions = unsafe { multiboot::parse_multiboot_tags(boot_info) };
 
@@ -229,6 +232,9 @@ fn double_panic() -> ! {
         file: file!(),
         line: line!()
     };
+
+    // disable memory
+    memory::disable();
 
     log::reserve_log(0, &LOCATION, module_path!(), "Double panic");
 

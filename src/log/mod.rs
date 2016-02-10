@@ -3,8 +3,6 @@ use core::fmt::Display;
 #[cfg(test)]
 use std::fmt::Display;
 
-#[cfg(not(test))]
-use core::fmt;
 #[cfg(test)]
 use std::fmt;
 
@@ -266,7 +264,7 @@ pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V,
 }
 
 pub fn reserve_log<T: Display, V: Display>(level: usize, location: &Location, target: V, message: T) {
-    LOGGER.lock().log(level, location, target, message)
+    LOGGER.lock().reserve_log(level, location, target, message)
 }
 
 pub fn set_level(level: Option<usize>) -> Option<usize> {

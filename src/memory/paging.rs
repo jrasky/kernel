@@ -3,14 +3,10 @@ use collections::{BTreeSet, Vec};
 #[cfg(not(test))]
 use core::cmp::{PartialEq, Eq, Ord, PartialOrd, Ordering};
 #[cfg(not(test))]
-use core::ptr::Unique;
-#[cfg(not(test))]
 use core::fmt::{Debug, Formatter};
 
 #[cfg(test)]
 use std::cmp::{PartialEq, Eq, Ord, PartialOrd, Ordering};
-#[cfg(test)]
-use std::ptr::Unique;
 #[cfg(test)]
 use std::fmt::{Debug, Formatter};
 
@@ -33,8 +29,6 @@ use std::mem;
 use std::cmp;
 
 use constants::*;
-
-use memory::Opaque;
 
 #[repr(usize)]
 #[derive(Debug, Clone, Copy)]
@@ -101,19 +95,19 @@ struct Page {
 
 impl Debug for Layout {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
-        write!(fmt, "Layout [ ");
+        try!(write!(fmt, "Layout [ "));
         let mut first = true;
         for entry in self.entries.iter() {
             if let &Some(ref entry) = entry {
                 if first {
-                    write!(fmt, "{:?}", entry);
+                    try!(write!(fmt, "{:?}", entry));
                     first = false;
                 } else {
-                    write!(fmt, " {:?}", entry);
+                    try!(write!(fmt, " {:?}", entry));
                 }
             }
         }
-        write!(fmt, "]");
+        try!(write!(fmt, "]"));
 
         // done
         Ok(())
@@ -122,26 +116,26 @@ impl Debug for Layout {
 
 impl Debug for Frame {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
-        write!(fmt, "Frame {{ size: {:?}, entries: [ ", self.size);
+        try!(write!(fmt, "Frame {{ size: {:?}, entries: [ ", self.size));
         let mut first = true;
         for entry in self.entries.iter() {
             if let &FrameEntry::Page(ref page) = entry {
                 if first {
-                    write!(fmt, "{:?}", page);
+                    try!(write!(fmt, "{:?}", page));
                     first = false;
                 } else {
-                    write!(fmt, " {:?}", page);
+                    try!(write!(fmt, " {:?}", page));
                 }
             } else if let &FrameEntry::Frame(ref frame) = entry {
                 if first {
-                    write!(fmt, "{:?}", frame);
+                    try!(write!(fmt, "{:?}", frame));
                     first = false;
                 } else {
-                    write!(fmt, " {:?}", frame);
+                    try!(write!(fmt, " {:?}", frame));
                 }
             }
         }
-        write!(fmt, "] }}");
+        try!(write!(fmt, "] }}"));
 
         // done
         Ok(())
@@ -311,7 +305,7 @@ impl Layout {
     pub fn new() -> Layout {
         let mut entries = Vec::with_capacity(0x200);
 
-        for idx in 0..0x200 {
+        for _ in 0..0x200 {
             entries.push(None);
         }
 
@@ -368,6 +362,7 @@ impl Layout {
         }
     }
 
+    #[allow(dead_code)] // will use eventually
     pub fn remove(&mut self, segment: Segment) -> bool {
         if self.map.remove(&segment) {
             self.merge(segment, true);
@@ -472,8 +467,8 @@ impl Frame {
         if align_back(segment.virtual_base, self.size.get_pagesize() as usize) >=
             self.base && segment.virtual_base < self.base + self.size as usize {
             // segment begins past or at our base, but before our end
-            min_idx = (align_back(segment.virtual_base - self.base, self.size.get_pagesize() as usize)
-                       >> self.size.get_pagesize().get_shift());
+            min_idx = align_back(segment.virtual_base - self.base, self.size.get_pagesize() as usize)
+                    >> self.size.get_pagesize().get_shift();
         } else if align(segment.virtual_base + segment.size, self.size.get_pagesize() as usize) > self.base {
             // segment starts before our base
             min_idx = 0;

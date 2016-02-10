@@ -10,8 +10,12 @@ pub const SYSENTER_EIP_MSR: u32 = 0x176;
 pub const SYSENTER_ESP_MSR: u32 = 0x175;
 pub const EFER_MSR: u32 = 0xC0000080;
 pub const CORE_CS: u16 = 0x08;
+#[allow(dead_code)] // will use eventually
 pub const CORE_DS: u16 = 0x10;
+#[allow(dead_code)] // will use eventually
 pub const CORE_SS: u16 = 0x10;
+
+pub const U64_BYTES: usize = 0x8;
 
 #[inline]
 pub const fn align(n: usize, to: usize) -> usize {
@@ -29,6 +33,7 @@ pub const fn is_aligned(n: usize, to: usize) -> bool {
 }
 
 #[inline]
+#[allow(dead_code)] // will use eventually
 pub fn on_boundary(base: usize, end: usize, align_to: usize) -> bool {
     align(base, align_to) <= align_back(end, align_to)
 }

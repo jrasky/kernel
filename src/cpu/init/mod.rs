@@ -98,7 +98,7 @@ pub unsafe fn setup(memory_regions: Vec<(*mut memory::Opaque, usize)>)
 }
 
 #[cfg(not(test))]
-unsafe fn remap_kernel(mut memory_regions: Vec<(*mut memory::Opaque, usize)>) -> paging::Layout {
+unsafe fn remap_kernel(memory_regions: Vec<(*mut memory::Opaque, usize)>) -> paging::Layout {
     // set up paging
     let mut layout = paging::Layout::new();
 
@@ -154,21 +154,19 @@ unsafe fn remap_kernel(mut memory_regions: Vec<(*mut memory::Opaque, usize)>) ->
     let new_cr3 = layout.build_tables();
 
     // load the new cr3
-    unsafe {
-        // save the cr3 value in a static place
-        _core_pages = new_cr3;
+    // save the cr3 value in a static place
+    _core_pages = new_cr3;
 
-        // enable nx in EFER
-        let mut efer: u64 = cpu::read_msr(EFER_MSR);
+    // enable nx in EFER
+    let mut efer: u64 = cpu::read_msr(EFER_MSR);
 
-        efer |= 1 << 11;
+    efer |= 1 << 11;
 
-        cpu::write_msr(EFER_MSR, efer);
+    cpu::write_msr(EFER_MSR, efer);
 
-        _init_pages();
+    _init_pages();
 
-        _swap_pages(new_cr3);
-    }
+    _swap_pages(new_cr3);
 
     layout
 }

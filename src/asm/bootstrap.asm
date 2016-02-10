@@ -13,7 +13,7 @@
     extern _p2_table
     extern _p4_table
     extern BOOT_INFO_ADDR
-    extern _lstart
+    extern _lboot
 
     ;; global
     global _start
@@ -66,7 +66,7 @@ _start:
     mov es, ax                  ; extra selector
 
     ;; far jump to long mode
-    jmp gdt64.code:_lstart
+    jmp gdt64.code:_lboot
 
     ;; hang
 _hang:  

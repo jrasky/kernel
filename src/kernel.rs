@@ -1,5 +1,4 @@
 #![feature(lang_items)]
-#![feature(set_recovery)]
 #![feature(ptr_as_ref)]
 #![feature(const_fn)]
 #![feature(unique)]
@@ -20,6 +19,9 @@ extern crate alloc;
 #[macro_use]
 extern crate collections;
 extern crate elfloader;
+#[macro_use]
+extern crate log;
+extern crate paging;
 
 #[cfg(not(test))]
 use core::fmt;
@@ -37,13 +39,17 @@ use std::mem;
 #[cfg(test)]
 use std::sync::atomic::{Ordering, AtomicUsize};
 
-#[macro_use]
-mod log;
+#[cfg(not(test))]
+use alloc::boxed::Box;
+#[cfg(test)]
+use std::boxed::Box;
+
 mod error;
 mod memory;
 mod constants;
 mod cpu;
 mod multiboot;
+mod logging;
 
 // pub use since they're exported
 #[cfg(not(test))]
@@ -127,10 +133,16 @@ extern "C" fn test_task_2() -> ! {
 #[no_mangle]
 pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // kernel main
-    info!("Hello!");
 
     // enable memory
     memory::enable();
+
+    // set up logging
+    log::set_output(Some(Box::new(logging::Writer::new(logging::Color::LightGray,
+                                                       logging::Color::Black))));
+
+    // say hello
+    info!("Hello!");
 
     // parse multiboot info
     let memory_regions = unsafe { multiboot::parse_multiboot_tags(boot_info) };
@@ -226,17 +238,10 @@ fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
 #[cold]
 #[inline(never)]
 fn double_panic() -> ! {
-    // reserve log
-    static LOCATION: log::Location = log::Location {
-        module_path: module_path!(),
-        file: file!(),
-        line: line!()
-    };
-
     // disable memory
     memory::disable();
 
-    log::reserve_log(0, &LOCATION, module_path!(), "Double panic");
+    logging::reserve_log("Double panic");
 
     panic_halt();
 }

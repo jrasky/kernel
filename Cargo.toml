@@ -7,20 +7,12 @@ authors = ["Jerome Rasky <jerome@rasky.co>"]
 path = "src/kernel.rs"
 crate-type = ["staticlib"]
 
-[features]
-default = ["log_any"]
-log_any = []
-log_critical = []
-log_error = []
-log_warn = []
-log_info = []
-log_debug = []
-log_trace = []
-
 [dependencies]
 rlibc = "*"
 spin = "*"
 elfloader = "*"
+log = { path = "lib/log" }
+paging = { path = "lib/paging" }
 
 [target]
 custom_unwind_resume = {}

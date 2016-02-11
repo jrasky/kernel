@@ -13,16 +13,21 @@ use core::ptr::Unique;
 #[cfg(test)]
 use std::ptr::Unique;
 
+#[cfg(not(test))]
+use core::fmt::Display;
+#[cfg(test)]
+use std::fmt::Display;
+
 use spin::Mutex;
 
-use constants::*;
+use log;
 
-static WRITER: Mutex<Writer> = Mutex::new(Writer::new(Color::LightGray, Color::Black));
+use constants::*;
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
 #[allow(dead_code)] // for completeness
-enum Color {
+pub enum Color {
     Black = 0,
     Blue,
     Green,
@@ -44,7 +49,7 @@ enum Color {
 #[derive(Clone, Copy)]
 struct ColorCode(u8);
 
-struct Writer {
+pub struct Writer {
     column_position: usize,
     color_code: ColorCode,
     #[cfg(not(test))]
@@ -71,6 +76,16 @@ impl ColorCode {
     }
 }
 
+impl log::Output for Writer {
+    fn log(&mut self, level: usize, location: &log::Location, target: &Display, message: &Display) {
+        if level <= 1 {
+            let _ = self.write_fmt(format_args!("{} {} at {}({}): {}\n", target, log::level_name(level), location.file, location.line, message));
+        } else {
+            let _ = self.write_fmt(format_args!("{} {}: {}\n", target, log::level_name(level), message));
+        }
+    }
+}
+
 impl Write for Writer {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for byte in s.bytes() {
@@ -82,7 +97,7 @@ impl Write for Writer {
 
 impl Writer {
     #[cfg(not(test))]
-    const fn new(foreground: Color, background: Color) -> Writer {
+    pub const fn new(foreground: Color, background: Color) -> Writer {
         Writer {
             column_position: 0,
             color_code: ColorCode::new(foreground, background),
@@ -172,6 +187,8 @@ impl Writer {
 }
 
 #[allow(unused_must_use)]
-pub fn write_fmt(args: fmt::Arguments) {
-    WRITER.lock().write_fmt(args);
+pub fn reserve_log<T: Display>(message: T) {
+    static WRITER: Mutex<Writer> = Mutex::new(Writer::new(Color::LightGray, Color::Black));
+
+    WRITER.lock().write_fmt(format_args!("{}", message));
 }

@@ -1,0 +1,8 @@
+[package]
+name = "paging"
+version = "0.1.0"
+authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
+
+[dependencies]
+rlibc = "*"
+log = { path = "../log" }

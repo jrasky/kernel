@@ -22,8 +22,6 @@ mod reserve;
 // Identity page-table only
 mod simple;
 
-pub mod paging;
-
 static MEMORY: Manager = Manager {
     enabled: AtomicBool::new(false),
     use_reserve: AtomicBool::new(true)

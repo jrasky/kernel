@@ -28,6 +28,7 @@ pub const fn align_back(n: usize, to: usize) -> usize {
 }
 
 #[inline]
+#[allow(dead_code)] // might use eventually
 pub const fn is_aligned(n: usize, to: usize) -> bool {
     n & (to - 1) == 0
 }

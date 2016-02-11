@@ -1,0 +1,18 @@
+[package]
+name = "log"
+version = "0.1.0"
+authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
+
+[features]
+default = ["log_any"]
+log_any = []
+log_critical = []
+log_error = []
+log_warn = []
+log_info = []
+log_debug = []
+log_trace = []
+
+[dependencies]
+rlibc = "*"
+spin = "*"

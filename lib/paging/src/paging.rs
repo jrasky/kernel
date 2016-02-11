@@ -255,11 +255,11 @@ impl Page {
 }
 
 impl Segment {
-    pub const fn new(physical_base: usize, virtual_base: usize, size: usize,
-                     write: bool, user: bool, execute: bool, global: bool) -> Segment {
+    pub fn new(physical_base: usize, virtual_base: usize, size: usize,
+               write: bool, user: bool, execute: bool, global: bool) -> Segment {
         Segment {
-            physical_base: physical_base,
-            virtual_base: virtual_base,
+            physical_base: physical_base & ((1 << CANONICAL_BITS) - 1),
+            virtual_base: virtual_base & ((1 << CANONICAL_BITS) - 1),
             size: size,
             write: write,
             user: user,
@@ -601,6 +601,35 @@ fn test_layout() {
             }
         } else {
             panic!("Did not find frame inside giant frame: {:?}", giant_frame.entries[0]);
+        }
+    } else {
+        panic!("Did not find giant frame");
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn test_layout_high() {
+    let mut layout = Layout::new();
+    layout.insert(Segment::new(0x200000, 0xffffffff80200000, 0x4000, false, false, false, false));
+    if let Some(ref giant_frame) = layout.entries[511] { // giant
+        if let FrameEntry::Frame(ref huge_frame) = giant_frame.entries[510] { // huge
+            if let FrameEntry::Frame(ref big_frame) = huge_frame.entries[1] { // big
+                if let FrameEntry::Page(ref page) = big_frame.entries[0] { // page
+                    assert!(page.write == false, "Page was write-enabled");
+                    assert!(page.user == false, "Page was user-mod");
+                    assert!(page.execute_disable == true, "Page was executable");
+                    assert!(page.global == false, "Page was global");
+                    assert!(page.size == PageSize::Page, "Page was the wrong size");
+                    assert!(page.base == 0x200000, "Page was not in the right place");
+                } else {
+                    panic!("Did not find page inside big frame: {:?}", big_frame.entries[0]);
+                }
+            } else {
+                panic!("Did not find frame inside huge frame: {:?}", huge_frame.entries[1]);
+            }
+        } else {
+            panic!("Did not find frame inside giant frame: {:?}", giant_frame.entries[510]);
         }
     } else {
         panic!("Did not find giant frame");

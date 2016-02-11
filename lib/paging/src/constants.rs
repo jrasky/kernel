@@ -1,3 +1,5 @@
+pub const CANONICAL_BITS: usize = 48;
+
 #[inline]
 pub const fn align(n: usize, to: usize) -> usize {
     (n + to - 1) & !(to - 1)

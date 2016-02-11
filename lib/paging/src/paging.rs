@@ -258,7 +258,7 @@ impl Segment {
     pub fn new(physical_base: usize, virtual_base: usize, size: usize,
                write: bool, user: bool, execute: bool, global: bool) -> Segment {
         Segment {
-            physical_base: physical_base & ((1 << CANONICAL_BITS) - 1),
+            physical_base: physical_base,
             virtual_base: virtual_base & ((1 << CANONICAL_BITS) - 1),
             size: size,
             write: write,
@@ -343,6 +343,10 @@ impl Layout {
         entry
     }
 
+    pub fn build_tables_relative(&self, base: usize) -> Vec<u8> {
+        vec![]
+    }
+
     pub fn insert(&mut self, segment: Segment) -> bool {
         if self.map.insert(segment.clone()) {
             trace!("Inserting segment {:?}", &segment);
@@ -417,6 +421,10 @@ impl Frame {
             base: base,
             entries: entries
         }
+    }
+
+    fn build_table_relative(&self, base: usize, buffer: &mut Vec<u64>) -> u64 {
+        
     }
 
     fn build_table(&self, buffers: &mut Vec<RawVec<u64>>) -> u64 {

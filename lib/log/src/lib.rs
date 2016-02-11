@@ -290,10 +290,8 @@ impl Logger {
         self.output = output;
     }
 
-    fn set_level(&mut self, level: Option<usize>) -> Option<usize> {
-        let res = self.level;
+    fn set_level(&mut self, level: Option<usize>) {
         self.level = level;
-        res
     }
 
     fn log<T: Display, V: Display>(&mut self, level: usize, location: &Location,
@@ -333,6 +331,6 @@ pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V,
     LOGGER.lock().log(level, location, target, message)
 }
 
-pub fn set_level(level: Option<usize>) -> Option<usize> {
+pub fn set_level(level: Option<usize>) {
     LOGGER.lock().set_level(level)
 }

@@ -3,12 +3,18 @@ extern crate elfloader;
 extern crate log;
 extern crate paging;
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::fmt::Display;
 use std::fs::File;
 
+use std::slice;
+
 use elfloader::ElfBinary;
 use elfloader::elf::{PF_X, PF_W, PF_R};
+
+pub const U64_BYTES: usize = 0x8;
+
+pub const PAGE_TABLES_OFFSET: usize = 0x108000;
 
 struct LogOutput;
 
@@ -54,5 +60,30 @@ fn main() {
         }
     }
 
-    info!("Layout: {:?}", layout);
+    debug!("Creating tables");
+
+    let (address, tables) = layout.build_tables_relative(PAGE_TABLES_OFFSET);
+
+    let bytes: &[u8] = unsafe {slice::from_raw_parts(tables.as_ptr() as *const _, tables.len() * U64_BYTES)};
+
+    let mut raw_output = File::create("gen/page_tables.bin").expect("Failed to open raw output file");
+
+    raw_output.write_all(bytes).expect("Failed to write bytes to output");
+
+    let mut asm_output = File::create("gen/page_tables.asm").expect("Failed to open asm output file");
+
+    writeln!(asm_output, concat!(
+        "    global _gen_load_page_tables\n",
+
+        "    section .gen_pages\n",
+        "    incbin \"gen/page_tables.bin\"\n",
+
+        "    section .gen_text\n",
+        "    bits 32\n",
+        "_gen_load_page_tables:\n",
+        "    mov eax, 0x{:x}\n",
+        "    mov cr3, eax\n",
+        "    ret"), address).expect("Failed to write asm to output");
+
+    info!("Created page tables at offset 0x{:x}", PAGE_TABLES_OFFSET);
 }

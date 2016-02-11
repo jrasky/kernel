@@ -248,7 +248,7 @@ impl Page {
             entry |= 1 << 1;
         }
 
-        trace!("Page entry: {:x}", entry);
+        trace!("Page entry: 0x{:x}", entry);
 
         entry
     }
@@ -343,8 +343,35 @@ impl Layout {
         entry
     }
 
-    pub fn build_tables_relative(&self, base: usize) -> Vec<u8> {
-        vec![]
+    pub fn build_tables_relative(&self, base: usize) -> (u64, Vec<u64>) {
+        let mut buffer = vec![];
+
+        let mut inner_buffer: Vec<u64> = vec![];
+
+        for idx in 0..0x200 {
+            match self.entries[idx] {
+                None => {
+                    inner_buffer.push(0);
+                },
+                Some(ref frame) => {
+                    inner_buffer.push(frame.build_table_relative(base, &mut buffer));
+                }
+            }
+        }
+
+        // align our position in our buffer
+        for _ in buffer.len()..align(buffer.len(), 0x1000) {
+            buffer.push(0);
+        }
+
+        // get our position
+        let entry = (buffer.len() + base) as u64;
+
+        // copy our buffer in
+        buffer.extend(inner_buffer);
+
+        // produce our position and the constructed buffer
+        (entry, buffer)
     }
 
     pub fn insert(&mut self, segment: Segment) -> bool {
@@ -424,7 +451,39 @@ impl Frame {
     }
 
     fn build_table_relative(&self, base: usize, buffer: &mut Vec<u64>) -> u64 {
-        
+        // create out own temporary buffer
+        let mut inner_buffer: Vec<u64> = vec![];
+
+        for idx in 0..0x200 {
+            match self.entries[idx] {
+                FrameEntry::Empty => {
+                    inner_buffer.push(0);
+                },
+                FrameEntry::Page(ref page) => {
+                    inner_buffer.push(page.get_entry());
+                },
+                FrameEntry::Frame(ref frame) => {
+                    inner_buffer.push(frame.build_table_relative(base, buffer));
+                }
+            }
+        }
+
+        // align our position in our buffer
+
+        for _ in buffer.len()..align(buffer.len(), 0x1000) {
+            buffer.push(0);
+        }
+
+        // get our position
+        let entry = (buffer.len() + base) as u64 | 0x7;
+
+        // copy our buffer
+        buffer.extend(inner_buffer);
+
+        trace!("Frame entry: 0x{:x}", entry);
+
+        // produce our entry
+        entry
     }
 
     fn build_table(&self, buffers: &mut Vec<RawVec<u64>>) -> u64 {

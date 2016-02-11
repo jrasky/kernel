@@ -25,7 +25,7 @@ use collections::String;
 
 use spin::Mutex;
 
-#[cfg(feature = "log_any")]
+#[cfg(any(all(feature = "log_any", debug_assertions), feature = "release_log_any"))]
 #[macro_export]
 macro_rules! log {
     (target: $target:expr, $level:expr, $($arg:tt)+) => (
@@ -43,7 +43,7 @@ macro_rules! log {
     )
 }
 
-#[cfg(not(feature = "log_any"))]
+#[cfg(not(any(all(feature = "log_any", debug_assertions), feature = "release_log_any")))]
 #[macro_export]
 macro_rules! log {
     (target: $target:expr, $level:expr, $($arg:tt)+) => ();
@@ -70,7 +70,7 @@ macro_rules! critical {
     )
 }
 
-#[cfg(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info", feature = "log_warn", feature = "log_error"))]
+#[cfg(any(all(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info", feature = "log_warn", feature = "log_error"), debug_assertions), all(any(feature = "release_log_any", feature = "release_log_trace", feature = "release_log_debug", feature = "release_log_info", feature = "release_log_warn", feature = "log_error"), not(debug_assertions))))]
 #[macro_export]
 macro_rules! error {
     (target: $target:expr, $($arg:tt)+) => (
@@ -88,7 +88,7 @@ macro_rules! error {
     )
 }
 
-#[cfg(not(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info", feature = "log_warn", feature = "log_error")))]
+#[cfg(not(any(all(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info", feature = "log_warn", feature = "log_error"), debug_assertions), all(any(feature = "release_log_any", feature = "release_log_trace", feature = "release_log_debug", feature = "release_log_info", feature = "release_log_warn", feature = "log_error"), not(debug_assertions)))))]
 #[macro_export]
 macro_rules! error {
     (target: $target:expr, $($arg:tt)+) => ();
@@ -97,7 +97,7 @@ macro_rules! error {
     )
 }
 
-#[cfg(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info", feature = "log_warn"))]
+#[cfg(any(all(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info", feature = "log_warn"), debug_assertions), all(any(feature = "release_log_any", feature = "release_log_trace", feature = "release_log_debug", feature = "release_log_info", feature = "release_log_warn"), not(debug_assertions))))]
 #[macro_export]
 macro_rules! warn {
     (target: $target:expr, $($arg:tt)+) => (
@@ -115,7 +115,7 @@ macro_rules! warn {
     )
 }
 
-#[cfg(not(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info", feature = "log_warn")))]
+#[cfg(not(any(all(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info", feature = "log_warn"), debug_assertions), all(any(feature = "release_log_any", feature = "release_log_trace", feature = "release_log_debug", feature = "release_log_info", feature = "release_log_warn"), not(debug_assertions)))))]
 #[macro_export]
 macro_rules! warn {
     (target: $target:expr, $($arg:tt)+) => ();
@@ -124,7 +124,7 @@ macro_rules! warn {
     )
 }
 
-#[cfg(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info"))]
+#[cfg(any(all(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info"), debug_assertions), all(any(feature = "release_log_any", feature = "release_log_trace", feature = "release_log_debug", feature = "release_log_info"), not(debug_assertions))))]
 #[macro_export]
 macro_rules! info {
     (target: $target:expr, $($arg:tt)+) => (
@@ -142,7 +142,7 @@ macro_rules! info {
     )
 }
 
-#[cfg(not(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info")))]
+#[cfg(not(any(all(any(feature = "log_any", feature = "log_trace", feature = "log_debug", feature = "log_info"), debug_assertions), all(any(feature = "release_log_any", feature = "release_log_trace", feature = "release_log_debug", feature = "release_log_info"), not(debug_assertions)))))]
 #[macro_export]
 macro_rules! info {
     (target: $target:expr, $($arg:tt)+) => ();
@@ -151,7 +151,7 @@ macro_rules! info {
     )
 }
 
-#[cfg(any(feature = "log_any", feature = "log_trace", feature = "log_debug"))]
+#[cfg(any(all(any(feature = "log_any", feature = "log_trace", feature = "log_debug"), debug_assertions), all(any(feature = "release_log_any", feature = "release_log_trace", feature = "release_log_debug"), not(debug_assertions))))]
 #[macro_export]
 macro_rules! debug {
     (target: $target:expr, $($arg:tt)+) => (
@@ -169,7 +169,7 @@ macro_rules! debug {
     )
 }
 
-#[cfg(not(any(feature = "log_any", feature = "log_trace", feature = "log_debug")))]
+#[cfg(not(any(all(any(feature = "log_any", feature = "log_trace", feature = "log_debug"), debug_assertions), all(any(feature = "release_log_any", feature = "release_log_trace", feature = "release_log_debug"), not(debug_assertions)))))]
 #[macro_export]
 macro_rules! debug {
     (target: $target:expr, $($arg:tt)+) => ();
@@ -178,7 +178,7 @@ macro_rules! debug {
     )
 }
 
-#[cfg(any(feature = "log_any", feature = "log_trace"))]
+#[cfg(any(all(any(feature = "log_any", feature = "log_trace"), debug_assertions), all(any(feature = "release_log_any", feature = "release_log_trace"), not(debug_assertions))))]
 #[macro_export]
 macro_rules! trace {
     (target: $target:expr, $($arg:tt)+) => (
@@ -196,7 +196,7 @@ macro_rules! trace {
     )
 }
 
-#[cfg(not(any(feature = "log_any", feature = "log_trace")))]
+#[cfg(not(any(all(any(feature = "log_any", feature = "log_trace"), debug_assertions), all(any(feature = "release_log_any", feature = "release_log_trace"), not(debug_assertions)))))]
 #[macro_export]
 macro_rules! trace {
     (target: $target:expr, $($arg:tt)+) => ();
@@ -230,7 +230,7 @@ pub struct Location {
 }
 
 impl Logger {
-    #[cfg(feature = "log_any")]
+    #[cfg(any(all(feature = "log_any", debug_assertions), all(feature = "release_log_any", not(debug_assertions))))]
     const fn new() -> Logger {
         Logger {
             level: None,
@@ -238,7 +238,7 @@ impl Logger {
         }
     }
 
-    #[cfg(not(any(feature = "log_any", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_debug", feature = "log_trace")))]
+    #[cfg(not(any(all(any(feature = "log_any", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_debug", feature = "log_trace"), debug_assertions), all(any(feature = "release_log_any", feature = "release_log_error", feature = "release_log_warn", feature = "release_log_info", feature = "release_log_debug", feature = "release_log_trace"), not(debug_assertions)))))]
     const fn new() -> Logger {
         Logger {
             level: Some(0),
@@ -246,7 +246,7 @@ impl Logger {
         }
     }
 
-    #[cfg(all(feature = "log_error", not(any(feature = "log_any", feature = "log_critical", feature = "log_warn", feature = "log_info", feature = "log_debug", feature = "log_trace"))))]
+    #[cfg(any(all(debug_assertions, feature = "log_error", not(any(feature = "log_any", feature = "log_critical", feature = "log_warn", feature = "log_info", feature = "log_debug", feature = "log_trace"))), all(feature = "release_log_error", not(debug_assertions), not(any(feature = "release_log_any", feature = "release_log_critical", feature = "release_log_warn", feature = "release_log_info", feature = "release_log_debug", feature = "release_log_trace")))))]
     const fn new() -> Logger {
         Logger {
             level: Some(1),
@@ -254,7 +254,7 @@ impl Logger {
         }
     }
 
-    #[cfg(all(feature = "log_warn", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_info", feature = "log_debug", feature = "log_trace"))))]
+    #[cfg(any(all(debug_assertions, feature = "log_warn", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_info", feature = "log_debug", feature = "log_trace"))), all(feature = "release_log_warn", not(debug_assertions), not(any(feature = "release_log_any", feature = "release_log_critical", feature = "release_log_error", feature = "release_log_info", feature = "release_log_debug", feature = "release_log_trace")))))]
     const fn new() -> Logger {
         Logger {
             level: Some(2),
@@ -262,7 +262,7 @@ impl Logger {
         }
     }
 
-    #[cfg(all(feature = "log_info", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_warn", feature = "log_debug", feature = "log_trace"))))]
+    #[cfg(any(all(debug_assertions, feature = "log_info", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_warn", feature = "log_debug", feature = "log_trace"))), all(feature = "release_log_info", not(debug_assertions), not(any(feature = "release_log_any", feature = "release_log_critical", feature = "release_log_error", feature = "release_log_warn", feature = "release_log_debug", feature = "release_log_trace")))))]
     const fn new() -> Logger {
         Logger {
             level: Some(3),
@@ -270,7 +270,7 @@ impl Logger {
         }
     }
 
-    #[cfg(all(feature = "log_debug", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_trace"))))]
+    #[cfg(any(all(debug_assertions, feature = "log_debug", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_trace"))), all(feature = "release_log_debug", not(debug_assertions), not(any(feature = "release_log_any", feature = "release_log_critical", feature = "release_log_error", feature = "release_log_warn", feature = "release_log_info", feature = "release_log_trace")))))]
     const fn new() -> Logger {
         Logger {
             level: Some(4),
@@ -278,7 +278,7 @@ impl Logger {
         }
     }
 
-    #[cfg(all(feature = "log_trace", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_debug"))))]
+    #[cfg(any(all(debug_assertions, feature = "log_trace", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_debug"))), all(feature = "release_log_trace", not(debug_assertions), not(any(feature = "release_log_any", feature = "release_log_critical", feature = "release_log_error", feature = "release_log_warn", feature = "release_log_info", feature = "release_log_debug")))))]
     const fn new() -> Logger {
         Logger {
             level: Some(5),

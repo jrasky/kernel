@@ -18,7 +18,6 @@
     global _sysenter_launch
     global _sysenter_execute
     global _swap_pages
-    global _init_pages
 
     extern kernel_main
     extern _boot_info
@@ -91,19 +90,9 @@ _test_features:
     test edx, 1<<24
     jz .no_FXSR
 
-    ;; check for NX
-    mov rax, 0x80000001
-    cpuid
-    test edx, 1<<20
-    jz .no_NX
-
     ;; done with checks
     ret
-
-.no_NX:
-    mov al, "n"
-    jmp _error
-
+    
 .no_SSE:
     mov al, "a"
     jmp _error
@@ -397,12 +386,6 @@ _sysenter_execute:
 
     mov al, "E"
     jmp _error
-
-_init_pages:
-    mov rax, cr4
-    or rax, 1 << 7
-    or rax, 1 << 4
-    ret
 
 _swap_pages:
     mov cr3, rdi

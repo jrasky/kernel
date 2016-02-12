@@ -1,4 +1,5 @@
 pub const CANONICAL_BITS: usize = 48;
+pub const U64_BYTES: usize = 8;
 
 #[inline]
 pub const fn align(n: usize, to: usize) -> usize {

@@ -114,24 +114,29 @@ _test_long_mode:
     cpuid                       ; CPU Id
     test edx, 1 << 29           ; Test if LM-bit is set in D
     jz .no_long_mode            ; Not set, no long mode
+    test edx, 1 << 20           ; Test if NX bit is set in D
+    jz .no_NX                   ; Not set, no NX protection
     ret
 .no_long_mode:
     mov al, "2"
+    jmp _error
+.no_NX:
+    mov al, "3"
     jmp _error
 
 _enable_paging:
     ;; load generated pages
     call _gen_load_page_tables
 
-    ;; Enable PAE-flag in cr4
+    ;; Enable PAE-flag, PSE-flag, and PGE-flag in cr4
     mov eax, cr4
-    or eax, 1 << 5
+    or eax, 0xb << 4
     mov cr4, eax
 
-    ;; set the long mode bit in the EFER MSR
+    ;; set the long mode bit and the NX bit in the EFER MSR
     mov ecx, 0xC0000080
     rdmsr
-    or eax, 1 << 8
+    or eax, 0x9 << 8
     wrmsr
 
     ;; enable paging in the cr0 register

@@ -11,6 +11,8 @@ BOOT_SOURCES = multiboot2.asm bootstrap.asm long_boot.asm
 
 GEN_SOURCES = page_tables.bin page_tables.asm
 
+STAGE2_SOURCES = stage2.rs
+
 CORE_SOURCES = long.asm kernel.rs multiboot.rs memory/mod.rs memory/reserve.rs memory/simple.rs constants.rs error.rs logging.rs cpu/init/mod.rs cpu/init/gdt.rs cpu/init/idt.rs cpu/init/tss.rs cpu/interrupt.rs cpu/stack.rs cpu/task.rs cpu/syscall.rs
 
 SOURCE_DIR = src
@@ -41,6 +43,7 @@ ASM_SOURCES = $(filter %.asm,$(CORE_SOURCES))
 ASM_OBJECTS = $(ASM_SOURCES:%.asm=$(TARGET_DIR)/asm/%.o)
 RUST_SOURCES = $(filter %.rs,$(CORE_SOURCES))
 RUST_OBJECTS = $(TARGET_DIR)/$(ARCH)/debug/libkernel.a
+STAGE2_RUST = $(STAGE2_SOURCES:%.rs=$(SOURCE_DIR)/bin/%.rs)
 GEN_ASM = $(filter %.asm,$(GEN_SOURCES))
 GENERATED = $(GEN_SOURCES:%=$(GEN_DIR)/%)
 GEN_OBJECTS = $(GEN_ASM:%.asm=$(TARGET_DIR)/gen/%.o)
@@ -70,7 +73,7 @@ $(KERNEL): $(OBJECTS) $(LINK)
 $(STAGE1): $(CORE_OBJECTS) $(STAGE1_LINK)
 	$(LD) -n -T $(STAGE1_LINK) $(LDFLAGS) -o $@ $(filter-out $(STAGE1_LINK),$^)
 
-$(GENERATED): $(STAGE1)
+$(GENERATED): $(STAGE1) $(STAGE2_RUST)
 	$(CARGO) run --bin $(STAGE2_BIN) $(STAGE2_FLAGS)
 
 $(GEN_OBJECTS): $(TARGET_DIR)/gen/%.o : $(GEN_DIR)/%.asm

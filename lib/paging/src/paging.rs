@@ -359,13 +359,17 @@ impl Layout {
             }
         }
 
+        trace!("Inner buffer length: {}", buffer.len());
+
         // align our position in our buffer
-        for _ in buffer.len()..align(buffer.len(), 0x1000) {
+        for _ in buffer.len()..align(buffer.len(), 0x200) {
             buffer.push(0);
         }
 
+        trace!("Inner buffer length after alignment: {}", buffer.len());
+
         // get our position
-        let entry = (buffer.len() + base) as u64;
+        let entry = (buffer.len() * U64_BYTES + base) as u64;
 
         // copy our buffer in
         buffer.extend(inner_buffer);
@@ -470,12 +474,12 @@ impl Frame {
 
         // align our position in our buffer
 
-        for _ in buffer.len()..align(buffer.len(), 0x1000) {
+        for _ in buffer.len()..align(buffer.len(), 0x200) {
             buffer.push(0);
         }
 
         // get our position
-        let entry = (buffer.len() + base) as u64 | 0x7;
+        let entry = (buffer.len() * U64_BYTES + base) as u64 | 0x7;
 
         // copy our buffer
         buffer.extend(inner_buffer);

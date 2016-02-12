@@ -157,16 +157,7 @@ unsafe fn remap_kernel(memory_regions: Vec<(*mut memory::Opaque, usize)>) -> pag
     // save the cr3 value in a static place
     _core_pages = new_cr3;
 
-    // enable nx in EFER
-    let mut efer: u64 = cpu::read_msr(EFER_MSR);
-
-    efer |= 1 << 11;
-
-    cpu::write_msr(EFER_MSR, efer);
-
-    _init_pages();
-
-    _swap_pages(new_cr3);
+    //_swap_pages(new_cr3);
 
     layout
 }

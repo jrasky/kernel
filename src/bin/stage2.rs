@@ -31,7 +31,16 @@ impl log::Output for LogOutput {
 fn main() {
     log::set_output(Some(Box::new(LogOutput)));
 
+    debug!("Creating base layout");
+
+    // base layout means the first two megabytes identity-mapped
+
     let mut layout = paging::Layout::new();
+
+    layout.insert(paging::Segment::new(
+        0x0, 0x0, 0x200000,
+        true, false, true, false
+    ));
 
     debug!("Reading file");
 
@@ -50,9 +59,9 @@ fn main() {
             let segment = paging::Segment::new(
                 phdr.paddr as usize, phdr.vaddr as usize, phdr.memsz as usize,
                 phdr.flags.0 & PF_W.0 == PF_W.0,
-                false,
+                false, // user
                 phdr.flags.0 & PF_X.0 == PF_X.0,
-                false);
+                false); // global
 
             trace!("Inserting segment: {:?}", segment);
 
@@ -63,6 +72,10 @@ fn main() {
     debug!("Creating tables");
 
     let (address, tables) = layout.build_tables_relative(PAGE_TABLES_OFFSET);
+
+    trace!("Giant table address: 0x{:x}", address);
+
+    debug!("Writing output");
 
     let bytes: &[u8] = unsafe {slice::from_raw_parts(tables.as_ptr() as *const _, tables.len() * U64_BYTES)};
 

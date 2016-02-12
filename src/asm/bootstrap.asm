@@ -9,9 +9,7 @@
 
     ;; externs
     extern _boot_end
-    extern _p3_table
-    extern _p2_table
-    extern _p4_table
+    extern _gen_load_page_tables
     extern BOOT_INFO_ADDR
     extern _lboot
 
@@ -36,7 +34,7 @@ _boot_info:
     dq 0
 
     ;; Define entry point
-    section .boot_text
+    section .boot_text exec
     bits 32
 _start:
     ;; grub entry point
@@ -53,7 +51,6 @@ _start:
     call _test_long_mode
 
     ;; set up long mode
-    call _setup_page_tables
     call _enable_paging
 
     ;; load the 64-bit GDT
@@ -122,37 +119,9 @@ _test_long_mode:
     mov al, "2"
     jmp _error
 
-_setup_page_tables:
-    ;; map first P4 entry to P3 table
-    mov eax, _p3_table
-    or eax, 0b11                ; present + writable
-    mov [_p4_table], eax
-
-    ;; map first P3 entry to P2 table
-    mov eax, _p2_table
-    or eax, 0b11
-    mov [_p3_table], eax
-
-    ;; map each P2 entry to a huge 2MiB page
-    mov ecx, 0
-
-.map_p2_table:
-    ;; map ecx-th P2 entry to a huge page table that starts at address 2MiB*ecx
-    mov eax, 0x200000           ; 2MiB
-    mul ecx                     ; start address of ecx-th
-    or eax, 0b10000011          ; present + writable + huge
-    mov [_p2_table + ecx * 8], eax ; map ecx-th entry
-
-    inc ecx
-    cmp ecx, 512
-    jne .map_p2_table
-
-    ret
-
 _enable_paging:
-    ;; load P4 to cr3 register
-    mov eax, _p4_table
-    mov cr3, eax
+    ;; load generated pages
+    call _gen_load_page_tables
 
     ;; Enable PAE-flag in cr4
     mov eax, cr4

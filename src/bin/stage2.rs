@@ -14,7 +14,7 @@ use elfloader::elf::{PF_X, PF_W, PF_R};
 
 pub const U64_BYTES: usize = 0x8;
 
-pub const PAGE_TABLES_OFFSET: usize = 0x108000;
+pub const PAGE_TABLES_OFFSET: usize = 0x180000;
 
 struct LogOutput;
 

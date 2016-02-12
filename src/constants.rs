@@ -17,8 +17,6 @@ pub const CORE_SS: u16 = 0x10;
 
 pub const U64_BYTES: usize = 0x8;
 
-pub const PAGE_TABLES_OFFSET: usize = 0x108000;
-
 #[inline]
 pub const fn align(n: usize, to: usize) -> usize {
     (n + to - 1) & !(to - 1)

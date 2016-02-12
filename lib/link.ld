@@ -12,7 +12,8 @@ OUTPUT_FORMAT("elf64-x86-64")
 ENTRY(_start)
 
 MEMORY {
-    boot (a)       : ORIGIN = 1M, LENGTH = 1M
+    boot (ax)      : ORIGIN = 1M, LENGTH = 0x80000
+    pages (a)      : ORIGIN = 0x180000, LENGTH = 1M - 0x180000
     identity (a)   : ORIGIN = 2M, LENGTH = 9M
     text (ax)      : ORIGIN = 2M - 0x80000000, LENGTH = 2M
     rodata (ar!xw) : ORIGIN = 4M - 0x80000000, LENGTH = 2M
@@ -40,6 +41,7 @@ SECTIONS {
         * (.boot_text)
         * (.boot_rodata)
         * (.boot_data)
+        * (.gen_text)
         . = ALIGN(4k);
         _p4_table = .;
         . += 4K;
@@ -53,6 +55,10 @@ SECTIONS {
         _boot_end = .;
     } > boot :boot
 
+    /* generated page tables */
+    .pages ORIGIN(pages) : AT(ORIGIN(pages)) {
+        KEEP(* (.gen_pages))
+    } :boot
 
     /* first the multiboot header */
     .text ORIGIN(text) : ALIGN(4K) {

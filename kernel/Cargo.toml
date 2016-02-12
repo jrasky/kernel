@@ -11,8 +11,8 @@ crate-type = ["staticlib"]
 rlibc = "*"
 spin = "*"
 elfloader = "*"
-log = { path = "lib/log" }
-paging = { path = "lib/paging" }
+log = { path = "../log" }
+paging = { path = "../paging" }
 
 [target]
 custom_unwind_resume = {}

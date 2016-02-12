@@ -4,3 +4,4 @@ target
 /src/*.bk
 *\#*\#
 gen
+*/target

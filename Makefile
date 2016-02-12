@@ -7,113 +7,70 @@
 # http://opensource.org/licenses/MIT>, at your option. This file may not be
 # copied, modified, or distributed except according to those terms.
 
-BOOT_SOURCES = multiboot2.asm bootstrap.asm long_boot.asm
+TARGET_DIR = ./target
+LIB_DIR = ./lib
+GEN_DIR = $(TARGET_DIR)/gen
 
-GEN_SOURCES = page_tables.bin page_tables.asm
+STAGE1_KERNEL = $(TARGET_DIR)/libkernel.a
+STAGE1_ASM = $(TARGET_DIR)/asm/long.o
 
-STAGE2_SOURCES = stage2.rs
+STAGE2_BIN = $(TARGET_DIR)/stage2
 
-CORE_SOURCES = long.asm kernel.rs multiboot.rs memory/mod.rs memory/reserve.rs memory/simple.rs constants.rs error.rs logging.rs cpu/init/mod.rs cpu/init/gdt.rs cpu/init/idt.rs cpu/init/tss.rs cpu/interrupt.rs cpu/stack.rs cpu/task.rs cpu/syscall.rs
+GEN_ASM = $(GEN_DIR)/page_tables.asm
+GEN_SOURCES = $(GEN_DIR)/page_tables.bin $(GEN_ASM)
+GEN_OBJECTS = $(GEN_DIR)/page_tables.o
 
-SOURCE_DIR = src
-TARGET_DIR = target
-LIB_DIR = lib
-GEN_DIR = gen
-
-LDFLAGS = --gc-sections
-ARCH = x86_64-unknown-linux-gnu
-RUSTFLAGS = 
-GRUB_RESCUE_FLAGS = -d /usr/lib/grub/i386-pc/
-STAGE2_FLAGS = --release
+GLOBAL_TARGET_DIR = $(abspath $(TARGET_DIR))
+export GLOBAL_TARGET_DIR
 
 STAGE1 = $(TARGET_DIR)/stage1.elf
-STAGE1_LINK = $(LIB_DIR)/stage1.ld
-STAGE2_BIN = stage2
 KERNEL = $(TARGET_DIR)/kernel.elf
-LINK = $(LIB_DIR)/link.ld
 
-GRUB_CFG = $(LIB_DIR)/grub.cfg
-GRUB_IMAGE = $(TARGET_DIR)/image.iso
-ISO_DIR = $(TARGET_DIR)/iso
+STAGE1_LINK = $(LIB_DIR)/stage1.ld
+STAGE1_OBJECTS = $(STAGE1_ASM) $(STAGE1_KERNEL)
 
-ISO_GRUB_CFG = $(ISO_DIR)/boot/grub/grub.cfg
-ISO_KERNEL = $(ISO_DIR)/boot/$(notdir $(KERNEL))
+KERNEL_LINK = $(LIB_DIR)/link.ld
 
-ASM_SOURCES = $(filter %.asm,$(CORE_SOURCES))
-ASM_OBJECTS = $(ASM_SOURCES:%.asm=$(TARGET_DIR)/asm/%.o)
-RUST_SOURCES = $(filter %.rs,$(CORE_SOURCES))
-RUST_OBJECTS = $(TARGET_DIR)/$(ARCH)/debug/libkernel.a
-STAGE2_RUST = $(STAGE2_SOURCES:%.rs=$(SOURCE_DIR)/bin/%.rs)
-GEN_ASM = $(filter %.asm,$(GEN_SOURCES))
-GENERATED = $(GEN_SOURCES:%=$(GEN_DIR)/%)
-GEN_OBJECTS = $(GEN_ASM:%.asm=$(TARGET_DIR)/gen/%.o)
-BOOT_OBJECTS = $(BOOT_SOURCES:%.asm=$(TARGET_DIR)/asm/%.o)
-CORE_OBJECTS = $(ASM_OBJECTS) $(RUST_OBJECTS)
-OBJECTS = $(GEN_OBJECTS) $(BOOT_OBJECTS) $(ASM_OBJECTS) $(C_OBJECTS) $(RUST_OBJECTS)
+BOOT_ASM = $(TARGET_DIR)/asm/bootstrap.o $(TARGET_DIR)/asm/long_boot.o $(TARGET_DIR)/asm/multiboot2.o
 
-GRUB_RESCUE = grub-mkrescue
-CC = gcc
+OBJECTS = $(GEN_OBJECTS) $(STAGE1_OBJECTS) $(BOOT_ASM)
+
+LD_FLAGS = -n --gc-sections
+AS_FLAGS = -f elf64
+
+MKDIR = mkdir
+RM = rm
 LD = ld
 AS = nasm
-MKDIR = mkdir
-CP = cp
-RM = rm
-QEMU_IMG = qemu-system-x86_64
-QEMU_KERN = qemu-system-x86_64
-CARGO = cargo
 
-# default target
-all: directories $(KERNEL)
+build: $(TARGET_DIR) $(GEN_DIR) $(KERNEL)
 
-# File targets
-
-$(KERNEL): $(OBJECTS) $(LINK)
-	$(LD) -n -T $(LINK) $(LDFLAGS) -o $@ $(filter-out $(LINK),$^)
-
-$(STAGE1): $(CORE_OBJECTS) $(STAGE1_LINK)
-	$(LD) -n -T $(STAGE1_LINK) $(LDFLAGS) -o $@ $(filter-out $(STAGE1_LINK),$^)
-
-$(GENERATED): $(STAGE1) $(STAGE2_RUST)
-	$(CARGO) run --bin $(STAGE2_BIN) $(STAGE2_FLAGS)
-
-$(GEN_OBJECTS): $(TARGET_DIR)/gen/%.o : $(GEN_DIR)/%.asm
-	$(AS) -f elf64 -o $@ $<
-
-$(BOOT_OBJECTS): $(TARGET_DIR)/%.o : $(SOURCE_DIR)/%.asm
-	$(AS) -f elf64 -o $@ $<
-
-$(ASM_OBJECTS): $(TARGET_DIR)/%.o : $(SOURCE_DIR)/%.asm
-	$(AS) -f elf64 -o $@ $<
-
-$(RUST_OBJECTS): $(RUST_SOURCES:%=$(SOURCE_DIR)/%) Cargo.toml
-	$(CARGO) rustc --target $(ARCH) -- $(RUSTFLAGS)
-
-$(ISO_GRUB_CFG): $(GRUB_CFG)
-	$(CP) $< $@
-
-$(ISO_KERNEL): $(KERNEL)
-	$(CP) $< $@
-
-$(GRUB_IMAGE): $(ISO_GRUB_CFG) $(ISO_KERNEL)
-	$(GRUB_RESCUE) $(GRUB_RESCUE_FLAGS) -o $(GRUB_IMAGE) $(ISO_DIR)
-
-$(GEN_DIR) $(TARGET_DIR) $(TARGET_DIR)/asm $(TARGET_DIR)/rust $(TARGET_DIR)/gen $(dir $(ISO_GRUB_CFG)) $(dir $(ISO_KERNEL)) $(dir $(GRUB_IMAGE)):
+$(TARGET_DIR) $(GEN_DIR):
 	$(MKDIR) -p $@
 
-# Phony targets
+$(KERNEL): $(OBJECTS)
+	$(LD) -T $(KERNEL_LINK) $(LD_FLAGS) -o $@ $^
 
-directories: $(TARGET_DIR) $(TARGET_DIR)/gen $(TARGET_DIR)/asm $(TARGET_DIR)/rust $(dir $(ISO_GRUB_CFG)) $(dir $(ISO_KERNEL)) $(dir $(GRUB_IMAGE)) $(GEN_DIR)
+$(STAGE1_KERNEL): kernel
 
-image: directories $(GRUB_IMAGE)
+$(STAGE1_ASM) $(BOOT_ASM): asm
 
-clean:
-	$(RM) -r $(TARGET_DIR)
-	$(RM) -r $(GEN_DIR)
+$(STAGE2_BIN): stage2
 
-run_img: image
-	$(QEMU_IMG) -cdrom $(GRUB_IMAGE)
+$(GEN_SOURCES): $(STAGE2_BIN) $(STAGE1)
+	$(STAGE2_BIN)
 
-run_kern: $(KERNEL)
-	$(QEMU_KERN) -kernel $(KERNEL)
+$(GEN_OBJECTS): $(GEN_SOURCES)
+	$(AS) $(AS_FLAGS) -o $@ $(GEN_ASM)
 
-.PHONY: image clean run_img run_kern directories all
+asm kernel stage2:
+	$(MAKE) -C $@ $(MAKECMDGOALS)
+
+$(STAGE1): $(STAGE1_OBJECTS)
+	$(LD) -T $(STAGE1_LINK) $(LD_FLAGS) -o $@ $^
+
+clean: asm kernel stage2
+	$(RM) -rf $(TARGET_DIR)
+	$(RM) -rf $(GEN_DIR)
+
+.PHONY: build asm kernel stage2

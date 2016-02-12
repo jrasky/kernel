@@ -16,6 +16,11 @@ pub const U64_BYTES: usize = 0x8;
 
 pub const PAGE_TABLES_OFFSET: usize = 0x180000;
 
+pub const STAGE1_ELF: &'static str = "target/stage1.elf";
+
+pub const RAW_OUTPUT: &'static str = "target/gen/page_tables.bin";
+pub const ASM_OUTPUT: &'static str = "target/gen/page_tables.asm";
+
 struct LogOutput;
 
 impl log::Output for LogOutput {
@@ -44,7 +49,7 @@ fn main() {
 
     debug!("Reading file");
 
-    let mut file = File::open("target/stage1.elf").expect("Failed to open stage 1 file");
+    let mut file = File::open(STAGE1_ELF).expect("Failed to open stage 1 file");
 
     let mut buf = vec![];
 
@@ -79,17 +84,17 @@ fn main() {
 
     let bytes: &[u8] = unsafe {slice::from_raw_parts(tables.as_ptr() as *const _, tables.len() * U64_BYTES)};
 
-    let mut raw_output = File::create("gen/page_tables.bin").expect("Failed to open raw output file");
+    let mut raw_output = File::create(RAW_OUTPUT).expect("Failed to open raw output file");
 
     raw_output.write_all(bytes).expect("Failed to write bytes to output");
 
-    let mut asm_output = File::create("gen/page_tables.asm").expect("Failed to open asm output file");
+    let mut asm_output = File::create(ASM_OUTPUT).expect("Failed to open asm output file");
 
     writeln!(asm_output, concat!(
         "    global _gen_load_page_tables\n",
 
         "    section .gen_pages\n",
-        "    incbin \"gen/page_tables.bin\"\n",
+        "    incbin \"target/gen/page_tables.bin\"\n",
 
         "    section .gen_text\n",
         "    bits 32\n",

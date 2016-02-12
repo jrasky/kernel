@@ -12,8 +12,10 @@ extern crate collections;
 extern crate log;
 extern crate alloc;
 
-pub use paging::Layout;
-pub use paging::Segment;
+pub use layout::Layout;
+pub use frame::Segment;
 
-mod paging;
 mod constants;
+mod frame;
+mod layout;
+mod page;

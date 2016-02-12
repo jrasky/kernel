@@ -213,20 +213,20 @@ pub trait Output {
 
 struct Logger {
     level: Option<usize>,
-    output: Option<Box<Output>>
+    output: Option<Box<Output>>,
 }
 
 pub struct Request {
     pub level: usize,
     pub location: Location,
     pub target: String,
-    pub message: String
+    pub message: String,
 }
 
 pub struct Location {
     pub module_path: &'static str,
     pub file: &'static str,
-    pub line: u32
+    pub line: u32,
 }
 
 impl Logger {
@@ -234,7 +234,7 @@ impl Logger {
     const fn new() -> Logger {
         Logger {
             level: None,
-            output: None
+            output: None,
         }
     }
 
@@ -242,7 +242,7 @@ impl Logger {
     const fn new() -> Logger {
         Logger {
             level: Some(0),
-            output: None
+            output: None,
         }
     }
 
@@ -250,7 +250,7 @@ impl Logger {
     const fn new() -> Logger {
         Logger {
             level: Some(1),
-            output: None
+            output: None,
         }
     }
 
@@ -258,7 +258,7 @@ impl Logger {
     const fn new() -> Logger {
         Logger {
             level: Some(2),
-            output: None
+            output: None,
         }
     }
 
@@ -266,7 +266,7 @@ impl Logger {
     const fn new() -> Logger {
         Logger {
             level: Some(3),
-            output: None
+            output: None,
         }
     }
 
@@ -274,7 +274,7 @@ impl Logger {
     const fn new() -> Logger {
         Logger {
             level: Some(4),
-            output: None
+            output: None,
         }
     }
 
@@ -282,7 +282,7 @@ impl Logger {
     const fn new() -> Logger {
         Logger {
             level: Some(5),
-            output: None
+            output: None,
         }
     }
 
@@ -294,8 +294,11 @@ impl Logger {
         self.level = level;
     }
 
-    fn log<T: Display, V: Display>(&mut self, level: usize, location: &Location,
-                                   target: V, message: T) {
+    fn log<T: Display, V: Display>(&mut self,
+                                   level: usize,
+                                   location: &Location,
+                                   target: V,
+                                   message: T) {
         // only one logger right now
         if let Some(log_level) = self.level {
             if level > log_level {
@@ -319,7 +322,7 @@ pub fn level_name(level: usize) -> &'static str {
         3 => "INFO",
         4 => "DEBUG",
         5 => "TRACE",
-        _ => ""
+        _ => "",
     }
 }
 

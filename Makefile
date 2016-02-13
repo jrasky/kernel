@@ -10,6 +10,13 @@
 TARGET_DIR = ./target
 LIB_DIR = ./lib
 GEN_DIR = $(TARGET_DIR)/gen
+ISO_DIR = $(TARGET_DIR)/iso
+
+GRUB_CFG = $(LIB_DIR)/grub.cfg
+GRUB_IMAGE = $(TARGET_DIR)/image.iso
+
+ISO_GRUB_CFG = $(ISO_DIR)/boot/grub/grub.cfg
+ISO_KERNEL = $(ISO_DIR)/boot/kernel.elf
 
 STAGE1_KERNEL = $(TARGET_DIR)/libkernel.a
 STAGE1_ASM = $(TARGET_DIR)/asm/long.o
@@ -37,15 +44,31 @@ OBJECTS = $(GEN_OBJECTS) $(STAGE1_OBJECTS) $(BOOT_ASM)
 
 LD_FLAGS = -n --gc-sections
 AS_FLAGS = -f elf64
+GRUB_RESCUE_FLAGS = -d /usr/lib/grub/i386-pc/
 
+GRUB_RESCUE = grub-mkrescue
 MKDIR = mkdir
 RM = rm
 LD = ld
 AS = nasm
+CP = cp
 
-build: $(TARGET_DIR) $(GEN_DIR) $(KERNEL)
+build: directories $(KERNEL)
 
-$(TARGET_DIR) $(GEN_DIR):
+image: directories $(GRUB_IMAGE)
+
+$(GRUB_IMAGE): $(ISO_GRUB_CFG) $(ISO_KERNEL)
+	$(GRUB_RESCUE) $(GRUB_RESCUE_FLAGS) -o $(GRUB_IMAGE) $(ISO_DIR)
+
+directories: $(ISO_DIR)/boot/grub/ $(ISO_DIR) $(TARGET_DIR) $(GEN_DIR)
+
+$(ISO_GRUB_CFG): $(GRUB_CFG)
+	$(CP) $< $@
+
+$(ISO_KERNEL): $(KERNEL)
+	$(CP) $< $@
+
+$(TARGET_DIR) $(GEN_DIR) $(ISO_DIR) $(ISO_DIR)/boot/grub/:
 	$(MKDIR) -p $@
 
 $(KERNEL): $(OBJECTS)
@@ -64,7 +87,11 @@ $(GEN_OBJECTS): $(GEN_SOURCES)
 	$(AS) $(AS_FLAGS) -o $@ $(GEN_ASM)
 
 asm kernel stage2:
+ifeq ($(MAKECMDGOALS),image)
+	$(MAKE) -C $@ build
+else
 	$(MAKE) -C $@ $(MAKECMDGOALS)
+endif
 
 $(STAGE1): $(STAGE1_OBJECTS)
 	$(LD) -T $(STAGE1_LINK) $(LD_FLAGS) -o $@ $^
@@ -73,4 +100,4 @@ clean: asm kernel stage2
 	$(RM) -rf $(TARGET_DIR)
 	$(RM) -rf $(GEN_DIR)
 
-.PHONY: build asm kernel stage2
+.PHONY: build asm kernel stage2 image directories

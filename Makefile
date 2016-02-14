@@ -15,6 +15,8 @@ KERNEL_LINK = $(LIB_DIR)/link.ld
 ASM_SOURCES = $(shell find $(ASM_SOURCES)/src -name '*.asm')
 ASM_TARGET = $(ASM_DIR)/target
 
+LINK_COMMON = $(LIB_DIR)/headers.ld $(LIB_DIR)/high.ld
+
 STAGE1_KERNEL = $(KERNEL_TARGET)/libkernel.a
 STAGE1_ASM = $(ASM_TARGET)/long.o
 STAGE1_LINK = $(LIB_DIR)/stage1.ld
@@ -71,20 +73,20 @@ $(STAGE1_ASM) $(BOOT_ASM): $(ASM_TARGET)/%.o : $(ASM_DIR)/src/%.asm
 $(GEN_ASM): $(GEN_SOURCES)
 	$(AS) $(ASFLAGS) -o $@ $(GEN_DIR)/page_tables.asm
 
-$(GEN_SOURCES): $(STAGE2)
+$(GEN_SOURCES): $(STAGE1) $(STAGE2)
 	$(STAGE2)
 
-$(STAGE2): $(STAGE1) $(STAGE2_SOURCES)
+$(STAGE2): $(STAGE2_SOURCES)
 	$(CD) $(STAGE2_DIR) && $(CARGO) build --release
 
-$(STAGE1): $(STAGE1_KERNEL) $(STAGE1_ASM) $(STAGE1_LINK)
+$(STAGE1): $(STAGE1_KERNEL) $(STAGE1_ASM) $(STAGE1_LINK) $(LINK_COMMON)
 	$(LD) $(LDFLAGS) -T $(STAGE1_LINK) -o $@ $(STAGE1_ASM) $(STAGE1_KERNEL)
 
 $(TARGET_DIR) $(ASM_TARGET) $(GEN_DIR) $(ISO_DIR) $(ISO_DIR)/boot $(ISO_DIR)/boot/grub:
 	$(MKDIR) -p $@
 
-$(KERNEL): $(OBJECTS)
-	$(LD) $(LDFLAGS) -T $(KERNEL_LINK) -o $@ $^
+$(KERNEL): $(OBJECTS) $(KERNEL_LINK) $(LINK_COMMON)
+	$(LD) $(LDFLAGS) -T $(KERNEL_LINK) -o $@ $(OBJECTS)
 
 clean:
 	$(RM) -rf $(TARGET_DIR) $(ASM_TARGET)

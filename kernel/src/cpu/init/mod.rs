@@ -15,15 +15,11 @@ extern "C" {
     static _kernel_top: u8;
     static _kernel_end: u8;
     static _bss_top: u8;
-    static _stack_top: u8;
+    static _long_stack: u8;
     static _rodata_top: u8;
     static _rodata_end: u8;
     static _data_top: u8;
     static _data_end: u8;
-    static _godata_top: u8;
-    static _godata_end: u8;
-
-    static mut _core_pages: u64;
     
     fn _swap_pages(cr3: u64);
     fn _init_pages();
@@ -31,6 +27,8 @@ extern "C" {
     fn _bp_handler();
     fn _gp_handler();
 }
+
+static mut CORE_PAGES: u64 = 0;
 
 #[cfg(test)]
 unsafe fn _bp_handler() {
@@ -44,7 +42,7 @@ unsafe fn _gp_handler() {
 
 /// Unsafe because dropping gdt or idt leaks a reference
 pub unsafe fn setup(memory_regions: Vec<(*mut memory::Opaque, usize)>)
-                    -> (gdt::Table, idt::Table, cpu::stack::Stack, paging::Layout) {
+                    -> (gdt::Table, idt::Table, cpu::stack::Stack) {
     // create a new GDT with a TSS
     let tss = tss::Segment::new([None, None, None, None, None, None, None],
                                 [None, None, None], 0);
@@ -91,78 +89,5 @@ pub unsafe fn setup(memory_regions: Vec<(*mut memory::Opaque, usize)>)
 
     debug!("Set up syscalls");
 
-    // remap the kernel
-    let layout = remap_kernel(memory_regions);
-
-    (gdt, idt, syscall_stack, layout)
-}
-
-#[cfg(not(test))]
-unsafe fn remap_kernel(memory_regions: Vec<(*mut memory::Opaque, usize)>) -> paging::Layout {
-    // set up paging
-    let mut layout = paging::Layout::new();
-
-    // map sections of the kernel
-
-    // map I/O region
-    assert!(layout.insert(paging::Segment::new(
-        0, 0, 0x100000,
-        true, false, false, false
-    )), "Could not register I/O region");
-
-    assert!(layout.insert(paging::Segment::new(
-        &_kernel_top as *const u8 as usize,
-        &_kernel_top as *const u8 as usize,
-        &_kernel_end as *const u8 as usize - &_kernel_top as *const u8 as usize,
-        false, false, true, false)),
-            "Could not register kernel text");
-
-    assert!(layout.insert(paging::Segment::new(
-        &_bss_top as *const u8 as usize,
-        &_bss_top as *const u8 as usize,
-        &_stack_top as *const u8 as usize - &_bss_top as *const u8 as usize,
-        true, false, false, false)),
-            "Could not register kernel text");
-
-    if &_rodata_top as *const u8 as usize != &_rodata_end as *const u8 as usize {
-        assert!(layout.insert(paging::Segment::new(
-            &_rodata_top as *const u8 as usize,
-            &_rodata_top as *const u8 as usize,
-            &_rodata_end as *const u8 as usize - &_rodata_top as *const u8 as usize,
-            false, false, false, false)),
-                "Could not register kernel rodata");
-    }
-
-    if &_data_top as *const u8 as usize != &_data_end as *const u8 as usize {
-        assert!(layout.insert(paging::Segment::new(
-            &_data_top as *const u8 as usize,
-            &_data_top as *const u8 as usize,
-            &_data_end as *const u8 as usize - &_data_top as *const u8 as usize,
-            true, false, false, false)),
-                "Could not register kernel data");
-    }
-
-    // map heap
-    for (ptr, size) in memory_regions {
-        assert!(layout.insert(paging::Segment::new(
-            ptr as usize, ptr as usize, size,
-            true, false, false, false
-        )), "Could not register heap section");
-    }
-
-    // create actual page tables
-    let new_cr3 = layout.build_tables();
-
-    // load the new cr3
-    // save the cr3 value in a static place
-    _core_pages = new_cr3;
-
-    //_swap_pages(new_cr3);
-
-    layout
-}
-
-#[cfg(test)]
-unsafe fn remap_kernel(_: Vec<(*mut memory::Opaque, usize)>) -> paging::Layout {
-    paging::Layout::new()
+    (gdt, idt, syscall_stack)
 }

@@ -42,10 +42,10 @@ fn main() {
 
     let mut layout = paging::Layout::new();
 
-    layout.insert(paging::Segment::new(
+    assert!(layout.insert(paging::Segment::new(
         0x0, 0x0, 0x200000,
         true, false, true, false
-    ));
+    )), "Failed to insert segment");
 
     debug!("Reading file");
 
@@ -60,7 +60,7 @@ fn main() {
     debug!("Geting program headers");
 
     for ref phdr in elf.program_headers() {
-        if phdr.flags.0 & PF_R.0 == PF_R.0 {
+        if phdr.flags.0 & PF_R.0 == PF_R.0 && phdr.memsz > 0 {
             let segment = paging::Segment::new(
                 phdr.paddr as usize, phdr.vaddr as usize, phdr.memsz as usize,
                 phdr.flags.0 & PF_W.0 == PF_W.0,
@@ -70,7 +70,7 @@ fn main() {
 
             trace!("Inserting segment: {:?}", segment);
 
-            layout.insert(segment);
+            assert!(layout.insert(segment), "Failed to insert segment");
         }
     }
 

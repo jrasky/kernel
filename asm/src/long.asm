@@ -18,20 +18,30 @@
     global _sysenter_launch
     global _sysenter_execute
     global _swap_pages
+    global _long_stack
 
     extern kernel_main
     extern _boot_info
     extern _fxsave_trap
-    extern _fxsave_int
     extern _fxsave_task
     extern interrupt_breakpoint
     extern interrupt_general_protection_fault
     extern sysenter_handler
 
+    section .bss
+_fxsave_int:    resb 0x200
+    
+_long_stack_end:
+    resb 0xf000
+_long_stack:    
+
     section .text
     bits 64
 _lstart:
     ;; Target of far jump to long mode
+
+    ;; set up long mode stack
+    mov rsp, _long_stack
 
     ;; setup SSE
     call _setup_SSE

@@ -8,7 +8,6 @@
 ;;; copied, modified, or distributed except according to those terms.
 
     ;; externs
-    extern _boot_end
     extern _gen_load_page_tables
     extern BOOT_INFO_ADDR
     extern _lboot
@@ -29,9 +28,12 @@ gdt64:
     dw $ - gdt64 - 1
     dq gdt64
 
-    section .boot_data
+    section .boot_bss nobits
 _boot_info:
-    dq 0
+    resq 1
+_boot_stack_end:
+    resb 0x500
+_boot_stack:    
 
     ;; Define entry point
     section .boot_text exec
@@ -40,7 +42,7 @@ _start:
     ;; grub entry point
 
     ;; set up stack
-    mov esp, _boot_end
+    mov esp, _boot_stack
 
     ;; save boot info
     mov dword [_boot_info], ebx

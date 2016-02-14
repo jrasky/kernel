@@ -10,7 +10,7 @@ use memory::Opaque;
 use constants::*;
 
 extern "C" {
-    static _stack_top: u8;
+    static _long_stack: u8;
 }
 
 pub struct Stack {
@@ -40,7 +40,7 @@ impl Stack {
 
     pub unsafe fn kernel() -> Stack {
         Stack {
-            buffer: Unique::new(&_stack_top as *const _ as *mut _),
+            buffer: Unique::new(&_long_stack as *const _ as *mut _),
             size: STACK_SIZE,
             drop: false,
         }

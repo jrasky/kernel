@@ -157,13 +157,12 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
     // set up cpu data structures and other settings
     // keep references around so we don't break things
-    let (gdt, idt, syscall_stack, layout) = unsafe {cpu::init::setup(memory_regions)};
+    let (gdt, idt, syscall_stack) = unsafe {cpu::init::setup(memory_regions)};
 
     // explicity leak gdt and idt and the syscall stack and the kernel page map
     mem::forget(gdt);
     mem::forget(idt);
     mem::forget(syscall_stack);
-    mem::forget(layout);
 
     info!("Starting tasks");
 

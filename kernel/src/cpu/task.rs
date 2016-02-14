@@ -21,10 +21,10 @@ use std::cell::UnsafeCell;
 use spin::Mutex;
 
 use cpu::stack::Stack;
+use constants::*;
 
 #[cfg(not(test))]
 extern "C" {
-    static mut _fxsave_task: u8;
     fn _do_execute(regs: *const Regs, core_regs: *mut Regs);
     fn _load_context(regs: *mut Regs);
 }
@@ -39,6 +39,7 @@ extern "C" fn _dummy_entry() -> ! {
 }
 
 static mut MANAGER: Manager = Manager::new();
+static mut FXSAVE_TASK: [u8; FXSAVE_SIZE] = [0; FXSAVE_SIZE];
 
 pub fn run_next() -> Result<TaskRef, RunNextResult> {
     unsafe { MANAGER.run_next() }
@@ -509,17 +510,17 @@ impl ManagerInner {
             // save our
             #[cfg(not(test))]
             asm!("fxsave $0"
-                 : "=*m"(&mut _fxsave_task)
+                 : "=*m"(FXSAVE_TASK.as_mut_ptr())
                  ::: "intel");
 
             #[cfg(not(test))]
-            ptr::copy(&_fxsave_task,
+            ptr::copy(FXSAVE_TASK.as_ptr(),
                       self.core.context.fxsave.as_mut_ptr(),
                       self.core.context.fxsave.len());
 
             #[cfg(not(test))]
             ptr::copy(task.get_inner().context.fxsave.as_ptr(),
-                      &mut _fxsave_task as *mut u8,
+                      FXSAVE_TASK.as_mut_ptr(),
                       task.get_inner().context.fxsave.len());
 
             debug!("Executing task");
@@ -531,7 +532,7 @@ impl ManagerInner {
 
             #[cfg(not(test))]
             asm!("fxrstor $0"
-                 :: "*m"(&_fxsave_task)
+                 :: "*m"(FXSAVE_TASK.as_ptr())
                  :: "intel");
 
             _do_execute(&self.current.as_ref().unwrap().get_inner().context.regs,
@@ -541,12 +542,12 @@ impl ManagerInner {
 
             #[cfg(not(test))]
             ptr::copy(self.core.context.fxsave.as_mut_ptr(),
-                      &mut _fxsave_task as *mut u8,
+                      FXSAVE_TASK.as_mut_ptr(),
                       self.core.context.fxsave.len());
 
             #[cfg(not(test))]
             asm!("fxrstor $0"
-                 :: "*m"(&_fxsave_task)
+                 :: "*m"(FXSAVE_TASK.as_ptr())
                  :: "intel");
 
             debug!("Switched back");
@@ -578,24 +579,24 @@ impl ManagerInner {
             // save our
             #[cfg(not(test))]
             asm!("fxsave $0"
-                 : "=*m"(&mut _fxsave_task)
+                 : "=*m"(FXSAVE_TASK.as_mut_ptr())
                  ::: "intel");
 
             #[cfg(not(test))]
-            ptr::copy(&_fxsave_task as *const u8,
+            ptr::copy(FXSAVE_TASK.as_ptr(),
                       task.get_mut().context.fxsave.as_mut_ptr(),
                       task.get_mut().context.fxsave.len());
 
             #[cfg(not(test))]
             ptr::copy(self.core.context.fxsave.as_ptr(),
-                      &mut _fxsave_task as *mut u8,
+                      FXSAVE_TASK.as_mut_ptr(),
                       self.core.context.fxsave.len());
 
             debug!("Switching back to core");
 
             #[cfg(not(test))]
             asm!("fxrstor $0"
-                 :: "*m"(&_fxsave_task)
+                 :: "*m"(FXSAVE_TASK.as_ptr())
                  :: "intel");
 
             _do_execute(&self.core.context.regs,
@@ -603,12 +604,12 @@ impl ManagerInner {
 
             #[cfg(not(test))]
             ptr::copy(task.get_inner().context.fxsave.as_ptr(),
-                      &mut _fxsave_task as *mut u8,
+                      FXSAVE_TASK.as_mut_ptr(),
                       task.get_inner().context.fxsave.len());
 
             #[cfg(not(test))]
             asm!("fxrstor $0"
-                 :: "*m"(&_fxsave_task)
+                 :: "*m"(FXSAVE_TASK.as_ptr())
                  :: "intel");
 
             debug!("Switched back to task");
@@ -635,11 +636,11 @@ impl TaskInner {
             // fxsave, use current floating point state in task
             // TODO: generate a compliant FPU state instead of just using the current one
             asm!("fxsave $0"
-                 : "=*m"(&mut _fxsave_task)
+                 : "=*m"(FXSAVE_TASK.as_mut_ptr())
                  ::: "intel");
 
             // copy fxsave area
-            ptr::copy(&mut _fxsave_task,
+            ptr::copy(FXSAVE_TASK.as_ptr(),
                       context.fxsave.as_mut_ptr(),
                       context.fxsave.len());
         }

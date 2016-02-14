@@ -36,7 +36,7 @@ SECTIONS {
 
     /* multiboot2 header */
     .boot ORIGIN(boot) : ALIGN(8) {
-        KEEP(target/asm/multiboot2.o (.multiboot2))
+        KEEP(asm/target/multiboot2.o (.multiboot2))
         _boot_top = .;
         * (.boot_text)
         * (.boot_rodata)

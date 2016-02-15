@@ -19,6 +19,8 @@ use core::mem;
 use std::fmt;
 #[cfg(test)]
 use std::mem;
+#[cfg(test)]
+use std::slice;
 
 use constants::*;
 use frame::{Frame, Segment, FrameSize};
@@ -63,6 +65,22 @@ impl Layout {
             entries: entries,
             map: BTreeSet::new(),
             buffers: vec![]
+        }
+    }
+
+    pub unsafe fn build_tables_into(&mut self, tables: *mut u64) {
+        for idx in 0..0x200 {
+            if let Some(ref frame) = self.entries[idx] {
+                if *tables.offset(idx as isize).as_ref().unwrap() == 0 {
+                    *tables.offset(idx as isize).as_mut().unwrap() =
+                        frame.build_table(&mut self.buffers);
+                } else {
+                    let entry = *tables.offset(idx as isize).as_ref().unwrap();
+                    frame.build_table_into(&mut self.buffers, (entry & PAGE_ADDR_MASK) as *mut _);
+                }
+            } else {
+                *tables.offset(idx as isize).as_mut().unwrap() = 0;
+            }
         }
     }
 

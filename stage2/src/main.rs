@@ -1,3 +1,4 @@
+#![feature(const_fn)]
 extern crate elfloader;
 #[macro_use]
 extern crate log;
@@ -8,6 +9,7 @@ use std::fmt::Display;
 use std::fs::File;
 
 use std::slice;
+use std::cmp;
 
 use elfloader::ElfBinary;
 use elfloader::elf::{PF_X, PF_W, PF_R};
@@ -19,7 +21,13 @@ pub const PAGE_TABLES_OFFSET: usize = 0x180000;
 pub const STAGE1_ELF: &'static str = "target/stage1.elf";
 
 pub const RAW_OUTPUT: &'static str = "target/gen/page_tables.bin";
+pub const SEG_OUTPUT: &'static str = "target/gen/segments.bin";
 pub const ASM_OUTPUT: &'static str = "target/gen/page_tables.asm";
+
+#[inline]
+pub const fn align(n: usize, to: usize) -> usize {
+    (n + to - 1) & !(to - 1)
+}
 
 struct LogOutput;
 
@@ -41,6 +49,11 @@ fn main() {
     // base layout means the first two megabytes identity-mapped
 
     let mut layout = paging::Layout::new();
+    let mut segments = vec![
+        paging::Segment::new(
+            0x0, 0x0, 0x200000,
+            true, false, true, false
+        )];
 
     assert!(layout.insert(paging::Segment::new(
         0x0, 0x0, 0x200000,
@@ -59,6 +72,8 @@ fn main() {
 
     debug!("Geting program headers");
 
+    let mut max_paddr = 0x200000;
+
     for ref phdr in elf.program_headers() {
         if phdr.flags.0 & PF_R.0 == PF_R.0 && phdr.memsz > 0 {
             let segment = paging::Segment::new(
@@ -70,15 +85,29 @@ fn main() {
 
             trace!("Inserting segment: {:?}", segment);
 
+            max_paddr = cmp::max(max_paddr, align(phdr.paddr as usize + phdr.memsz as usize, 0x1000));
+
+            segments.push(segment.clone());
+
             assert!(layout.insert(segment), "Failed to insert segment");
         }
     }
+
+    trace!("Max paddr: 0x{:x}", max_paddr);
 
     debug!("Creating tables");
 
     let (address, tables) = layout.build_tables_relative(PAGE_TABLES_OFFSET);
 
     trace!("Giant table address: 0x{:x}", address);
+
+    debug!("Getting raw tables");
+
+    let mut segment_buffer: Vec<u8> = vec![];
+
+    for segment in segments.iter() {
+        segment_buffer.extend(segment.get_raw().into_iter());
+    }
 
     debug!("Writing output");
 
@@ -88,20 +117,37 @@ fn main() {
 
     raw_output.write_all(bytes).expect("Failed to write bytes to output");
 
+    let mut seg_output = File::create(SEG_OUTPUT).expect("Failed to open seg output file");
+
+    seg_output.write_all(segment_buffer.as_slice()).expect("Failed to write segments to output");
+
     let mut asm_output = File::create(ASM_OUTPUT).expect("Failed to open asm output file");
 
     writeln!(asm_output, concat!(
         "    global _gen_load_page_tables\n",
+        "    global _gen_segments_size\n",
+        "    global _gen_max_paddr\n",
+        "    global _gen_segments\n",
 
         "    section .gen_pages\n",
-        "    incbin \"target/gen/page_tables.bin\"\n",
+        "    incbin \"{}\"\n",
+
+        "    section .rodata\n",
+        "_gen_segments_size:\n",
+        "    dq {}\n",
+        "_gen_max_paddr:\n",
+        "    dq {}\n",
+        "_gen_segments:\n",
+        "    incbin \"{}\"\n",
 
         "    section .gen_text\n",
         "    bits 32\n",
         "_gen_load_page_tables:\n",
         "    mov eax, 0x{:x}\n",
         "    mov cr3, eax\n",
-        "    ret"), address).expect("Failed to write asm to output");
+        "    ret"),
+             RAW_OUTPUT, segments.len(), max_paddr, SEG_OUTPUT, address)
+        .expect("Failed to write asm to output");
 
     info!("Created page tables at offset 0x{:x}", PAGE_TABLES_OFFSET);
 }

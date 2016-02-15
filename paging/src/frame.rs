@@ -11,6 +11,7 @@ use std::cmp::{PartialEq, Eq, Ord, PartialOrd, Ordering};
 use std::fmt::{Debug, Formatter};
 
 use alloc::raw_vec::RawVec;
+use alloc::boxed::Box;
 
 use alloc::heap;
 
@@ -63,6 +64,19 @@ pub struct Segment {
     user: bool,
     execute: bool,
     global: bool
+}
+
+#[repr(packed)]
+#[derive(Debug, Clone, Copy)]
+struct RawSegment {
+    physical_base: usize,
+    virtual_base: usize,
+    size: usize,
+    flags: u8
+}
+
+pub fn raw_segment_size() -> usize {
+    mem::size_of::<RawSegment>()
 }
 
 // Overlap concerns virtual address only
@@ -183,6 +197,74 @@ impl Segment {
         }
     }
 
+    pub fn physical_base(&self) -> usize {
+        self.physical_base
+    }
+
+    pub fn virtual_base(&self) -> usize {
+        self.virtual_base
+    }
+
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    pub fn from_raw(raw: &[u8]) -> Segment {
+        assert!(raw.len() == mem::size_of::<RawSegment>());
+
+        let data = unsafe {
+            let ptr = raw.as_ptr() as *const RawSegment;
+            ptr.as_ref().unwrap()
+        };
+
+        Segment {
+            physical_base: data.physical_base,
+            virtual_base: data.virtual_base,
+            size: data.size,
+            write: (data.flags & 1 << 0) == 1 << 0,
+            user: (data.flags & 1 << 1) == 1 << 1,
+            execute: (data.flags & 1 << 2) == 1 << 2,
+            global: (data.flags & 1 << 3) == 1 << 3
+        }
+    }
+
+    pub fn get_raw(&self) -> Box<[u8]> {
+        let buffer: RawVec<u8> = RawVec::with_capacity(mem::size_of::<RawSegment>());
+        let mut flags = 0;
+
+        if self.write {
+            flags |= 1 << 0;
+        }
+
+        if self.user {
+            flags |= 1 << 1;
+        }
+
+        if self.execute {
+            flags |= 1 << 2;
+        }
+
+        if self.global {
+            flags |= 1 << 3;
+        }
+
+        let data = RawSegment {
+            physical_base: self.physical_base,
+            virtual_base: self.virtual_base,
+            size: self.size,
+            flags: flags
+        };
+
+        trace!("data: {:?}", data);
+
+        unsafe {
+            let ptr = buffer.ptr() as *mut RawSegment;
+            *ptr.as_mut().unwrap() = data;
+
+            buffer.into_box()
+        }
+    }
+
     #[inline]
     pub fn get_indicies(&self, size: FrameSize) -> (usize, usize) {
         (align_back(self.virtual_base, size as usize) >> size.get_shift(),
@@ -220,6 +302,33 @@ impl Frame {
     #[inline]
     pub fn get_entry(&self, idx: usize) -> &FrameEntry {
         &self.entries[idx]
+    }
+
+    pub unsafe fn build_table_into(&self, buffers: &mut Vec<RawVec<u64>>, place: *mut u64) {
+        for idx in 0..0x200 {
+            match self.entries[idx] {
+                FrameEntry::Empty => {
+                    // clear the entry
+                    *place.offset(idx as isize).as_mut().unwrap() = 0;
+                },
+                FrameEntry::Page(ref page) => {
+                    // overwrite the page
+                    *place.offset(idx as isize).as_mut().unwrap() =
+                        page.get_entry();
+                },
+                FrameEntry::Frame(ref frame) => {
+                    if *place.offset(idx as isize).as_ref().unwrap() == 0 {
+                        // create a new frame buffer
+                        *place.offset(idx as isize).as_mut().unwrap() =
+                            frame.build_table(buffers);
+                    } else {
+                        // write into the existing one
+                        let entry = *place.offset(idx as isize).as_ref().unwrap();
+                        frame.build_table_into(buffers, (entry & PAGE_ADDR_MASK) as *mut _);
+                    }
+                }
+            }
+        }
     }
 
     pub fn build_table_relative(&self, base: usize, buffer: &mut Vec<u64>) -> u64 {

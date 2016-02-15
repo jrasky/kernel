@@ -27,6 +27,10 @@ extern crate paging;
 use core::fmt;
 #[cfg(not(test))]
 use core::mem;
+#[cfg(not(test))]
+use core::slice;
+#[cfg(not(test))]
+use core::cmp;
 
 #[cfg(not(test))]
 use core::sync::atomic::{Ordering, AtomicUsize};
@@ -43,6 +47,8 @@ use std::sync::atomic::{Ordering, AtomicUsize};
 use alloc::boxed::Box;
 #[cfg(test)]
 use std::boxed::Box;
+
+use constants::*;
 
 mod error;
 mod memory;
@@ -66,6 +72,12 @@ pub use cpu::interrupt::{interrupt_breakpoint,
 
 #[cfg(not(test))]
 pub use cpu::syscall::sysenter_handler;
+
+extern "C" {
+    static _gen_segments_size: u64;
+    static _gen_max_paddr: u64;
+    static _gen_segments: u8;
+}
 
 #[cfg(not(test))]
 extern "C" fn test_task() -> ! {
@@ -143,6 +155,11 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
     // say hello
     info!("Hello!");
+
+    // read segments
+    debug!("Number of segments: {}", _gen_segments_size);
+
+    debug!("Highest paddr: 0x{:x}", _gen_max_paddr);
 
     // parse multiboot info
     let memory_regions = unsafe { multiboot::parse_multiboot_tags(boot_info) };

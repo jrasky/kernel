@@ -1,5 +1,6 @@
 pub const CANONICAL_BITS: usize = 48;
 pub const U64_BYTES: usize = 8;
+pub const PAGE_ADDR_MASK: u64 = ((1 << CANONICAL_BITS) - 1) & !((1 << 12) - 1);
 
 #[inline]
 pub const fn align(n: usize, to: usize) -> usize {

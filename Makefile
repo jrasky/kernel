@@ -3,6 +3,8 @@ LIB_DIR = ./lib
 TARGET_DIR = ./target
 ASM_DIR = ./asm
 STAGE2_DIR = ./stage2
+LOG_DIR = ./log
+PAGING_DIR = ./paging
 
 GEN_DIR = $(TARGET_DIR)/gen
 ISO_DIR = $(TARGET_DIR)/iso
@@ -16,6 +18,8 @@ ASM_SOURCES = $(shell find $(ASM_SOURCES)/src -name '*.asm')
 ASM_TARGET = $(ASM_DIR)/target
 
 LINK_COMMON = $(LIB_DIR)/headers.ld $(LIB_DIR)/high.ld
+
+COMMON_SOURCES = $(shell find $(LOG_DIR)/src -name '*.rs') $(shell find $(PAGING_DIR)/src -name '*.rs')
 
 STAGE1_KERNEL = $(KERNEL_TARGET)/libkernel.a
 STAGE1_ASM = $(ASM_TARGET)/long.o
@@ -64,7 +68,7 @@ $(ISO_KERNEL): $(KERNEL)
 $(GRUB_IMAGE): $(ISO_GRUB_CFG) $(ISO_KERNEL)
 	$(GRUB_RESCUE) $(GRUB_RESCUE_FLAGS) -o $(GRUB_IMAGE) $(ISO_DIR)
 
-$(STAGE1_KERNEL): $(KERNEL_SOURCES)
+$(STAGE1_KERNEL): $(KERNEL_SOURCES) $(COMMON_SOURCES)
 	$(CD) $(KERNEL_DIR) && $(CARGO) build
 
 $(STAGE1_ASM) $(BOOT_ASM): $(ASM_TARGET)/%.o : $(ASM_DIR)/src/%.asm
@@ -76,7 +80,7 @@ $(GEN_ASM): $(GEN_SOURCES)
 $(GEN_SOURCES): $(STAGE1) $(STAGE2)
 	$(STAGE2)
 
-$(STAGE2): $(STAGE2_SOURCES)
+$(STAGE2): $(STAGE2_SOURCES) $(COMMON_SOURCES)
 	$(CD) $(STAGE2_DIR) && $(CARGO) build --release
 
 $(STAGE1): $(STAGE1_KERNEL) $(STAGE1_ASM) $(STAGE1_LINK) $(LINK_COMMON)

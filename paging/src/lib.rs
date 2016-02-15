@@ -15,6 +15,8 @@ extern crate alloc;
 pub use layout::Layout;
 pub use frame::Segment;
 
+pub use frame::raw_segment_size;
+
 mod constants;
 mod frame;
 mod layout;

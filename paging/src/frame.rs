@@ -265,6 +265,96 @@ impl Segment {
         }
     }
 
+    unsafe fn build_edge(&self, place: *mut u64, base: usize, size: FrameSize,
+                             idx: usize, vbase: usize) -> bool {
+        trace!("0x{:x}, 0x{:x}", idx, vbase);
+
+        if let Some(next) = size.get_next() {
+            let subframe_base = base + (idx * size as usize);
+            if vbase - subframe_base >= next.get_pagesize() as usize {
+                // build a new table here
+                let mut entry = *place.offset(idx as isize).as_ref().unwrap();
+
+                if entry & 1 == 0 || entry & (1 << 7) == 1 << 7 {
+                    // allocate a new table
+                    entry = heap::allocate(0x200 * U64_BYTES, 0x1000) as u64 | 0x7;
+                    *place.offset(idx as isize).as_mut().unwrap() = entry;
+                }
+
+                let result = self.build_into_inner((entry & PAGE_ADDR_MASK) as *mut _, subframe_base, next);
+                debug_assert!(result, "Failed to insert subframe");
+                return true;
+            }
+        }
+
+        false
+    }
+
+    unsafe fn build_page_at(&self, place: *mut u64, base: usize, size: FrameSize, idx: usize) {
+        let subframe_base = base + (idx * size.get_pagesize() as usize);
+
+        trace!("Creating page at 0x{:x} of size {:?}", subframe_base, size.get_pagesize());
+
+        let page = Page {
+            write: self.write,
+            user: self.user,
+            write_through: false,
+            cache_disable: false,
+            execute_disable: !self.execute,
+            attribute_table: false,
+            protection_key: 0,
+            global: self.global,
+            size: size.get_pagesize(),
+            base: self.physical_base + subframe_base - self.virtual_base
+        };
+
+        *place.offset(idx as isize).as_mut().unwrap() = page.get_entry();
+    }
+
+    unsafe fn build_into_inner(&self, place: *mut u64, base: usize, size: FrameSize) -> bool {
+        trace!("0x{:x}, 0x{:x}, {:?}", place as usize, base, size);
+
+        let min_idx = if base > self.virtual_base {
+            0
+        } else {
+            align_back(self.virtual_base - base, size as usize) >> size.get_shift()
+        };
+
+        let max_idx = cmp::min((align(self.virtual_base + self.size - base, size as usize)
+                                >> size.get_shift()), 0x200);
+
+        trace!("0x{:x}, 0x{:x}", min_idx, max_idx);
+
+        if max_idx == 0 || min_idx >= 0x200 {
+            // cannot place segment here
+            return false;
+        }
+
+        let min_edge = self.build_edge(place, base, size, min_idx, self.virtual_base);
+
+        trace!("a 0x{:x}, 0x{:x}, {:?}", place as usize, base, size);
+
+        if max_idx != min_idx || !min_edge {
+            if !self.build_edge(place, base, size, max_idx,
+                                align_back(self.virtual_base + self.size as usize, size as usize)) {
+                self.build_page_at(place, base, size, max_idx);
+            }
+        }
+
+        trace!("b 0x{:x}, 0x{:x}, {:?}", place as usize, base, size);
+
+        for idx in min_idx + 1..max_idx - 1 {
+            self.build_page_at(place, base, size, idx)
+        }
+
+        true
+    }
+
+    #[inline]
+    pub unsafe fn build_into(&self, place: *mut u64) -> bool {
+        self.build_into_inner(place, 0, FrameSize::Giant)
+    }
+
     #[inline]
     pub fn get_indicies(&self, size: FrameSize) -> (usize, usize) {
         (align_back(self.virtual_base, size as usize) >> size.get_shift(),

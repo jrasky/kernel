@@ -168,31 +168,27 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     debug!("Done parsing tags");
 
     // create a heap mapping
-    let mut layout = paging::Layout::new();
-
     let mut next_vaddr = HEAP_BEGIN;
 
     for (base, size) in memory_regions {
-        let vbase = base + next_vaddr;
         // write, !user, !execute, !global
-        assert!(layout.insert(paging::Segment::new(base, vbase, size,
-                                                   true, false, false, false)),
-                "Failed to insert heap segment");
+        let segment = paging::Segment::new(base, next_vaddr, size,
+                                           true, false, false, false);
 
-        // register the region
-        unsafe {memory::register(vbase as *mut _, size)};
+        unsafe {
+            // register the section in the page tables
+            assert!(segment.build_into(_gen_page_tables as *mut _),
+                    "failed to build segment");
+
+            // register the region with memory
+            memory::register(next_vaddr as *mut _, size)
+        };
 
         // compute the next vaddr
-        next_vaddr = align(vbase + size, 0x1000);
+        next_vaddr = align(next_vaddr + size, 0x1000);
     }
 
-    debug!("Done creating heap map");
-
-    unsafe {layout.build_tables_into(_gen_page_tables as *mut _, true)};
-
-    debug!("Done building heap tables");
-
-    mem::forget(layout);
+    debug!("Done building into page tables");
 
     // exit reserved memory
     memory::exit_reserved();

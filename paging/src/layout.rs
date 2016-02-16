@@ -68,7 +68,7 @@ impl Layout {
         }
     }
 
-    pub unsafe fn build_tables_into(&mut self, tables: *mut u64) {
+    pub unsafe fn build_tables_into(&mut self, tables: *mut u64, additional: bool) {
         for idx in 0..0x200 {
             if let Some(ref frame) = self.entries[idx] {
                 if *tables.offset(idx as isize).as_ref().unwrap() == 0 {
@@ -76,9 +76,9 @@ impl Layout {
                         frame.build_table(&mut self.buffers);
                 } else {
                     let entry = *tables.offset(idx as isize).as_ref().unwrap();
-                    frame.build_table_into(&mut self.buffers, (entry & PAGE_ADDR_MASK) as *mut _);
+                    frame.build_table_into(&mut self.buffers, (entry & PAGE_ADDR_MASK) as *mut _, additional);
                 }
-            } else {
+            } else if !additional {
                 *tables.offset(idx as isize).as_mut().unwrap() = 0;
             }
         }

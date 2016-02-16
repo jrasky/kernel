@@ -123,10 +123,11 @@ fn main() {
 
     let mut asm_output = File::create(ASM_OUTPUT).expect("Failed to open asm output file");
 
-    writeln!(asm_output, concat!(
+    write!(asm_output, concat!(
         "    global _gen_load_page_tables\n",
         "    global _gen_segments_size\n",
         "    global _gen_max_paddr\n",
+        "    global _gen_page_tables\n",
         "    global _gen_segments\n",
 
         "    section .gen_pages\n",
@@ -137,6 +138,8 @@ fn main() {
         "    dq {}\n",
         "_gen_max_paddr:\n",
         "    dq {}\n",
+        "_gen_page_tables:\n",
+        "    dq {}\n",
         "_gen_segments:\n",
         "    incbin \"{}\"\n",
 
@@ -145,8 +148,8 @@ fn main() {
         "_gen_load_page_tables:\n",
         "    mov eax, 0x{:x}\n",
         "    mov cr3, eax\n",
-        "    ret"),
-             RAW_OUTPUT, segments.len(), max_paddr, SEG_OUTPUT, address)
+        "    ret\n"),
+             RAW_OUTPUT, segments.len(), max_paddr, address, SEG_OUTPUT, address)
         .expect("Failed to write asm to output");
 
     info!("Created page tables at offset 0x{:x}", PAGE_TABLES_OFFSET);

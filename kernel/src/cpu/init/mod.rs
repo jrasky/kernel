@@ -41,8 +41,7 @@ unsafe fn _gp_handler() {
 }
 
 /// Unsafe because dropping gdt or idt leaks a reference
-pub unsafe fn setup(memory_regions: Vec<(*mut memory::Opaque, usize)>)
-                    -> (gdt::Table, idt::Table, cpu::stack::Stack) {
+pub unsafe fn setup() -> (gdt::Table, idt::Table, cpu::stack::Stack) {
     // create a new GDT with a TSS
     let tss = tss::Segment::new([None, None, None, None, None, None, None],
                                 [None, None, None], 0);

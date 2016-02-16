@@ -4,11 +4,15 @@ use collections::{String, Vec};
 use core::slice;
 #[cfg(not(test))]
 use core::str;
+#[cfg(not(test))]
+use core::cmp;
 
 #[cfg(test)]
 use std::slice;
 #[cfg(test)]
 use std::str;
+#[cfg(test)]
+use std::cmp;
 
 use elfloader::elf;
 
@@ -20,6 +24,7 @@ extern "C" {
     static _image_begin: u8;
     static _image_end: u8;
     static _kernel_top: u8;
+    static _gen_max_paddr: u64;
 }
 
 struct MemoryTag {
@@ -151,7 +156,7 @@ unsafe fn parse_bootloader(ptr: *const u32) {
     }
 }
 
-unsafe fn parse_memory(ptr: *const u32) -> Vec<(*mut memory::Opaque, usize)> {
+unsafe fn parse_memory(ptr: *const u32) -> Vec<(usize, usize)> {
     // memory map
     let entry_size = *ptr.offset(2).as_ref().unwrap();
     let mut entry_ptr = ptr.offset(4) as *const MemoryTag;
@@ -169,28 +174,11 @@ unsafe fn parse_memory(ptr: *const u32) -> Vec<(*mut memory::Opaque, usize)> {
                 info!("RAM: {:16x} - {:16x} available",
                       entry.base_addr,
                       entry.base_addr + entry.length);
-                // register memory
-                let base_addr = if entry.base_addr == 0 {
-                    1
-                } else {
-                    entry.base_addr as usize
-                };
 
-                if image_begin <= base_addr && base_addr <= image_end &&
-                   base_addr + entry.length as usize > image_end {
-                       memory::register(image_end as *mut memory::Opaque,
-                                        base_addr + entry.length as usize - image_end);
-                       memory_regions.push((image_end as *mut memory::Opaque,
-                                            base_addr + entry.length as usize - image_end));
-                } else if base_addr < image_begin && image_end > base_addr + entry.length as usize &&
-                   base_addr + entry.length as usize > image_begin {
-                    memory::register(image_begin as *mut memory::Opaque, base_addr - image_begin);
-                       memory_regions.push((image_begin as *mut memory::Opaque, base_addr - image_begin));
-                } else if base_addr + (entry.length as usize) < image_begin {
-                    memory::register(base_addr as *mut memory::Opaque, entry.length as usize);
-                       memory_regions.push((base_addr as *mut memory::Opaque, entry.length as usize));
-                } else {
-                    // do not register the section
+                if entry.base_addr + entry.length > _gen_max_paddr {
+                    memory_regions.push((cmp::max(_gen_max_paddr as usize,
+                                                  entry.base_addr as usize),
+                                         entry.length as usize));
                 }
             }
             3 => {
@@ -216,7 +204,7 @@ unsafe fn parse_memory(ptr: *const u32) -> Vec<(*mut memory::Opaque, usize)> {
     memory_regions
 }
 
-pub unsafe fn parse_multiboot_tags(boot_info: *const u32) -> Vec<(*mut memory::Opaque, usize)> {
+pub unsafe fn parse_multiboot_tags(boot_info: *const u32) -> Vec<(usize, usize)> {
     // read multiboot info
     let mut ptr: *const u32 = boot_info;
 

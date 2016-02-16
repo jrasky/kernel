@@ -76,6 +76,7 @@ pub use cpu::syscall::sysenter_handler;
 extern "C" {
     static _gen_segments_size: u64;
     static _gen_max_paddr: u64;
+    static _gen_page_tables: u64;
     static _gen_segments: u8;
 }
 
@@ -166,6 +167,33 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
     debug!("Done parsing tags");
 
+    // create a heap mapping
+    let mut layout = paging::Layout::new();
+
+    let mut next_vaddr = HEAP_BEGIN;
+
+    for (base, size) in memory_regions {
+        let vbase = base + next_vaddr;
+        // write, !user, !execute, !global
+        assert!(layout.insert(paging::Segment::new(base, vbase, size,
+                                                   true, false, false, false)),
+                "Failed to insert heap segment");
+
+        // register the region
+        unsafe {memory::register(vbase as *mut _, size)};
+
+        // compute the next vaddr
+        next_vaddr = align(vbase + size, 0x1000);
+    }
+
+    debug!("Done creating heap map");
+
+    unsafe {layout.build_tables_into(_gen_page_tables as *mut _, true)};
+
+    debug!("Done building heap tables");
+
+    mem::forget(layout);
+
     // exit reserved memory
     memory::exit_reserved();
 
@@ -174,7 +202,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
     // set up cpu data structures and other settings
     // keep references around so we don't break things
-    let (gdt, idt, syscall_stack) = unsafe {cpu::init::setup(memory_regions)};
+    let (gdt, idt, syscall_stack) = unsafe {cpu::init::setup()};
 
     // explicity leak gdt and idt and the syscall stack and the kernel page map
     mem::forget(gdt);

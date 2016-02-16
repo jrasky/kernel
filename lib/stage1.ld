@@ -23,6 +23,7 @@ SECTIONS {
     /* dummy _gen_segments_size and _gen_segments */
     _gen_segments_size = 0;
     _gen_max_paddr = 0;
+    _gen_page_tables = 0;
     _gen_segments = 0;
 
     INCLUDE lib/high.ld

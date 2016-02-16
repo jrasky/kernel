@@ -304,12 +304,14 @@ impl Frame {
         &self.entries[idx]
     }
 
-    pub unsafe fn build_table_into(&self, buffers: &mut Vec<RawVec<u64>>, place: *mut u64) {
+    pub unsafe fn build_table_into(&self, buffers: &mut Vec<RawVec<u64>>, place: *mut u64, additional: bool) {
         for idx in 0..0x200 {
             match self.entries[idx] {
                 FrameEntry::Empty => {
                     // clear the entry
-                    *place.offset(idx as isize).as_mut().unwrap() = 0;
+                    if !additional {
+                        *place.offset(idx as isize).as_mut().unwrap() = 0;
+                    }
                 },
                 FrameEntry::Page(ref page) => {
                     // overwrite the page
@@ -324,7 +326,7 @@ impl Frame {
                     } else {
                         // write into the existing one
                         let entry = *place.offset(idx as isize).as_ref().unwrap();
-                        frame.build_table_into(buffers, (entry & PAGE_ADDR_MASK) as *mut _);
+                        frame.build_table_into(buffers, (entry & PAGE_ADDR_MASK) as *mut _, additional);
                     }
                 }
             }

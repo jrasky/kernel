@@ -275,16 +275,13 @@ impl Manager {
         size = granularity(size, align);
 
         let mut aligned_base;
-        let mut header_base;
 
         trace!("Allocating size 0x{:x} align 0x{:x}", size, align);
 
         loop {
             if let Some(block_ref) = block.as_mut() {
-                aligned_base = constants::align(block as usize 
-                                                + mem::size_of::<Header>(), align) as *mut Opaque;
+                aligned_base = constants::align(block as usize, align) as *mut Opaque;
                 let end = (aligned_base as *mut u8).offset(size as isize) as *mut Opaque;
-                header_base = (aligned_base as *mut Header).offset(-1);
                 if aligned_base < block_ref.end &&
                     block_ref.end as usize - aligned_base as usize >= size
                 {
@@ -293,7 +290,7 @@ impl Manager {
                     trace!("{:?}", block_ref);
                     trace!("{:?}, {:?}, {:?}", aligned_base, header_base, end);
                     // truncate the block
-                    if header_base as *mut Opaque <= block_ref.base {
+                    if aligned_base as *mut Opaque <= block_ref.base {
                         if ((end as *mut Block).offset(1) as *mut Opaque) <= block_ref.end {
                             // move the block forward
                             trace!("Moving forward");
@@ -363,67 +360,31 @@ impl Manager {
             }
         }
 
-        // set up header
-        *header_base.as_mut().unwrap() = Header {
-            magic: SIMPLE_MAGIC,
-            size: size
-        };
-
         // produce pointer
         Some(aligned_base)
     }
 
-    unsafe fn get_header<'a, 'b>(&'a self, ptr: *mut Opaque) -> Option<&'b mut Header> {
-        let header_ptr = (ptr as *mut Header).offset(-1);
+    unsafe fn release(&mut self, ptr: *mut Opaque, size: usize, _: usize) -> Option<usize> {
+        let registered_size = self.register(ptr, size);
+        trace!("{}", registered_size);
 
-        // since we can allocate anywhere, we just check the magic
-        if let Some(header) = header_ptr.as_mut() {
-            if header.magic != SIMPLE_MAGIC {
-                error!("Pointer was not allocated by simple allocator");
-                None
-            } else {
-                Some(header)
-            }
+        if registered_size == size {
+            Some(size)
         } else {
-            error!("Pointer was null");
             None
         }
     }
 
-    unsafe fn release(&mut self, ptr: *mut Opaque) -> Option<usize> {
-        if let Some(header) = self.get_header(ptr) {
-            let registered_size = self.register(header as *mut _ as *mut _,
-                                                header.size + mem::size_of::<Header>());
-            trace!("{}", registered_size);
-            if registered_size < mem::size_of::<Header>() {
-                None
-            } else {
-                Some(registered_size - mem::size_of::<Header>())
-            }
-        } else {
-            error!("Failed to get allocation header on release");
-            None
-        }
-    }
-
-    unsafe fn grow(&mut self, ptr: *mut Opaque, mut size: usize) -> bool {
-        let header = match self.get_header(ptr) {
-            None => {
-                error!("Failed to get allocation header on grow");
-                return false;
-            },
-            Some(header) => header
-        };
-
+    unsafe fn grow(&mut self, ptr: *mut Opaque, old_size: usize, mut size: usize, align: usize) -> bool {
         // adjust size, alignment does not matter in this case
-        size = granularity(size, 0);
+        size = granularity(size, align);
 
-        if size <= header.size {
+        if size <= old_size {
             // done
             return true;
         }
 
-        let end = (ptr as *mut u8).offset(header.size as isize) as *mut Opaque;
+        let end = (ptr as *mut u8).offset(old_size as isize) as *mut Opaque;
         let new_end = (ptr as *mut u8).offset(size as isize) as *mut Opaque;
 
         trace!("Trying to grow at 0x{:x} from 0x{:x} to 0x{:x}", ptr as u64, end as u64, new_end as u64);
@@ -482,56 +443,38 @@ impl Manager {
         }
     }
 
-    unsafe fn shrink(&mut self, ptr: *mut Opaque, mut size: usize) -> bool {
-        let header = match self.get_header(ptr) {
-            None => {
-                error!("Failed to get header on shrink");
-                return false;
-            },
-            Some(header) => {
-                header
-            }
-        };
-
+    unsafe fn shrink(&mut self, ptr: *mut Opaque, old_size: usize, mut size: usize, align: usize) -> bool {
         // adjust size
-        size = granularity(size, 0);
+        size = granularity(size, align);
         
-        if size >= granularity(header.size, 0) {
+        if size >= granularity(old_size, align) {
             return true;
         }
 
-        let difference = size - header.size;
+        let difference = size - old_size;
         let registered_size = self.register((ptr as *mut u8).offset(size as isize) as *mut Opaque, difference);
 
         trace!("f: {}, {}", difference, registered_size);
 
-        if registered_size < difference {
+        if registered_size != difference {
             return false;
         } else {
             return true;
         }
     }
 
-    unsafe fn resize(&mut self, ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
+    unsafe fn resize(&mut self, ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> Option<*mut Opaque> {
         trace!("Resizing at {:?} to 0x{:x} with align 0x{:x}", ptr, size, align);
-        let header_base = (ptr as *mut Header).offset(-1);
-        let header = match self.get_header(ptr) {
-            None => {
-                error!("Failed to get header on resize");
-                return None;
-            },
-            Some(header) => header
-        };
 
         if (ptr as usize) & (align - 1) == 0 {
             // pointer is already aligned
             trace!("Trying inplace");
-            if granularity(size, align) > granularity(header.size, align) {
+            if granularity(size, align) > granularity(old_size, align) {
                 trace!("Growing");
                 if self.grow(ptr, size) {
                     return Some(ptr);
                 }
-            } else if granularity(size, align) < granularity(header.size, align) {
+            } else if granularity(size, align) < granularity(old_size, align) {
                 trace!("Shrinking");
                 if self.shrink(ptr, size) {
                     return Some(ptr);
@@ -544,37 +487,33 @@ impl Manager {
         }
 
         // keep data that might be clobbered by release
-        let diff_size: usize = cmp::min(mem::size_of::<Block>() - mem::size_of::<Header>(), size);
+        let diff_size: usize = cmp::min(mem::size_of::<Block>(), size);
         let mut store: Block = mem::zeroed();
         trace!("Copying");
         ptr::copy(ptr as *mut u8, (&mut store as *mut _ as *mut u8)
                   .offset(diff_size as isize), diff_size);
 
-        if self.release(ptr).is_none() {
+        if self.release(ptr, old_size, align).is_none() {
             error!("Failed to free pointer on resize");
             return None;
         }
 
         if let Some(new_ptr) = self.allocate(size, align) {
-            trace!("{:?}, {:?}, {:?}", ptr, new_ptr, header.size);
+            trace!("{:?}, {:?}, {:?}", ptr, new_ptr, old_size);
 
             // copy the data from the old pointer
-            ptr::copy(ptr as *mut u8, new_ptr as *mut u8, header.size);
+            ptr::copy(ptr as *mut u8, new_ptr as *mut u8, old_size);
 
             // some bytes at the beginning might have been clobbered
             // copy data that might have been clobbered
             ptr::copy((&mut store as *mut _ as *mut u8)
                       .offset(diff_size as isize), new_ptr as *mut u8, diff_size);
 
-            // header might have been clobbered
-            header.magic = SIMPLE_MAGIC;
-            header.size = size;
-
             // succeeded!
             Some(new_ptr)
         } else {
             // roll back
-            let end = (ptr as *mut u8).offset(header.size as isize) as *mut Opaque;
+            let end = (ptr as *mut u8).offset(old_size as isize) as *mut Opaque;
             let mut block = self.free;
             loop {
                 if let Some(block_ref) = block.as_mut() {
@@ -650,23 +589,23 @@ pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut Opaque> {
 }
 
 #[inline]
-pub unsafe fn release(ptr: *mut Opaque) -> Option<usize> {
-    MEMORY.lock().release(ptr)
+pub unsafe fn release(ptr: *mut Opaque, size: usize, align: usize) -> Option<usize> {
+    MEMORY.lock().release(ptr, size, align)
 }
 
 #[inline]
-pub unsafe fn grow(ptr: *mut Opaque, size: usize) -> bool {
-    MEMORY.lock().grow(ptr, size)
+pub unsafe fn grow(ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> bool {
+    MEMORY.lock().grow(ptr, old_size, size, align)
 }
 
 #[inline]
-pub unsafe fn shrink(ptr: *mut Opaque, size: usize) -> bool {
-    MEMORY.lock().shrink(ptr, size)
+pub unsafe fn shrink(ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> bool {
+    MEMORY.lock().shrink(ptr, old_size, size, align)
 }
 
 #[inline]
-pub unsafe fn resize(ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
-    MEMORY.lock().resize(ptr, size, align)
+pub unsafe fn resize(ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> Option<*mut Opaque> {
+    MEMORY.lock().resize(ptr, old_size, size, align)
 }
 
 #[inline]

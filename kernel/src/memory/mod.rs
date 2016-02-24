@@ -30,11 +30,6 @@ static MEMORY: Manager = Manager {
 #[repr(C)]
 pub struct Opaque;
 
-struct Header {
-    magic: u64,
-    size: usize,
-}
-
 // Memory Manager
 struct Manager {
     enabled: AtomicBool,
@@ -90,7 +85,7 @@ impl Manager {
         }
     }
 
-    unsafe fn release(&self, ptr: *mut Opaque) -> Option<usize> {
+    unsafe fn release(&self, ptr: *mut Opaque, size: usize, align: usize) -> Option<usize> {
         if !self.is_enabled() {
             return None;
         }
@@ -101,94 +96,51 @@ impl Manager {
             return Some(0);
         }
 
-        let header = match (ptr as *mut Header).offset(-1).as_mut() {
-            None => {
-                error!("Failed to get header on release");
-                return None;
-            },
-            Some(header) => header
-        };
-
-        match header.magic {
-            RESERVE_MAGIC => reserve::release(ptr),
-            SIMPLE_MAGIC => simple::release(ptr),
-            _ => {
-                error!("Tried to release invalid pointer");
-                None
-            }
+        if reserve::belongs(ptr) {
+            reserve::release(ptr, size, align)
+        } else {
+            simple::release(ptr, size, align)
         }
     }
 
-    unsafe fn grow(&self, ptr: *mut Opaque, size: usize) -> bool {
+    unsafe fn grow(&self, ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> bool {
         if !self.is_enabled() {
             return false;
         }
 
-        let header = match (ptr as *mut Header).offset(-1).as_mut() {
-            None => {
-                error!("Failed to get header on grow");
-                return false;
-            },
-            Some(header) => header
-        };
-
-        match header.magic {
-            RESERVE_MAGIC => reserve::grow(ptr, size),
-            SIMPLE_MAGIC => simple::grow(ptr, size),
-            _ => {
-                error!("Tried to grow invalid pointer");
-                false
-            }
+        if reserve::belongs(ptr) {
+            reserve::grow(ptr, old_size, size, align)
+        } else {
+            simple::grow(ptr, old_size, size, align)
         }
     }
 
-    unsafe fn shrink(&self, ptr: *mut Opaque, size: usize) -> bool {
+    unsafe fn shrink(&self, ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> bool {
         if !self.is_enabled() {
             return false;
         }
 
-        let header = match (ptr as *mut Header).offset(-1).as_mut() {
-            None => {
-                error!("Failed to get header on shrink");
-                return false;
-            },
-            Some(header) => header
-        };
-
-        match header.magic {
-            RESERVE_MAGIC => reserve::shrink(ptr, size),
-            SIMPLE_MAGIC => simple::shrink(ptr, size),
-            _ => {
-                error!("Tried to shrink invalid pointer");
-                false
-            }
+        if reserve::belongs(ptr) {
+            reserve::shrink(ptr, old_size, size, align)
+        } else {
+            simple::shrink(ptr, old_size, size, align)
         }
     }
 
-    unsafe fn resize(&self, ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
+    unsafe fn resize(&self, ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> Option<*mut Opaque> {
         if !self.is_enabled() {
             return None;
         }
 
-        let header = match (ptr as *mut Header).offset(-1).as_mut() {
-            None => {
-                error!("Failed to get header on resize");
-                return None;
-            },
-            Some(header) => header
-        };
-
-        match header.magic {
-            RESERVE_MAGIC => reserve::resize(ptr, size, align),
-            SIMPLE_MAGIC => simple::resize(ptr, size, align),
-            _ => {
-                error!("Tried to resize invalid pointer");
-                None
-            }
+        if reserve::belongs(ptr) {
+            reserve::resize(ptr, old_size, size, align)
+        } else {
+            simple::resize(ptr, old_size, size, align)
         }
     }
 
     fn granularity(&self, size: usize, align: usize) -> usize {
+        // TODO: this is actually not correct
         if self.use_reserve.load(Ordering::Relaxed) {
             reserve::granularity(size, align)
         } else {
@@ -224,22 +176,22 @@ pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut Opaque> {
 }
 
 #[inline]
-pub unsafe fn release(ptr: *mut Opaque) -> Option<usize> {
+pub unsafe fn release(ptr: *mut Opaque, size: usize, align: usize) -> Option<usize> {
     MEMORY.release(ptr)
 }
 
 #[inline]
-pub unsafe fn grow(ptr: *mut Opaque, size: usize) -> bool {
+pub unsafe fn grow(ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> bool {
     MEMORY.grow(ptr, size)
 }
 
 #[inline]
-pub unsafe fn shrink(ptr: *mut Opaque, size: usize) -> bool {
+pub unsafe fn shrink(ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> bool {
     MEMORY.shrink(ptr, size)
 }
 
 #[inline]
-pub unsafe fn resize(ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
+pub unsafe fn resize(ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> Option<*mut Opaque> {
     MEMORY.resize(ptr, size, align)
 }
 
@@ -298,24 +250,24 @@ pub extern "C" fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
 
 #[cfg(not(test))]
 #[no_mangle]
-pub extern "C" fn __rust_deallocate(ptr: *mut u8, _: usize, _: usize) {
+pub extern "C" fn __rust_deallocate(ptr: *mut u8, size: usize, align: usize) {
     if !is_enabled() {
         panic!("Tried to release with memory disabled");
     }
 
-    if unsafe {release(ptr as *mut _)}.is_none() {
+    if unsafe {release(ptr as *mut _, size, align)}.is_none() {
         critical!("Failed to release pointer: {:?}", ptr);
     }
 }
 
 #[cfg(not(test))]
 #[no_mangle]
-pub extern "C" fn __rust_reallocate(ptr: *mut u8, _: usize, size: usize, align: usize) -> *mut u8 {
+pub extern "C" fn __rust_reallocate(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> *mut u8 {
     if !is_enabled() {
         panic!("Tried to reallocate with memory disabled");
     }
 
-    if let Some(new_ptr) = unsafe {resize(ptr as *mut _, size, align)} {
+    if let Some(new_ptr) = unsafe {resize(ptr as *mut _, old_size, size, align)} {
         trace!("Reallocated to: {:?}", new_ptr);
         new_ptr as *mut _
     } else {
@@ -332,14 +284,14 @@ pub extern "C" fn __rust_reallocate_inplace(ptr: *mut u8, old_size: usize, size:
     }
 
     if size > old_size {
-        if unsafe {grow(ptr as *mut _, size)} {
+        if unsafe {grow(ptr as *mut _, old_size, size, align)} {
             granularity(size, align)
         } else {
             critical!("Failed to reallocate inplace");
             granularity(old_size, align)
         }
     } else if size < old_size {
-        if unsafe {shrink(ptr as *mut _, size)} {
+        if unsafe {shrink(ptr as *mut _, old_size, size, align)} {
             granularity(size, align)
         } else {
             critical!("Failed to reallocate inplace");

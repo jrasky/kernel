@@ -5,8 +5,6 @@ use core::ptr::Unique;
 #[cfg(test)]
 use std::ptr::Unique;
 
-use memory::Opaque;
-
 use constants::*;
 
 extern "C" {
@@ -46,8 +44,8 @@ impl Stack {
         }
     }
 
-    pub fn get_ptr(&self) -> *mut Opaque {
+    pub fn get_ptr(&self) -> *mut u8 {
         trace!("stack {:p} size {:x}", self.buffer, self.size);
-        unsafe { (self.buffer.get() as *const u8 as *mut u8).offset(self.size as isize) as *mut _ }
+        unsafe { (self.buffer.get() as *const u8 as *mut u8).offset(self.size as isize) }
     }
 }

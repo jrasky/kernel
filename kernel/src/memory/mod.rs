@@ -27,9 +27,6 @@ static MEMORY: Manager = Manager {
     use_reserve: AtomicBool::new(true)
 };
 
-#[repr(C)]
-pub struct Opaque;
-
 // Memory Manager
 struct Manager {
     enabled: AtomicBool,
@@ -52,7 +49,7 @@ impl Manager {
         self.enabled.store(true, Ordering::Relaxed);
     }
 
-    unsafe fn register(&self, ptr: *mut Opaque, size: usize) -> usize {
+    unsafe fn register(&self, ptr: *mut u8, size: usize) -> usize {
         if self.is_enabled() {
             // don't register with reserve
             simple::register(ptr, size)
@@ -61,7 +58,7 @@ impl Manager {
         }
     }
 
-    unsafe fn forget(&self, ptr: *mut Opaque, size: usize) -> usize {
+    unsafe fn forget(&self, ptr: *mut u8, size: usize) -> usize {
         if self.is_enabled() {
             // don't forget from reserve
             simple::forget(ptr, size)
@@ -70,7 +67,7 @@ impl Manager {
         }
     }
 
-    unsafe fn allocate(&self, size: usize, align: usize) -> Option<*mut Opaque> {
+    unsafe fn allocate(&self, size: usize, align: usize) -> Option<*mut u8> {
         if !self.is_enabled() {
             None
         } else if size == 0 {
@@ -85,7 +82,7 @@ impl Manager {
         }
     }
 
-    unsafe fn release(&self, ptr: *mut Opaque, size: usize, align: usize) -> Option<usize> {
+    unsafe fn release(&self, ptr: *mut u8, size: usize, align: usize) -> Option<usize> {
         if !self.is_enabled() {
             return None;
         }
@@ -103,7 +100,7 @@ impl Manager {
         }
     }
 
-    unsafe fn grow(&self, ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> bool {
+    unsafe fn grow(&self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
         if !self.is_enabled() {
             return false;
         }
@@ -115,7 +112,7 @@ impl Manager {
         }
     }
 
-    unsafe fn shrink(&self, ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> bool {
+    unsafe fn shrink(&self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
         if !self.is_enabled() {
             return false;
         }
@@ -127,7 +124,7 @@ impl Manager {
         }
     }
 
-    unsafe fn resize(&self, ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> Option<*mut Opaque> {
+    unsafe fn resize(&self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Option<*mut u8> {
         if !self.is_enabled() {
             return None;
         }
@@ -160,39 +157,39 @@ impl Manager {
 }
 
 #[inline]
-pub unsafe fn register(ptr: *mut Opaque, size: usize) -> usize {
+pub unsafe fn register(ptr: *mut u8, size: usize) -> usize {
     MEMORY.register(ptr, size)
 }
 
 #[inline]
 #[allow(dead_code)] // included for completeness
-pub unsafe fn forget(ptr: *mut Opaque, size: usize) -> usize {
+pub unsafe fn forget(ptr: *mut u8, size: usize) -> usize {
     MEMORY.forget(ptr, size)
 }
 
 #[inline]
-pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut Opaque> {
+pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut u8> {
     MEMORY.allocate(size, align)
 }
 
 #[inline]
-pub unsafe fn release(ptr: *mut Opaque, size: usize, align: usize) -> Option<usize> {
-    MEMORY.release(ptr)
+pub unsafe fn release(ptr: *mut u8, size: usize, align: usize) -> Option<usize> {
+    MEMORY.release(ptr, size, align)
 }
 
 #[inline]
-pub unsafe fn grow(ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> bool {
-    MEMORY.grow(ptr, size)
+pub unsafe fn grow(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
+    MEMORY.grow(ptr, old_size, size, align)
 }
 
 #[inline]
-pub unsafe fn shrink(ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> bool {
-    MEMORY.shrink(ptr, size)
+pub unsafe fn shrink(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
+    MEMORY.shrink(ptr, old_size, size, align)
 }
 
 #[inline]
-pub unsafe fn resize(ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> Option<*mut Opaque> {
-    MEMORY.resize(ptr, size, align)
+pub unsafe fn resize(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Option<*mut u8> {
+    MEMORY.resize(ptr, old_size, size, align)
 }
 
 #[inline]

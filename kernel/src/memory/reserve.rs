@@ -29,8 +29,6 @@ use std::u64;
 
 use constants::*;
 
-use super::Opaque;
-
 #[cfg(not(test))]
 extern "C" {
     static _slab: u64;
@@ -76,18 +74,18 @@ impl Memory {
     }
 
     #[inline]
-    fn belongs(&self, ptr: *mut Opaque) -> bool {
-        self.inner.get().as_ref().unwrap().belongs(ptr)
+    fn belongs(&self, ptr: *mut u8) -> bool {
+        unsafe {self.inner.get().as_ref().unwrap().belongs(ptr)}
     }
 }
 
 impl MemoryInner {
     #[inline]
-    fn belongs(&self, ptr: *mut Opaque) -> bool {
-        ptr as usize > self.slab.as_ptr() as usize && ptr as usize < unsafe {self.slab.as_ptr().offset(self.slab.len())} as usize
+    fn belongs(&self, ptr: *mut u8) -> bool {
+        (ptr as usize) > self.slab.as_ptr() as usize && (ptr as usize) < unsafe {self.slab.as_ptr().offset(self.slab.len() as isize)} as usize
     }
 
-    unsafe fn allocate(&mut self, size: usize, align: usize) -> Option<*mut Opaque> {
+    unsafe fn allocate(&mut self, size: usize, align: usize) -> Option<*mut u8> {
         // round up to the number of blocks we need to allocate
         let blocks = (size + 7) / 8;
 
@@ -134,7 +132,7 @@ impl MemoryInner {
                 }
 
                 // create the header
-                let base = self.slab.get_mut(start).unwrap() as *mut Opaque;
+                let base = self.slab.get_mut(start).unwrap() as *mut _ as *mut u8;
 
                 // return the pointer of interest
                 return Some(base);
@@ -150,7 +148,7 @@ impl MemoryInner {
         }
     }
 
-    unsafe fn release(&mut self, ptr: *mut Opaque, size: usize, _: usize) -> Option<usize> {
+    unsafe fn release(&mut self, ptr: *mut u8, size: usize, _: usize) -> Option<usize> {
         let blocks = (size + 7) / 8;
 
         let start = (ptr as usize) - (self.slab.as_ptr() as usize);
@@ -172,7 +170,7 @@ impl MemoryInner {
         Some(size)
     }
 
-    unsafe fn shrink(&mut self, ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> bool {
+    unsafe fn shrink(&mut self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
         if granularity(old_size, align) <= size {
             // nothing to do
             return true;
@@ -198,7 +196,7 @@ impl MemoryInner {
         true
     }
 
-    unsafe fn grow(&mut self, ptr: *mut Opaque, old_size: usize, size: usize, align: usize) -> bool {
+    unsafe fn grow(&mut self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
         if granularity(old_size, align) >= size {
             // nothing to do
             return true;
@@ -245,11 +243,11 @@ impl MemoryInner {
     }
 
     unsafe fn resize(&mut self,
-                     ptr: *mut Opaque,
+                     ptr: *mut u8,
                      old_size: usize,
                      size: usize,
                      align: usize)
-                     -> Option<*mut Opaque> {
+                     -> Option<*mut u8> {
 
         if size > granularity(old_size, align) {
             if self.grow(ptr, old_size, size, align) {
@@ -305,46 +303,46 @@ impl MemoryInner {
 }
 
 #[inline]
-pub fn belongs(ptr: *mut Opaque) -> bool {
+pub fn belongs(ptr: *mut u8) -> bool {
     RESERVE.belongs(ptr)
 }
 
 #[inline]
-pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut Opaque> {
+pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut u8> {
     let result = RESERVE.borrow_mut().allocate(size, align);
     RESERVE.lock();
     result
 }
 
 #[inline]
-pub unsafe fn release(ptr: *mut Opaque) -> Option<usize> {
-    let result = RESERVE.borrow_mut().release(ptr);
+pub unsafe fn release(ptr: *mut u8, size: usize, align: usize) -> Option<usize> {
+    let result = RESERVE.borrow_mut().release(ptr, size, align);
     RESERVE.lock();
     result
 }
 
 #[inline]
-pub unsafe fn grow(ptr: *mut Opaque, size: usize) -> bool {
-    let result = RESERVE.borrow_mut().grow(ptr, size);
+pub unsafe fn grow(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
+    let result = RESERVE.borrow_mut().grow(ptr, old_size, size, align);
     RESERVE.lock();
     result
 }
 
 #[inline]
-pub unsafe fn shrink(ptr: *mut Opaque, size: usize) -> bool {
-    let result = RESERVE.borrow_mut().shrink(ptr, size);
+pub unsafe fn shrink(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
+    let result = RESERVE.borrow_mut().shrink(ptr, old_size, size, align);
     RESERVE.lock();
     result
 }
 
 #[inline]
-pub unsafe fn resize(ptr: *mut Opaque, size: usize, align: usize) -> Option<*mut Opaque> {
-    let result = RESERVE.borrow_mut().resize(ptr, size, align);
+pub unsafe fn resize(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Option<*mut u8> {
+    let result = RESERVE.borrow_mut().resize(ptr, old_size, size, align);
     RESERVE.lock();
     result
 }
 
 #[inline]
 pub fn granularity(size: usize, _: usize) -> usize {
-    ((size + mem::size_of::<Header>() + 7) / 8) * 8
+    ((size + 7) / 8) * 8
 }

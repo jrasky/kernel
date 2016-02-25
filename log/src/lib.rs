@@ -209,6 +209,12 @@ static LOGGER: Mutex<Logger> = Mutex::new(Logger::new());
 
 pub trait Output {
     fn log(&mut self, level: usize, location: &Location, target: &Display, message: &Display);
+
+    fn set_level(&mut self, level: Option<usize>, filter: Option<&str>) {
+        // silence warnings
+        let _ = level;
+        let _ = filter;
+    }
 }
 
 struct Logger {
@@ -290,8 +296,14 @@ impl Logger {
         self.output = output;
     }
 
-    fn set_level(&mut self, level: Option<usize>) {
-        self.level = level;
+    fn set_level(&mut self, level: Option<usize>, filter: Option<&str>) {
+        if filter.is_none() {
+            self.level = level;
+        }
+
+        if let Some(ref mut output) = self.output {
+            output.set_level(level, filter);
+        }
     }
 
     fn log<T: Display, V: Display>(&mut self,
@@ -326,6 +338,19 @@ pub fn level_name(level: usize) -> &'static str {
     }
 }
 
+pub fn to_level(name: &str) -> Result<Option<usize>, ()> {
+    match name {
+        "any" | "ANY" => Ok(None),
+        "critical" | "CRITICAL" => Ok(Some(0)),
+        "error" | "ERROR" => Ok(Some(1)),
+        "warn" | "WARN" => Ok(Some(2)),
+        "info" | "INFO" => Ok(Some(3)),
+        "debug" | "DEBUG" => Ok(Some(4)),
+        "trace" | "TRACE" => Ok(Some(5)),
+        _ => Err(())
+    }
+}
+
 pub fn set_output(output: Option<Box<Output>>) {
     LOGGER.lock().set_output(output)
 }
@@ -334,6 +359,6 @@ pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V,
     LOGGER.lock().log(level, location, target, message)
 }
 
-pub fn set_level(level: Option<usize>) {
-    LOGGER.lock().set_level(level)
+pub fn set_level(level: Option<usize>, filter: Option<&str>) {
+    LOGGER.lock().set_level(level, filter)
 }

@@ -89,11 +89,12 @@ unsafe fn parse_cmdline(ptr: *const u32) {
     for ch in cmdline.chars() {
         match ch {
             '=' => {
-                if acc == "log" {
+                if item.is_none() {
                     item = Some(acc);
+                    acc = format!("");
+                } else {
+                    acc.push('=');
                 }
-
-                acc = format!("");
             }
             ' ' => {
                 if let Some(ref item) = item {
@@ -115,23 +116,27 @@ unsafe fn parse_cmdline(ptr: *const u32) {
 }
 
 fn parse_command(item: &String, value: &String) {
-    if item == "log" {
-        if value == "any" || value == "ANY" {
-            log::set_level(None);
-        } else if value == "critical" || value == "CRITICAL" {
-            log::set_level(Some(0));
-        } else if value == "error" || value == "ERROR" {
-            log::set_level(Some(1));
-        } else if value == "warn" || value == "WARN" {
-            log::set_level(Some(2));
-        } else if value == "info" || value == "INFO" {
-            log::set_level(Some(3));
-        } else if value == "debug" || value == "DEBUG" {
-            log::set_level(Some(4));
-        } else if value == "trace" || value == "TRACE" {
-            log::set_level(Some(5));
-        } else {
-            warn!("Unknown log level: {}", value);
+    if item != "log" {
+        return;
+    }
+
+    let mut acc = format!("");
+    let mut item: Option<String> = None;
+
+    for ch in value.chars() {
+        if ch == '=' {
+            if item.is_none() {
+                item = Some(acc);
+                acc = format!("");
+            } else {
+                acc.push('=');
+            }
+        } else if ch == ',' {
+            if let Ok(level) = log::to_level(acc.as_ref()) {
+                log::set_level(level, item.as_ref().map(|filter| filter.as_ref()));
+            } else {
+                warn!("Uknown log level: {}", acc);
+            }
         }
     }
 }

@@ -17,9 +17,7 @@ use spin::Mutex;
 use constants::*;
 use constants;
 
-static MEMORY: Mutex<Manager> = Mutex::new(Manager {
-    free: ptr::null_mut()
-});
+static MEMORY: Mutex<Manager> = Mutex::new(Manager::new());
 
 #[derive(Debug, Clone, Copy)]
 struct Block {
@@ -34,6 +32,12 @@ struct Manager {
 }
 
 impl Manager {
+    const fn new() -> Manager {
+        Manager {
+            free: ptr::null_mut()
+        }
+    }
+
     unsafe fn register(&mut self, ptr: *mut u8, size: usize) -> usize {
         debug_assert!(!ptr.is_null(), "Tried to register a null block");
 
@@ -190,17 +194,17 @@ impl Manager {
             Some(block) => block
         };
 
-        //trace!("Forgetting at {:#x} size {:#x}", ptr as usize, size);
+        trace!("Forgetting at {:#x} size {:#x}", ptr as usize, size);
 
         let end = (ptr as *mut u8).offset(size as isize) as *mut u8;
 
         let mut forgotten_size: usize = 0;
 
         loop {
-            //trace!("{:?}", block);
+            trace!("{:?}", block);
             if block.base >= ptr && end >= block.end {
                 // block is in the section, remove it
-                //trace!("Removing block");
+                trace!("Removing block");
                 forgotten_size += block.end as usize - block.base as usize;
 
                 if let Some(last) = block.last.as_mut() {
@@ -217,7 +221,7 @@ impl Manager {
                 block.end = ptr;
             } else if block.base >= ptr && end >= block.base && block.end > end {
                 // truncate the front of the block
-                //trace!("truncating block");
+                trace!("truncating block");
                 forgotten_size += end as usize - block.base as usize;
 
                 let new_block = (end as *mut Block).as_mut().unwrap();
@@ -237,7 +241,7 @@ impl Manager {
                 }
             } else if ptr > block.base && block.end > end {
                 // section is entirely in the block, split it in two
-                //trace!("splitting section");
+                trace!("splitting section");
                 let new_block = (end as *mut Block).as_mut().unwrap();
                 *new_block = Block {
                     base: (end as *mut Block).offset(1) as *mut u8,
@@ -261,7 +265,6 @@ impl Manager {
                 block = next_block;
             } else {
                 // done!
-                //panic!();
                 return forgotten_size;
             }
         }

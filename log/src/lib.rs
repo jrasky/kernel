@@ -1,3 +1,4 @@
+#![feature(ptr_as_ref)]
 #![feature(const_fn)]
 #![feature(alloc)]
 #![feature(collections)]
@@ -18,12 +19,17 @@ use alloc::boxed::Box;
 #[cfg(test)]
 use std::boxed::Box;
 
+#[cfg(not(test))]
+use core::cell::UnsafeCell;
+#[cfg(test)]
+use std::cell::UnsafeCell;
+
 #[cfg(test)]
 use std::fmt;
 
 use collections::String;
 
-use spin::Mutex;
+use spin::RwLock;
 
 #[cfg(any(all(feature = "log_any", debug_assertions), feature = "release_log_any"))]
 #[macro_export]
@@ -205,7 +211,7 @@ macro_rules! trace {
     )
 }
 
-static LOGGER: Mutex<Logger> = Mutex::new(Logger::new());
+static LOGGER: Logger = Logger::new();
 
 pub trait Output {
     fn log(&mut self, level: usize, location: &Location, target: &Display, message: &Display);
@@ -218,8 +224,12 @@ pub trait Output {
 }
 
 struct Logger {
+    inner: UnsafeCell<LoggerInner>
+}
+
+struct LoggerInner {
     level: Option<usize>,
-    output: Option<Box<Output>>,
+    output: Option<RwLock<Box<Output>>>,
 }
 
 pub struct Request {
@@ -235,65 +245,67 @@ pub struct Location {
     pub line: u32,
 }
 
-impl Logger {
+unsafe impl Sync for Logger {}
+
+impl LoggerInner {
     #[cfg(any(all(feature = "log_any", debug_assertions), all(feature = "release_log_any", not(debug_assertions))))]
-    const fn new() -> Logger {
-        Logger {
+    const fn new() -> LoggerInner {
+        LoggerInner {
             level: None,
             output: None,
         }
     }
 
     #[cfg(not(any(all(any(feature = "log_any", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_debug", feature = "log_trace"), debug_assertions), all(any(feature = "release_log_any", feature = "release_log_error", feature = "release_log_warn", feature = "release_log_info", feature = "release_log_debug", feature = "release_log_trace"), not(debug_assertions)))))]
-    const fn new() -> Logger {
-        Logger {
+    const fn new() -> LoggerInner {
+        LoggerInner {
             level: Some(0),
             output: None,
         }
     }
 
     #[cfg(any(all(debug_assertions, feature = "log_error", not(any(feature = "log_any", feature = "log_critical", feature = "log_warn", feature = "log_info", feature = "log_debug", feature = "log_trace"))), all(feature = "release_log_error", not(debug_assertions), not(any(feature = "release_log_any", feature = "release_log_critical", feature = "release_log_warn", feature = "release_log_info", feature = "release_log_debug", feature = "release_log_trace")))))]
-    const fn new() -> Logger {
-        Logger {
+    const fn new() -> LoggerInner {
+        LoggerInner {
             level: Some(1),
             output: None,
         }
     }
 
     #[cfg(any(all(debug_assertions, feature = "log_warn", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_info", feature = "log_debug", feature = "log_trace"))), all(feature = "release_log_warn", not(debug_assertions), not(any(feature = "release_log_any", feature = "release_log_critical", feature = "release_log_error", feature = "release_log_info", feature = "release_log_debug", feature = "release_log_trace")))))]
-    const fn new() -> Logger {
-        Logger {
+    const fn new() -> LoggerInner {
+        LoggerInner {
             level: Some(2),
             output: None,
         }
     }
 
     #[cfg(any(all(debug_assertions, feature = "log_info", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_warn", feature = "log_debug", feature = "log_trace"))), all(feature = "release_log_info", not(debug_assertions), not(any(feature = "release_log_any", feature = "release_log_critical", feature = "release_log_error", feature = "release_log_warn", feature = "release_log_debug", feature = "release_log_trace")))))]
-    const fn new() -> Logger {
-        Logger {
+    const fn new() -> LoggerInner {
+        LoggerInner {
             level: Some(3),
             output: None,
         }
     }
 
     #[cfg(any(all(debug_assertions, feature = "log_debug", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_trace"))), all(feature = "release_log_debug", not(debug_assertions), not(any(feature = "release_log_any", feature = "release_log_critical", feature = "release_log_error", feature = "release_log_warn", feature = "release_log_info", feature = "release_log_trace")))))]
-    const fn new() -> Logger {
-        Logger {
+    const fn new() -> LoggerInner {
+        LoggerInner {
             level: Some(4),
             output: None,
         }
     }
 
     #[cfg(any(all(debug_assertions, feature = "log_trace", not(any(feature = "log_any", feature = "log_critical", feature = "log_error", feature = "log_warn", feature = "log_info", feature = "log_debug"))), all(feature = "release_log_trace", not(debug_assertions), not(any(feature = "release_log_any", feature = "release_log_critical", feature = "release_log_error", feature = "release_log_warn", feature = "release_log_info", feature = "release_log_debug")))))]
-    const fn new() -> Logger {
-        Logger {
+    const fn new() -> LoggerInner {
+        LoggerInner {
             level: Some(5),
             output: None,
         }
     }
 
     fn set_output(&mut self, output: Option<Box<Output>>) {
-        self.output = output;
+        self.output = output.map(|inner| RwLock::new(inner));
     }
 
     fn set_level(&mut self, level: Option<usize>, filter: Option<&str>) {
@@ -302,7 +314,7 @@ impl Logger {
         }
 
         if let Some(ref mut output) = self.output {
-            output.set_level(level, filter);
+            output.try_write().expect("Tried to set level while output locked").set_level(level, filter);
         }
     }
 
@@ -321,7 +333,33 @@ impl Logger {
 
         // otherwise log
         if let Some(ref mut output) = self.output {
-            output.log(level, location, &target, &message);
+            output.try_write().expect("Tried to log while output locked").log(level, location, &target, &message);
+        }
+    }
+}
+
+impl Logger {
+    const fn new() -> Logger {
+        Logger {
+            inner: UnsafeCell::new(LoggerInner::new())
+        }
+    }
+
+    fn set_output(&self, output: Option<Box<Output>>) {
+        unsafe {
+            self.inner.get().as_mut().unwrap().set_output(output)
+        }
+    }
+
+    fn log<T: Display, V: Display>(&self, level: usize, location: &Location, target: V, message: T) {
+        unsafe {
+            self.inner.get().as_mut().unwrap().log(level, location, target, message)
+        }
+    }
+
+    fn set_level(&self, level: Option<usize>, filter: Option<&str>) {
+        unsafe {
+            self.inner.get().as_mut().unwrap().set_level(level, filter)
         }
     }
 }
@@ -352,13 +390,13 @@ pub fn to_level(name: &str) -> Result<Option<usize>, ()> {
 }
 
 pub fn set_output(output: Option<Box<Output>>) {
-    LOGGER.lock().set_output(output)
+    LOGGER.set_output(output)
 }
 
 pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V, message: T) {
-    LOGGER.lock().log(level, location, target, message)
+    LOGGER.log(level, location, target, message)
 }
 
 pub fn set_level(level: Option<usize>, filter: Option<&str>) {
-    LOGGER.lock().set_level(level, filter)
+    LOGGER.set_level(level, filter)
 }

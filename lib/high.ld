@@ -11,7 +11,6 @@ _kernel_end = .;
 /* read-only data */
 .rodata ORIGIN(rodata) : ALIGN(4K) {
     _rodata_top = .;
-    * (.gcc_except_table)
     * (.rodata*)
 } > rodata AT> identity :rodata
 
@@ -35,3 +34,7 @@ _data_end = .;
     * (.bss*)
     * (COMMON)
 } >bss AT> identity :bss
+
+/DISCARD/ : {
+    * (.gcc_except_table)
+}

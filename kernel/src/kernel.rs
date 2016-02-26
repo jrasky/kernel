@@ -1,3 +1,4 @@
+#![feature(unsafe_no_drop_flag)]
 #![feature(lang_items)]
 #![feature(ptr_as_ref)]
 #![feature(const_fn)]
@@ -80,6 +81,12 @@ extern "C" {
     static _gen_segments: u8;
 }
 
+struct PanicInfo {
+    msg: Option<fmt::Arguments<'static>>,
+    file: &'static str,
+    line: u32
+}
+
 #[cfg(not(test))]
 extern "C" fn test_task() -> ! {
     info!("Hello from a task!");
@@ -150,12 +157,18 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // enable memory
     memory::enable();
 
+    logging::reserve_log("enabled memory");
+
     // set up logging
     log::set_output(Some(Box::new(logging::Writer::new(logging::Color::LightGray,
                                                        logging::Color::Black))));
 
+    logging::reserve_log("set output");
+
     // say hello
     info!("Hello!");
+
+    logging::reserve_log("said hello");
 
     // read segments
     debug!("Number of segments: {}", _gen_segments_size);
@@ -241,13 +254,29 @@ extern "C" fn eh_personality() {
 #[lang = "panic_fmt"]
 pub extern "C" fn rust_begin_unwind(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     static PANIC_COUNT: AtomicUsize = AtomicUsize::new(0);
+    static mut ORIG_PANIC: PanicInfo = PanicInfo {
+        msg: None,
+        file: "",
+        line: 0
+    };
 
     match PANIC_COUNT.fetch_add(1, Ordering::Relaxed) {
         0 => {
+            unsafe {
+                ORIG_PANIC = PanicInfo {
+                    // ok to ignore lifetime because this function deviates
+                    msg: Some(mem::transmute(msg)),
+                    file: file,
+                    line: line
+                };
+            }
             panic_fmt(msg, file, line)
         },
         1 => {
-            double_panic()
+            unsafe {double_panic(&ORIG_PANIC, msg, file, line)}
+        },
+        2 => {
+            triple_panic(file, line)
         },
         _ => {
             // give up
@@ -277,11 +306,27 @@ fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
 #[cfg(not(test))]
 #[cold]
 #[inline(never)]
-fn double_panic() -> ! {
+fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     // disable memory
     memory::disable();
 
-    logging::reserve_log("Double panic");
+    logging::reserve_log(
+        format_args!("Double panic in {} ({}): {}\nWhile processing panic in {} ({}): {}",
+                     file, line, msg,
+                     original.file, original.line,
+                     original.msg.unwrap_or(format_args!("No message"))));
+
+    panic_halt();
+}
+
+#[cfg(not(test))]
+#[cold]
+#[inline(never)]
+fn triple_panic(file: &'static str, line: u32) -> ! {
+    // disable memory
+    memory::disable();
+
+    logging::reserve_log(format_args!("Triple panic in {} ({})", file, line));
 
     panic_halt();
 }

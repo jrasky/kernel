@@ -19,8 +19,6 @@ use core::mem;
 use std::fmt;
 #[cfg(test)]
 use std::mem;
-#[cfg(test)]
-use std::slice;
 
 use constants::*;
 use frame::{Frame, Segment, FrameSize};
@@ -210,7 +208,7 @@ fn test_layout() {
             if let &FrameEntry::Frame(ref big_frame) = huge_frame.get_entry(1) { // big
                 if let &FrameEntry::Page(ref page) = big_frame.get_entry(0) { // page
                     assert!(page.write == false, "Page was write-enabled");
-                    assert!(page.user == false, "Page was user-mod");
+                    assert!(page.user == false, "Page was user-mode");
                     assert!(page.execute_disable == true, "Page was executable");
                     assert!(page.global == false, "Page was global");
                     assert!(page.size == PageSize::Page, "Page was the wrong size");
@@ -235,14 +233,14 @@ fn test_layout_high() {
     use frame::FrameEntry;
     use page::PageSize;
     let mut layout = Layout::new();
-    layout.insert(Segment::new(0x200000, 0xffffffff80200000, 0x4000, false, false, false, false));
+    layout.insert(Segment::new(0x200000, 0xffffffff80200000, 0x4000, false, false, true, false));
     if let Some(ref giant_frame) = layout.entries[511] { // giant
         if let &FrameEntry::Frame(ref huge_frame) = giant_frame.get_entry(510) { // huge
             if let &FrameEntry::Frame(ref big_frame) = huge_frame.get_entry(1) { // big
                 if let &FrameEntry::Page(ref page) = big_frame.get_entry(0) { // page
                     assert!(page.write == false, "Page was write-enabled");
-                    assert!(page.user == false, "Page was user-mod");
-                    assert!(page.execute_disable == true, "Page was executable");
+                    assert!(page.user == false, "Page was user-mode");
+                    assert!(page.execute_disable == false, "Page was not executable");
                     assert!(page.global == false, "Page was global");
                     assert!(page.size == PageSize::Page, "Page was the wrong size");
                     assert!(page.base == 0x200000, "Page was not in the right place");
@@ -253,9 +251,96 @@ fn test_layout_high() {
                 panic!("Did not find frame inside huge frame: {:?}", huge_frame.get_entry(1));
             }
         } else {
-            panic!("Did not find frame inside giant frame: {:?}", giant_frame.get_entry(512));
+            panic!("Did not find frame inside giant frame: {:?}", giant_frame.get_entry(510));
         }
     } else {
         panic!("Did not find giant frame");
     }
+}
+
+#[cfg(test)]
+#[test]
+fn test_layout_data() {
+    use frame::FrameEntry;
+    use page::PageSize;
+    let mut layout = Layout::new();
+    layout.insert(Segment::new(0, 0, 0x200000,
+                               false, false, true, false));
+    layout.insert(Segment::new(0x200000, 0xffff80200000, 0x34ddf,
+                               false, false, true, false));
+    layout.insert(Segment::new(0x235000, 0xffff80400000, 0x4fac,
+                               false, false, false, false));
+    layout.insert(Segment::new(0x23b000, 0xffff80600000, 0x4a00,
+                               true, false, false, false));
+    layout.insert(Segment::new(0x23f000, 0xffff80800000, 0x17648,
+                               true, false, false, false));
+
+    if let Some(ref giant_frame) = layout.entries[511] { // giant
+        if let &FrameEntry::Frame(ref huge_frame) = giant_frame.get_entry(510) { // huge
+            if let &FrameEntry::Frame(ref big_frame) = huge_frame.get_entry(3) { // big
+                if let &FrameEntry::Page(ref page) = big_frame.get_entry(4) { // page
+                    assert!(page.write == true, "Page was read-only");
+                    assert!(page.user == false, "Page was user-mode");
+                    assert!(page.execute_disable == true, "Page was executable");
+                    assert!(page.global == false, "Page was global");
+                    assert!(page.size == PageSize::Page, "Page was the wrong size");
+                    assert!(page.base == 0x23f000, "Page was not in the right place");
+                } else {
+                    panic!("Did not find page inside big frame: {:?}", big_frame.get_entry(4));
+                }
+            } else {
+                panic!("Did not find frame inside huge frame: {:?}", huge_frame.get_entry(3));
+            }
+        } else {
+            panic!("Did not find frame inside giant frame: {:?}", giant_frame.get_entry(510));
+        }
+    } else {
+        panic!("Did not find giant frame");
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn test_walk_data() {
+    let mut layout = Layout::new();
+
+    layout.insert(Segment::new(0, 0, 0x200000,
+                               false, false, true, false));
+    layout.insert(Segment::new(0x200000, 0xffff80200000, 0x34ddf,
+                               false, false, true, false));
+    layout.insert(Segment::new(0x235000, 0xffff80400000, 0x4fac,
+                               false, false, false, false));
+    layout.insert(Segment::new(0x23b000, 0xffff80600000, 0x4a00,
+                               true, false, false, false));
+    layout.insert(Segment::new(0x23f000, 0xffff80800000, 0x17648,
+                               true, false, false, false));
+
+    let (addr, tables) = layout.build_tables_relative(0x180000);
+    let head_idx = (addr - 0x180000) / 0x8;
+
+    // 511th entry
+    let next_entry = tables[head_idx as usize + 511];
+    assert!(next_entry & 0x1 == 0x1, "No 511th entry");
+    let next_addr = next_entry & (((1 << 41) - 1) << 12);
+    let next_idx = (next_addr - 0x180000) / 0x8;
+    
+    // 510th entry
+    let next_entry = tables[next_idx as usize + 510];
+    assert!(next_entry & 0x1 == 0x1, "No 510th entry");
+    assert!(next_entry & 0x80 == 0, "510th entry was a frame");
+    let next_addr = next_entry & (((1 << 41) - 1) << 12);
+    let next_idx = (next_addr - 0x180000) / 0x8;
+
+    // 3rd entry
+    let next_entry = tables[next_idx as usize + 3];
+    assert!(next_entry & 0x1 == 0x1, "No 3rd entry");
+    assert!(next_entry & 0x80 == 0, "3rd entry was a frame");
+    let next_addr = next_entry & (((1 << 41) - 1) << 12);
+    let next_idx = (next_addr - 0x180000) / 0x8;
+
+    // 4th
+    let next_entry = tables[next_idx as usize + 4];
+    assert!(next_entry & 0x1 == 0x1, "No 4th entry");
+    let frame_addr = next_entry & (((1 << 41) - 1) << 12);
+    assert!(frame_addr == 0x23f000, "Frame was not at the right address: 0x{:x}", frame_addr);
 }

@@ -19,6 +19,11 @@ use core::fmt::Display;
 use std::fmt::Display;
 
 #[cfg(not(test))]
+use core::cell::UnsafeCell;
+#[cfg(test)]
+use std::cell::UnsafeCell;
+
+#[cfg(not(test))]
 use collections::{Vec, String};
 
 use spin::Mutex;
@@ -60,7 +65,7 @@ pub struct Writer {
     #[cfg(test)]
     buffer: Buffer,
     deferred_newline: bool,
-    filters: Vec<(String, Option<usize>)>
+    filters: Option<Vec<(String, Option<usize>)>>
 }
 
 struct Buffer {
@@ -85,11 +90,13 @@ impl log::Output for Writer {
         let target = format!("{}", target);
 
         // this is inefficient, but for speed just don't define infinite filters
-        for &(ref filter, filter_level) in self.filters.iter() {
-            if let Some(filter_level) = filter_level {
-                if target.as_str().starts_with(filter.as_str()) && level > filter_level {
-                    // log entry is filtered out
-                    return;
+        if let Some(ref filters) = self.filters {
+            for &(ref filter, filter_level) in filters.iter() {
+                if let Some(filter_level) = filter_level {
+                    if target.as_str().starts_with(filter.as_str()) && level > filter_level {
+                        // log entry is filtered out
+                        return;
+                    }
                 }
             }
         }
@@ -103,7 +110,11 @@ impl log::Output for Writer {
 
     fn set_level(&mut self, level: Option<usize>, filter: Option<&str>) {
         if let Some(filter) = filter {
-            self.filters.push((filter.into(), level));
+            if let Some(ref mut filters) = self.filters {
+                filters.push((filter.into(), level));
+            } else {
+                self.filters = Some(vec![(filter.into(), level)]);
+            }
         }
     }
 }
@@ -119,13 +130,13 @@ impl Write for Writer {
 
 impl Writer {
     #[cfg(not(test))]
-    pub fn new(foreground: Color, background: Color) -> Writer {
+    pub const fn new(foreground: Color, background: Color) -> Writer {
         Writer {
             column_position: 0,
             color_code: ColorCode::new(foreground, background),
             buffer: unsafe { Unique::new(VGA_BUFFER_ADDR as *mut _) },
             deferred_newline: false,
-            filters: vec![]
+            filters: None
         }
     }
 
@@ -210,7 +221,19 @@ impl Writer {
     }
 }
 
+struct ReserveWriter {
+    inner: UnsafeCell<Writer>
+}
+
+unsafe impl Sync for ReserveWriter {}
+
 #[allow(unused_must_use)]
 pub fn reserve_log<T: Display>(message: T) {
-    write!(Writer::new(Color::LightGray, Color::Black), "{}", message);
+    static WRITER: ReserveWriter = ReserveWriter {
+        inner: UnsafeCell::new(Writer::new(Color::LightGray, Color::Black))
+    };
+
+    unsafe {
+        writeln!(WRITER.inner.get().as_mut().unwrap(), "{}", message);
+    }
 }

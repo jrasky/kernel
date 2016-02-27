@@ -87,6 +87,7 @@ impl ColorCode {
 
 impl log::Output for Writer {
     fn log(&mut self, level: usize, location: &log::Location, target: &Display, message: &Display) {
+        // this is the problem line
         let target = format!("{}", target);
 
         // this is inefficient, but for speed just don't define infinite filters

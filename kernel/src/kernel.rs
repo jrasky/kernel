@@ -157,18 +157,15 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // enable memory
     memory::enable();
 
-    logging::reserve_log("enabled memory");
+    // create and initialize logger
+    let mut writer = logging::Writer::new(logging::Color::LightGray, logging::Color::Black);
+    writer.init();
 
     // set up logging
-    log::set_output(Some(Box::new(logging::Writer::new(logging::Color::LightGray,
-                                                       logging::Color::Black))));
-
-    logging::reserve_log("set output");
+    log::set_output(Some(Box::new(writer)));
 
     // say hello
     info!("Hello!");
-
-    logging::reserve_log("said hello");
 
     // read segments
     debug!("Number of segments: {}", _gen_segments_size);

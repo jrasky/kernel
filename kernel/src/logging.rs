@@ -1,9 +1,4 @@
 #[cfg(not(test))]
-use core::fmt::Write;
-#[cfg(test)]
-use std::fmt::Write;
-
-#[cfg(not(test))]
 use core::fmt;
 #[cfg(test)]
 use std::fmt;
@@ -14,9 +9,9 @@ use core::ptr::Unique;
 use std::ptr::Unique;
 
 #[cfg(not(test))]
-use core::fmt::Display;
+use core::fmt::{Display, Write};
 #[cfg(test)]
-use std::fmt::Display;
+use std::fmt::{Display, Write};
 
 #[cfg(not(test))]
 use core::cell::UnsafeCell;
@@ -25,8 +20,6 @@ use std::cell::UnsafeCell;
 
 #[cfg(not(test))]
 use collections::{Vec, String};
-
-use spin::Mutex;
 
 use log;
 
@@ -65,7 +58,7 @@ pub struct Writer {
     #[cfg(test)]
     buffer: Buffer,
     deferred_newline: bool,
-    filters: Option<Vec<(String, Option<usize>)>>
+    filters: Option<(FixedString, Vec<(String, Option<usize>)>)>
 }
 
 struct Buffer {
@@ -79,6 +72,72 @@ struct ScreenChar {
     color_code: ColorCode,
 }
 
+struct FixedString {
+    buffer: String,
+    limit: usize
+}
+
+impl AsRef<str> for FixedString {
+    fn as_ref(&self) -> &str {
+        self.buffer.as_ref()
+    }
+}
+
+impl From<FixedString> for String {
+    fn from(item: FixedString) -> String {
+        item.buffer
+    }
+}
+
+impl Write for FixedString {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        for ch in s.chars() {
+            try!(self.write_char(ch));
+        }
+
+        Ok(())
+    }
+
+    fn write_char(&mut self, c: char) -> fmt::Result {
+        if self.buffer.len() + c.len_utf8() > self.limit {
+            Err(fmt::Error)
+        } else {
+            self.buffer.push(c);
+            Ok(())
+        }
+    }
+}
+
+impl FixedString {
+    fn new() -> FixedString {
+        FixedString {
+            buffer: String::with_capacity(4),
+            limit: 4
+        }
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.buffer.clear()
+    }
+
+    #[inline]
+    fn get_limit(&self) -> usize {
+        self.limit
+    }
+
+    fn set_limit(&mut self, limit: usize) {
+        // maximum number of bytes for that number of characters
+        self.limit = limit * 4;
+
+        // reallocate if necessary
+        let cap = self.buffer.capacity();
+        if cap < self.limit {
+            self.buffer.reserve(self.limit - cap);
+        }
+    }
+}
+
 impl ColorCode {
     const fn new(foreground: Color, background: Color) -> ColorCode {
         ColorCode((background as u8) << 4 | (foreground as u8))
@@ -87,16 +146,21 @@ impl ColorCode {
 
 impl log::Output for Writer {
     fn log(&mut self, level: usize, location: &log::Location, target: &Display, message: &Display) {
-        // this is the problem line
-        let target = format!("{}", target);
-
         // this is inefficient, but for speed just don't define infinite filters
-        if let Some(ref filters) = self.filters {
-            for &(ref filter, filter_level) in filters.iter() {
-                if let Some(filter_level) = filter_level {
-                    if target.as_str().starts_with(filter.as_str()) && level > filter_level {
-                        // log entry is filtered out
-                        return;
+        if let Some((ref mut buffer, ref filters)) = self.filters {
+            if !filters.is_empty() {
+                // use a fixed-length buffer to avoid reallocation while logging output
+                buffer.clear();
+
+                // ignore result of write, because it may be too long
+                let _ = write!(buffer, "{}", target);
+
+                for &(ref filter, filter_level) in filters.iter() {
+                    if let Some(filter_level) = filter_level {
+                        if buffer.as_ref().starts_with(filter.as_str()) && level > filter_level {
+                            // log entry is filtered out
+                            return;
+                        }
                     }
                 }
             }
@@ -111,10 +175,12 @@ impl log::Output for Writer {
 
     fn set_level(&mut self, level: Option<usize>, filter: Option<&str>) {
         if let Some(filter) = filter {
-            if let Some(ref mut filters) = self.filters {
+            if let Some((ref mut buffer, ref mut filters)) = self.filters {
+                if buffer.get_limit() < filter.len() {
+                    buffer.set_limit(filter.len());
+                }
+
                 filters.push((filter.into(), level));
-            } else {
-                self.filters = Some(vec![(filter.into(), level)]);
             }
         }
     }
@@ -153,7 +219,15 @@ impl Writer {
                 }; VGA_BUFFER_WIDTH]; VGA_BUFFER_HEIGHT]
             },
             deferred_newline: false,
-            filters: vec![]
+            filters: None
+        }
+    }
+
+    pub fn init(&mut self) {
+        // TODO: split Writer into ReserveWriter and Writer
+        // because this should be handled by new(), not by init()
+        if self.filters.is_none() {
+            self.filters = Some((FixedString::new(), vec![]));
         }
     }
 

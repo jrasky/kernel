@@ -351,6 +351,8 @@ pub fn to_level(name: &str) -> Result<Option<usize>, ()> {
     }
 }
 
+// TODO: set up different locks for these different operations
+
 pub fn set_output(output: Option<Box<Output>>) {
     if let Some(mut logger) = LOGGER.try_write() {
         logger.set_output(output);

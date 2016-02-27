@@ -18,8 +18,18 @@ use alloc::boxed::Box;
 #[cfg(test)]
 use std::boxed::Box;
 
+#[cfg(not(test))]
+use core::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
+
 #[cfg(test)]
 use std::fmt;
+
+#[cfg(not(test))]
+use core::mem;
+#[cfg(test)]
+use std::mem;
 
 use collections::String;
 
@@ -362,11 +372,24 @@ pub fn set_output(output: Option<Box<Output>>) {
 }
 
 pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V, message: T) {
+    static SUPPRESSED: AtomicUsize = AtomicUsize::new(0);
+    static SUPPRESSED_INFO: AtomicBool = AtomicBool::new(false);
+
     if let Some(mut logger) = LOGGER.try_write() {
         logger.log(level, location, target, message);
+
+        let count = SUPPRESSED.swap(0, Ordering::Relaxed);
+        if count > 0 {
+            if !SUPPRESSED_INFO.load(Ordering::Relaxed) {
+                SUPPRESSED_INFO.store(true, Ordering::Relaxed);
+                mem::drop(logger);
+                warn!("At least {} log entries suppressed", count);
+            } else {
+                SUPPRESSED_INFO.store(false, Ordering::Relaxed);
+            }
+        }
     } else {
-        panic!("Tried to log {} {} ({}): {} while logging",
-               target, location.file, location.line, message);
+        SUPPRESSED.fetch_add(1, Ordering::Relaxed);
     }
 }
 

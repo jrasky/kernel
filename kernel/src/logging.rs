@@ -51,6 +51,12 @@ pub enum Color {
 struct ColorCode(u8);
 
 pub struct Writer {
+    inner: ReserveWriter,
+    target_buffer: FixedString,
+    filters: Vec<(String, Option<usize>)>
+}
+
+struct ReserveWriter {
     column_position: usize,
     color_code: ColorCode,
     #[cfg(not(test))]
@@ -58,7 +64,7 @@ pub struct Writer {
     #[cfg(test)]
     buffer: Buffer,
     deferred_newline: bool,
-    filters: Option<(FixedString, Vec<(String, Option<usize>)>)>
+    
 }
 
 struct Buffer {
@@ -147,46 +153,53 @@ impl ColorCode {
 impl log::Output for Writer {
     fn log(&mut self, level: usize, location: &log::Location, target: &Display, message: &Display) {
         // this is inefficient, but for speed just don't define infinite filters
-        if let Some((ref mut buffer, ref filters)) = self.filters {
-            if !filters.is_empty() {
-                // use a fixed-length buffer to avoid reallocation while logging output
-                buffer.clear();
-
-                // ignore result of write, because it may be too long
-                let _ = write!(buffer, "{}", target);
-
-                for &(ref filter, filter_level) in filters.iter() {
+        if !self.filters.is_empty() {
+            // use a fixed-length buffer to avoid reallocation while logging output
+            self.target_buffer.clear();
+            
+            // ignore result of write, because it may be too long
+            let _ = write!(self.target_buffer, "{}", target);
+            
+            for &(ref filter, filter_level) in self.filters.iter() {
+                if self.target_buffer.as_ref().starts_with(filter.as_str()) {
                     if let Some(filter_level) = filter_level {
-                        if buffer.as_ref().starts_with(filter.as_str()) && level > filter_level {
+                        if filter_level < level {
                             // log entry is filtered out
                             return;
                         }
+                    } else {
+                        // log entry is specifically included
+                        break;
                     }
                 }
             }
         }
 
-        if level <= 1 {
-            let _ = self.write_fmt(format_args!("{} {} at {}({}): {}\n", target, log::level_name(level), location.file, location.line, message));
-        } else {
-            let _ = self.write_fmt(format_args!("{} {}: {}\n", target, log::level_name(level), message));
-        }
+        self.inner.log(level, location, target, message);
     }
 
     fn set_level(&mut self, level: Option<usize>, filter: Option<&str>) {
         if let Some(filter) = filter {
-            if let Some((ref mut buffer, ref mut filters)) = self.filters {
-                if buffer.get_limit() < filter.len() {
-                    buffer.set_limit(filter.len());
-                }
-
-                filters.push((filter.into(), level));
+            if self.target_buffer.get_limit() < filter.len() {
+                self.target_buffer.set_limit(filter.len());
             }
+
+            self.filters.push((filter.into(), level));
         }
     }
 }
 
-impl Write for Writer {
+impl log::Output for ReserveWriter {
+    fn log(&mut self, level: usize, location: &log::Location, target: &Display, message: &Display) {
+        if level <= 1 {
+            let _ = writeln!(self, "{} {} at {}({}): {}", target, log::level_name(level), location.file, location.line, message);
+        } else {
+            let _ = writeln!(self, "{} {}: {}", target, log::level_name(level), message);
+        }
+    }
+}
+
+impl Write for ReserveWriter {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for byte in s.bytes() {
             self.write_byte(byte);
@@ -196,20 +209,29 @@ impl Write for Writer {
 }
 
 impl Writer {
-    #[cfg(not(test))]
-    pub const fn new(foreground: Color, background: Color) -> Writer {
+    pub fn new(foreground: Color, background: Color) -> Writer {
         Writer {
+            inner: ReserveWriter::new(foreground, background),
+            target_buffer: FixedString::new(),
+            filters: vec![]
+        }
+    }
+}
+
+impl ReserveWriter {
+    #[cfg(not(test))]
+    pub const fn new(foreground: Color, background: Color) -> ReserveWriter {
+        ReserveWriter {
             column_position: 0,
             color_code: ColorCode::new(foreground, background),
             buffer: unsafe { Unique::new(VGA_BUFFER_ADDR as *mut _) },
-            deferred_newline: false,
-            filters: None
+            deferred_newline: false
         }
     }
 
     #[cfg(test)]
-    fn new(foreground: Color, background: Color) -> Writer {
-        Writer {
+    fn new(foreground: Color, background: Color) -> ReserveWriter {
+        ReserveWriter {
             column_position: 0,
             color_code: ColorCode::new(foreground, background),
             buffer: Buffer {
@@ -218,16 +240,7 @@ impl Writer {
                     color_code: ColorCode(0)
                 }; VGA_BUFFER_WIDTH]; VGA_BUFFER_HEIGHT]
             },
-            deferred_newline: false,
-            filters: None
-        }
-    }
-
-    pub fn init(&mut self) {
-        // TODO: split Writer into ReserveWriter and Writer
-        // because this should be handled by new(), not by init()
-        if self.filters.is_none() {
-            self.filters = Some((FixedString::new(), vec![]));
+            deferred_newline: false
         }
     }
 
@@ -296,19 +309,12 @@ impl Writer {
     }
 }
 
-struct ReserveWriter {
-    inner: UnsafeCell<Writer>
-}
-
-unsafe impl Sync for ReserveWriter {}
-
+#[cfg(not(test))]
 #[allow(unused_must_use)]
 pub fn reserve_log<T: Display>(message: T) {
-    static WRITER: ReserveWriter = ReserveWriter {
-        inner: UnsafeCell::new(Writer::new(Color::LightGray, Color::Black))
-    };
+    static mut WRITER: ReserveWriter = ReserveWriter::new(Color::LightGray, Color::Black);
 
     unsafe {
-        writeln!(WRITER.inner.get().as_mut().unwrap(), "{}", message);
+        writeln!(WRITER, "{}", message);
     }
 }

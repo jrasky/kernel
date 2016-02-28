@@ -265,8 +265,6 @@ impl Segment {
         }
     }
 
-    unsafe fn get_entry()
-
     unsafe fn build_edge(&self, place: *mut u64, base: usize, size: FrameSize,
                              idx: usize, vbase: usize) -> bool {
         trace!("0x{:x}, 0x{:x}", idx, vbase);

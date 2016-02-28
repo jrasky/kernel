@@ -21,6 +21,8 @@ use core::fmt;
 use core::mem;
 #[cfg(not(test))]
 use core::cmp;
+#[cfg(not(test))]
+use core::ptr;
 
 #[cfg(test)]
 use std::fmt;
@@ -28,6 +30,8 @@ use std::fmt;
 use std::mem;
 #[cfg(test)]
 use std::cmp;
+#[cfg(test)]
+use std::ptr;
 
 use constants::*;
 use page::{Page, PageSize};
@@ -77,6 +81,18 @@ struct RawSegment {
 
 pub fn raw_segment_size() -> usize {
     mem::size_of::<RawSegment>()
+}
+
+unsafe fn get_pointer(place: *mut u64, idx: isize) -> *mut u64 {
+    let mut entry = ptr::read(place.offset(idx));
+
+    if entry & 1 == 0 || entry & (1 << 7) == 1 << 7 {
+        // allocate a new table
+        entry = heap::allocate(0x200 * U64_BYTES, 0x1000) as u64 | 0x7;
+        ptr::write(place.offset(idx), entry);
+    }
+
+    (entry & PAGE_ADDR_MASK) as *mut _
 }
 
 // Overlap concerns virtual address only
@@ -270,21 +286,13 @@ impl Segment {
         trace!("0x{:x}, 0x{:x}", idx, vbase);
 
         if let Some(next) = size.get_next() {
-            let subframe_base = base + (idx * size as usize);
+            let subframe_base = base + (idx * size.get_pagesize() as usize);
             trace!("c 0x{:x}, 0x{:x}", subframe_base, vbase);
             if (vbase >= subframe_base && vbase - subframe_base >= next.get_pagesize() as usize) ||
                 subframe_base - vbase >= next.get_pagesize() as usize
             {
                 // build a new table here
-                let mut entry = *place.offset(idx as isize).as_ref().unwrap();
-
-                if entry & 1 == 0 || entry & (1 << 7) == 1 << 7 {
-                    // allocate a new table
-                    entry = heap::allocate(0x200 * U64_BYTES, 0x1000) as u64 | 0x7;
-                    *place.offset(idx as isize).as_mut().unwrap() = entry;
-                }
-
-                let result = self.build_into_inner((entry & PAGE_ADDR_MASK) as *mut _, subframe_base, next);
+                let result = self.build_into_inner(get_pointer(place, idx as isize), subframe_base, next);
                 debug_assert!(result, "Failed to insert subframe");
                 return true;
             }
@@ -294,7 +302,7 @@ impl Segment {
     }
 
     unsafe fn build_page_at(&self, place: *mut u64, base: usize, size: FrameSize, idx: usize) {
-        let subframe_base = base + (idx * size as usize);
+        let subframe_base = base + (idx * size.get_pagesize() as usize);
 
         trace!("Creating page at 0x{:x} of size {:?}, idx 0x{:x}", subframe_base, size.get_pagesize(), idx);
 
@@ -319,7 +327,7 @@ impl Segment {
             base: physical_base
         };
 
-        *place.offset(idx as isize).as_mut().unwrap() = page.get_entry();
+        ptr::write(place.offset(idx as isize), page.get_entry());
     }
 
     unsafe fn build_into_inner(&self, place: *mut u64, base: usize, size: FrameSize) -> bool {
@@ -346,16 +354,16 @@ impl Segment {
         trace!("a 0x{:x}, 0x{:x}, {:?}", place as usize, base, size);
         trace!("0x{:x}, 0x{:x}", min_idx, max_idx);
 
-        if max_idx + 1 != min_idx || !min_edge {
+        if max_idx > min_idx + 1 || !min_edge {
             if !self.build_edge(place, base, size, max_idx - 1,
-                                align_back(self.virtual_base + self.size as usize, size as usize)) {
+                                align_back(self.virtual_base + self.size as usize, size.get_pagesize() as usize)) {
                 self.build_page_at(place, base, size, max_idx - 1);
             }
         }
 
         trace!("b 0x{:x}, 0x{:x}, {:?}", place as usize, base, size);
 
-        for idx in min_idx + 1..max_idx - 1 {
+        for idx in min_idx..max_idx - 1 {
             self.build_page_at(place, base, size, idx)
         }
 
@@ -370,7 +378,10 @@ impl Segment {
             >> FrameSize::Giant.get_shift();
 
         for idx in min_idx..max_idx {
-            if !self.build_into_inner(place, idx * FrameSize::Giant as usize, FrameSize::Giant) {
+            if !self.build_into_inner(
+                get_pointer(place, idx as isize),
+                idx * FrameSize::Giant as usize, FrameSize::Giant)
+            {
                 return false;
             }
         }

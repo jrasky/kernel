@@ -181,9 +181,8 @@ unsafe fn parse_memory(ptr: *const u32) -> Vec<(usize, usize)> {
                       entry.base_addr + entry.length);
 
                 if entry.base_addr + entry.length > _gen_max_paddr {
-                    memory_regions.push((cmp::max(_gen_max_paddr as usize,
-                                                  entry.base_addr as usize),
-                                         entry.length as usize));
+                    memory_regions.push((entry.base_addr as usize,
+                                        entry.length as usize));
                 }
             }
             3 => {

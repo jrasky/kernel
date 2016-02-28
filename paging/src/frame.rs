@@ -265,13 +265,18 @@ impl Segment {
         }
     }
 
+    unsafe fn get_entry()
+
     unsafe fn build_edge(&self, place: *mut u64, base: usize, size: FrameSize,
                              idx: usize, vbase: usize) -> bool {
         trace!("0x{:x}, 0x{:x}", idx, vbase);
 
         if let Some(next) = size.get_next() {
             let subframe_base = base + (idx * size as usize);
-            if vbase - subframe_base >= next.get_pagesize() as usize {
+            trace!("c 0x{:x}, 0x{:x}", subframe_base, vbase);
+            if (vbase >= subframe_base && vbase - subframe_base >= next.get_pagesize() as usize) ||
+                subframe_base - vbase >= next.get_pagesize() as usize
+            {
                 // build a new table here
                 let mut entry = *place.offset(idx as isize).as_ref().unwrap();
 
@@ -291,9 +296,17 @@ impl Segment {
     }
 
     unsafe fn build_page_at(&self, place: *mut u64, base: usize, size: FrameSize, idx: usize) {
-        let subframe_base = base + (idx * size.get_pagesize() as usize);
+        let subframe_base = base + (idx * size as usize);
 
-        trace!("Creating page at 0x{:x} of size {:?}", subframe_base, size.get_pagesize());
+        trace!("Creating page at 0x{:x} of size {:?}, idx 0x{:x}", subframe_base, size.get_pagesize(), idx);
+
+        let physical_base;
+
+        if self.virtual_base > subframe_base {
+            physical_base = self.physical_base + self.virtual_base - subframe_base;
+        } else {
+            physical_base = self.physical_base + subframe_base - self.virtual_base;
+        }
 
         let page = Page {
             write: self.write,
@@ -305,7 +318,7 @@ impl Segment {
             protection_key: 0,
             global: self.global,
             size: size.get_pagesize(),
-            base: self.physical_base + subframe_base - self.virtual_base
+            base: physical_base
         };
 
         *place.offset(idx as isize).as_mut().unwrap() = page.get_entry();
@@ -317,11 +330,11 @@ impl Segment {
         let min_idx = if base > self.virtual_base {
             0
         } else {
-            align_back(self.virtual_base - base, size as usize) >> size.get_shift()
+            align_back(self.virtual_base - base, size.get_pagesize() as usize) >> size.get_pagesize().get_shift()
         };
 
-        let max_idx = cmp::min((align(self.virtual_base + self.size - base, size as usize)
-                                >> size.get_shift()), 0x200);
+        let max_idx = cmp::min((align(self.virtual_base + self.size - base, size.get_pagesize() as usize)
+                                >> size.get_pagesize().get_shift()), 0x200);
 
         trace!("0x{:x}, 0x{:x}", min_idx, max_idx);
 
@@ -333,11 +346,12 @@ impl Segment {
         let min_edge = self.build_edge(place, base, size, min_idx, self.virtual_base);
 
         trace!("a 0x{:x}, 0x{:x}, {:?}", place as usize, base, size);
+        trace!("0x{:x}, 0x{:x}", min_idx, max_idx);
 
-        if max_idx != min_idx || !min_edge {
-            if !self.build_edge(place, base, size, max_idx,
+        if max_idx + 1 != min_idx || !min_edge {
+            if !self.build_edge(place, base, size, max_idx - 1,
                                 align_back(self.virtual_base + self.size as usize, size as usize)) {
-                self.build_page_at(place, base, size, max_idx);
+                self.build_page_at(place, base, size, max_idx - 1);
             }
         }
 
@@ -352,7 +366,18 @@ impl Segment {
 
     #[inline]
     pub unsafe fn build_into(&self, place: *mut u64) -> bool {
-        self.build_into_inner(place, 0, FrameSize::Giant)
+        let min_idx = align_back(self.virtual_base, FrameSize::Giant as usize)
+            >> FrameSize::Giant.get_shift();
+        let max_idx = align(self.virtual_base + self.size, FrameSize::Giant as usize)
+            >> FrameSize::Giant.get_shift();
+
+        for idx in min_idx..max_idx {
+            if !self.build_into_inner(place, idx * FrameSize::Giant as usize, FrameSize::Giant) {
+                return false;
+            }
+        }
+
+        true
     }
 
     #[inline]

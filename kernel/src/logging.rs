@@ -56,7 +56,7 @@ pub struct Writer {
     filters: Vec<(String, Option<usize>)>
 }
 
-struct ReserveWriter {
+pub struct ReserveWriter {
     column_position: usize,
     color_code: ColorCode,
     #[cfg(not(test))]

@@ -177,7 +177,14 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // create a heap mapping
     let mut next_vaddr = HEAP_BEGIN;
 
-    for (base, size) in memory_regions {
+    for (mut base, mut size) in memory_regions {
+        if base < _gen_max_paddr as usize {
+            size -= _gen_max_paddr as usize - base;
+            base = _gen_max_paddr as usize;
+        }
+
+        trace!("Buliding segment 0x{:x} -> 0x{:x} size 0x{:x}", next_vaddr, base, size);
+
         // write, !user, !execute, !global
         let segment = paging::Segment::new(base, next_vaddr, size,
                                            true, false, false, false);

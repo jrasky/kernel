@@ -44,7 +44,7 @@ impl Manager {
         trace!("Registering block at {:#x} of size {:#x}", ptr as usize, size);
 
         if self.free.is_null() {
-            if size <= mem::size_of::<Block>() {
+            if size < mem::size_of::<Block>() {
                 warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
                 return 0;
             }
@@ -75,7 +75,7 @@ impl Manager {
         if end < self.free as *mut _ {
             // insert element before the first free element
             trace!("before");
-            if size <= mem::size_of::<Block>() {
+            if size < mem::size_of::<Block>() {
                 warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
                 return 0;
             }
@@ -114,7 +114,7 @@ impl Manager {
             if block.next.is_null() {
                 // insert here
                 if ptr > block.end {
-                    if size <= mem::size_of::<Block>() {
+                    if size < mem::size_of::<Block>() {
                         warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
                         return 0;
                     }
@@ -144,7 +144,7 @@ impl Manager {
                 // insert between block and next
                 block.next = ptr as *mut Block;
                 next.last = ptr as *mut Block;
-                if size <= mem::size_of::<Block>() {
+                if size < mem::size_of::<Block>() {
                     warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
                     return 0;
                 }
@@ -270,10 +270,10 @@ impl Manager {
         }
     }
 
-    unsafe fn allocate(&mut self, mut size: usize, align: usize) -> Option<*mut u8> {
+    unsafe fn allocate(&mut self, size: usize, align: usize) -> Option<*mut u8> {
         let mut block = self.free;
 
-        size = granularity(size, align);
+        let size = granularity(size, align);
 
         let mut aligned_base;
 
@@ -315,9 +315,6 @@ impl Manager {
                         } else {
                             // delete the block
                             trace!("deleting block");
-
-                            // this is at least as big as size
-                            size = block_ref.end as usize - aligned_base as usize;
 
                             if let Some(next) = block_ref.next.as_mut() {
                                 next.last = block_ref.last;
@@ -364,7 +361,8 @@ impl Manager {
         Some(aligned_base)
     }
 
-    unsafe fn release(&mut self, ptr: *mut u8, size: usize, _: usize) -> Option<usize> {
+    unsafe fn release(&mut self, ptr: *mut u8, size: usize, align: usize) -> Option<usize> {
+        let size = granularity(size, align);
         let registered_size = self.register(ptr, size);
         trace!("{}", registered_size);
 

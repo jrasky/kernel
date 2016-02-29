@@ -133,10 +133,13 @@ fn parse_command(item: &String, value: &String) {
             }
         } else if ch == ',' {
             if let Ok(level) = log::to_level(acc.as_ref()) {
+                trace!("{:?}", item);
                 log::set_level(level, item.as_ref().map(|filter| filter.as_ref()));
             } else {
                 warn!("Unknown log level: {}", acc);
             }
+
+            acc.clear();
         } else {
             acc.push(ch);
         }
@@ -144,6 +147,7 @@ fn parse_command(item: &String, value: &String) {
 
     if !acc.is_empty() {
         if let Ok(level) = log::to_level(acc.as_ref()) {
+            trace!("{:?}", item);
             log::set_level(level, item.as_ref().map(|filter| filter.as_ref()));
         } else {
             warn!("Unknown log level: {}", acc);

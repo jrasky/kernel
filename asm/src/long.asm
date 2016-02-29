@@ -20,18 +20,23 @@
     global _sysenter_execute
     global _swap_pages
     global _long_stack
+    global _fxsave_trap
+    global _fxsave_task
 
     extern kernel_main
     extern _boot_info
-    extern _fxsave_trap
-    extern _fxsave_task
     extern interrupt_breakpoint
     extern interrupt_general_protection_fault
     extern interrupt_page_fault
     extern sysenter_handler
 
     section .bss
+    align 16
 _fxsave_int:    resb 0x200
+    align 16
+_fxsave_trap:   resb 0x200
+    align 16
+_fxsave_task:   resb 0x200
     
 _long_stack_end:
     resb 0xf000

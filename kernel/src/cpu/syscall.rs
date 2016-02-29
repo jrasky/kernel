@@ -18,10 +18,15 @@ use constants::*;
 #[cfg(not(test))]
 extern "C" {
     fn _sysenter_landing(rsp: u64, branch: u64, argument: u64) -> !;
+    fn _syscall_landing(rsp: u64, branch: u64, argument: u64) -> !;
     fn _sysenter_return(rsp: u64, result: u64) -> !;
     fn _sysenter_launch(branch: u64, argument: u64) -> u64;
+    fn _syscall_launch(branch: u64, argument: u64) -> u64;
     fn _sysenter_execute(rsp: u64, callback: extern "C" fn(u64) -> u64, argument: u64) -> !;
 }
+
+#[no_mangle]
+pub static mut SYSCALL_STACK: u64 = 0;
 
 #[cfg(test)]
 unsafe fn _sysenter_landing(_: u64, _: u64, _: u64) -> ! {
@@ -53,12 +58,16 @@ unsafe fn _sysenter_launch(branch: u64, argument: u64) -> u64 {
 
 pub unsafe fn setup() -> Stack {
     // syscall handler doesn't need a huge stack
-    let stack = Stack::create(0x10000);
+    let stack = Stack::create(0xf000);
 
     // write MSRs
     cpu::write_msr(SYSENTER_CS_MSR, CORE_CS as u64);
     cpu::write_msr(SYSENTER_EIP_MSR, _sysenter_landing as u64);
     cpu::write_msr(SYSENTER_ESP_MSR, stack.get_ptr() as u64);
+
+    cpu::write_msr(STAR_MSR, (CORE_CS as u64) << 32);
+    cpu::write_msr(LSTAR_MSR, _syscall_landing as u64);
+    SYSCALL_STACK = stack.get_ptr() as u64;
 
     // return stack
     stack
@@ -67,14 +76,14 @@ pub unsafe fn setup() -> Stack {
 pub fn release() {
     trace!("release");
     unsafe {
-        _sysenter_launch(0, 0);
+        _syscall_launch(0, 0);
     }
 }
 
 pub fn exit() -> ! {
     trace!("exit");
     unsafe {
-        _sysenter_launch(0, 1);
+        _syscall_launch(0, 1);
     }
 
     unreachable!("Exited task restarted");
@@ -83,14 +92,14 @@ pub fn exit() -> ! {
 pub fn wait() {
     trace!("wait");
     unsafe {
-        _sysenter_launch(0, 2);
+        _syscall_launch(0, 2);
     }
 }
 
 pub fn log(request: &log::Request) {
     trace!("log");
     unsafe {
-        _sysenter_launch(1, request as *const _ as u64);
+        _syscall_launch(1, request as *const _ as u64);
     }
 }
 

@@ -22,6 +22,8 @@
     global _long_stack
     global _fxsave_trap
     global _fxsave_task
+    global _syscall_launch
+    global _syscall_landing
 
     extern kernel_main
     extern _boot_info
@@ -29,6 +31,7 @@
     extern interrupt_general_protection_fault
     extern interrupt_page_fault
     extern sysenter_handler
+    extern SYSCALL_STACK
 
     section .bss
     align 16
@@ -334,6 +337,10 @@ _do_execute:
     mov al, "E"
     jmp _error
 
+_syscall_landing:
+    ;; switch stack
+    mov rsp, QWORD [SYSCALL_STACK]
+
 _sysenter_landing:
     ;; align stack
     and rsp, -16
@@ -382,6 +389,37 @@ _sysenter_launch:
 .continue:
     pop rbp
     ret
+
+_syscall_launch:
+    push rbp
+    mov rbp, rsp
+
+    ;; move arguments around
+    mov rdx, rsi
+    mov rsi, rdi
+
+    ;; push iretq
+    xor rax, rax
+    mov ax, ss
+    push rax                    ;old ss
+    push rbp                    ;old rsp
+    pushfq                      ;flags
+    mov ax, cs                  
+    push rax                    ;old cs
+    push .continue              ;return instruction
+    mov rdi, rsp                ;return rsp
+
+    ;; rsi: branch
+    ;; rdx: argument
+    
+    syscall                     ;clobbers rcx, r11
+
+    ;; rax: result
+    
+.continue:
+    pop rbp
+    ret
+
 
 _sysenter_execute:
     ;; execute a function on another stack

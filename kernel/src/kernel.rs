@@ -73,7 +73,8 @@ pub use cpu::interrupt::{interrupt_breakpoint,
                          interrupt_page_fault};
 
 #[cfg(not(test))]
-pub use cpu::syscall::sysenter_handler;
+pub use cpu::syscall::{sysenter_handler,
+                       SYSCALL_STACK};
 
 extern "C" {
     static _gen_segments_size: u64;

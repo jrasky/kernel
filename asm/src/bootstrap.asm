@@ -118,12 +118,17 @@ _test_long_mode:
     jz .no_long_mode            ; Not set, no long mode
     test edx, 1 << 20           ; Test if NX bit is set in D
     jz .no_NX                   ; Not set, no NX protection
+    test edx, 1 << 11           ; Test if SYSCALL bit is set
+    jz .no_SC                   ; Not set, no syscall instruction
     ret
 .no_long_mode:
     mov al, "2"
     jmp _error
 .no_NX:
     mov al, "3"
+    jmp _error
+.no_SC:
+    mov al, "4"
     jmp _error
 
 _enable_paging:
@@ -139,6 +144,8 @@ _enable_paging:
     mov ecx, 0xC0000080
     rdmsr
     or eax, 0x9 << 8
+    ;; set the syscall bit in the EFER MSR
+    or eax, 0x1
     wrmsr
 
     ;; enable paging in the cr0 register

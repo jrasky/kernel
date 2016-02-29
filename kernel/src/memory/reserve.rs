@@ -82,7 +82,7 @@ impl Memory {
 impl MemoryInner {
     #[inline]
     fn belongs(&self, ptr: *mut u8) -> bool {
-        (ptr as usize) > self.slab.as_ptr() as usize && (ptr as usize) < unsafe {self.slab.as_ptr().offset(self.slab.len() as isize)} as usize
+        (ptr as usize) >= self.slab.as_ptr() as usize && (ptr as usize) < unsafe {self.slab.as_ptr().offset(self.slab.len() as isize)} as usize
     }
 
     unsafe fn allocate(&mut self, size: usize, align: usize) -> Option<*mut u8> {

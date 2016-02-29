@@ -25,5 +25,5 @@ pub fn on_boundary(base: usize, end: usize, align_to: usize) -> bool {
 
 #[inline]
 pub fn canonicalize(addr: usize) -> usize {
-    addr | ((0usize.wrapping_sub((addr & (1 << (CANONICAL_BITS - 1))) >> (CANONICAL_BITS - 1))) << CANONICAL_BITS)
+    addr | (0usize.wrapping_sub((addr >> (CANONICAL_BITS - 1)) & 1) << CANONICAL_BITS)
 }

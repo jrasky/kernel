@@ -313,7 +313,7 @@ fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, l
     memory::disable();
 
     logging::reserve_log(
-        format_args!("Double panic in {} ({}): {}\nWhile processing panic in {} ({}): {}",
+        format_args!("Double panic at {}({}): {}\nWhile processing panic at {}({}): {}",
                      file, line, msg,
                      original.file, original.line,
                      original.msg.unwrap_or(format_args!("No message"))));
@@ -328,7 +328,7 @@ fn triple_panic(file: &'static str, line: u32) -> ! {
     // disable memory
     memory::disable();
 
-    logging::reserve_log(format_args!("Triple panic in {} ({})", file, line));
+    logging::reserve_log(format_args!("Triple panic at {}({})", file, line));
 
     panic_halt();
 }

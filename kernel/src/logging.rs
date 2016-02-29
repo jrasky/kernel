@@ -315,6 +315,6 @@ pub fn reserve_log<T: Display>(message: T) {
     static mut WRITER: ReserveWriter = ReserveWriter::new(Color::LightGray, Color::Black);
 
     unsafe {
-        writeln!(WRITER, "{}", message);
+        writeln!(WRITER, "\n{}", message);
     }
 }

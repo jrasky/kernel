@@ -363,20 +363,12 @@ pub fn to_level(name: &str) -> Result<Option<usize>, ()> {
 
 // TODO: set up different locks for these different operations
 
-pub fn set_output(output: Option<Box<Output>>) {
-    if let Some(mut logger) = LOGGER.try_write() {
-        logger.set_output(output);
-    } else {
-        panic!("Tried to set output while logging");
-    }
-}
-
-pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V, message: T) {
+fn suppress<T>(callback: T) -> bool where T: FnOnce(&mut Logger) {
     static SUPPRESSED: AtomicUsize = AtomicUsize::new(0);
     static SUPPRESSED_INFO: AtomicBool = AtomicBool::new(false);
 
     if let Some(mut logger) = LOGGER.try_write() {
-        logger.log(level, location, target, message);
+        callback(&mut logger);
 
         let count = SUPPRESSED.swap(0, Ordering::Relaxed);
         if count > 0 {
@@ -388,15 +380,25 @@ pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V,
                 SUPPRESSED_INFO.store(false, Ordering::Relaxed);
             }
         }
+
+        false
     } else {
         SUPPRESSED.fetch_add(1, Ordering::Relaxed);
+
+        true
+    }
+}
+
+pub fn set_output(output: Option<Box<Output>>) {
+    suppress(|logger| logger.set_output(output));
+}
+
+pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V, message: T) {
+    if suppress(|logger| logger.log(level, location, &target, &message)) && level == 0 {
+        panic!("Suppressed {} {} at {}({}): {}", target, level_name(level), location.file, location.line, message);
     }
 }
 
 pub fn set_level(level: Option<usize>, filter: Option<&str>) {
-    if let Some(mut logger) = LOGGER.try_write() {
-        logger.set_level(level, filter);
-    } else {
-        panic!("Tried to set level while logging");
-    }
+    suppress(|logger| logger.set_level(level, filter));
 }

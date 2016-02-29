@@ -85,7 +85,7 @@ fn main() {
 
             trace!("Inserting segment: {:?}", segment);
 
-            max_paddr = cmp::max(max_paddr, align(phdr.paddr as usize + phdr.memsz as usize, 0x1000));
+            max_paddr = cmp::max(max_paddr, align(phdr.paddr as usize + phdr.memsz as usize, 0x200000));
 
             segments.push(segment.clone());
 

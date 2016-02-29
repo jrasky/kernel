@@ -22,3 +22,8 @@ pub const fn is_aligned(n: usize, to: usize) -> bool {
 pub fn on_boundary(base: usize, end: usize, align_to: usize) -> bool {
     align(base, align_to) <= align_back(end, align_to)
 }
+
+#[inline]
+pub fn canonicalize(addr: usize) -> usize {
+    addr | ((0usize.wrapping_sub((addr & (1 << (CANONICAL_BITS - 1))) >> (CANONICAL_BITS - 1))) << CANONICAL_BITS)
+}

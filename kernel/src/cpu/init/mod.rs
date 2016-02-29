@@ -26,18 +26,24 @@ extern "C" {
 
     fn _bp_handler();
     fn _gp_handler();
+    fn _pf_handler();
 }
 
 static mut CORE_PAGES: u64 = 0;
 
 #[cfg(test)]
-unsafe fn _bp_handler() {
+unsafe extern "C" fn _bp_handler() {
     unreachable!("Breakpoint handler reached");
 }
 
 #[cfg(test)]
-unsafe fn _gp_handler() {
+unsafe extern "C" fn _gp_handler() {
     unreachable!("General protection fault handler reached");
+}
+
+#[cfg(test)]
+unsafe extern "C" fn _pf_handler() {
+    unreachable!("Page fault handler reached");
 }
 
 /// Unsafe because dropping gdt or idt leaks a reference
@@ -74,9 +80,9 @@ pub unsafe fn setup() -> (gdt::Table, idt::Table, cpu::stack::Stack) {
     descriptors.push(idt::Descriptor::placeholder()); // 9
     descriptors.push(idt::Descriptor::placeholder()); // 10
     descriptors.push(idt::Descriptor::placeholder()); // 11
-    descriptors.push(idt::Descriptor::placeholder()); // 13
-    descriptors.push(idt::Descriptor::new(_gp_handler as u64, 0)); // 14
-    descriptors.push(idt::Descriptor::placeholder()); // 15
+    descriptors.push(idt::Descriptor::placeholder()); // 12
+    descriptors.push(idt::Descriptor::new(_gp_handler as u64, 0)); // 13
+    descriptors.push(idt::Descriptor::new(_pf_handler as u64, 0)); // 14
 
     let mut idt = idt::Table::new(descriptors);
 

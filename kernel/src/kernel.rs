@@ -69,7 +69,8 @@ pub use memory::{__rust_allocate,
 // pub use since we want to export
 #[cfg(not(test))]
 pub use cpu::interrupt::{interrupt_breakpoint,
-                         interrupt_general_protection_fault};
+                         interrupt_general_protection_fault,
+                         interrupt_page_fault};
 
 #[cfg(not(test))]
 pub use cpu::syscall::sysenter_handler;

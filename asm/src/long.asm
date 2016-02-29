@@ -11,6 +11,7 @@
     global _reload_segments
     global _bp_handler
     global _gp_handler
+    global _pf_handler
     global _do_execute
     global _load_context
     global _sysenter_landing
@@ -26,6 +27,7 @@
     extern _fxsave_task
     extern interrupt_breakpoint
     extern interrupt_general_protection_fault
+    extern interrupt_page_fault
     extern sysenter_handler
 
     section .bss
@@ -222,6 +224,10 @@ _bp_handler:
 _gp_handler:
     jmp .with_error             ;has an error code
     interrupt_handler interrupt_general_protection_fault
+
+_pf_handler:
+    jmp .with_error             ;has an error code
+    interrupt_handler interrupt_page_fault
 
 ;;; load context object
 _load_context:

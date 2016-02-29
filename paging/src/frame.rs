@@ -92,7 +92,7 @@ unsafe fn get_pointer(place: *mut u64, idx: isize) -> *mut u64 {
         ptr::write(place.offset(idx), entry);
     }
 
-    (entry & PAGE_ADDR_MASK) as *mut _
+    canonicalize((entry & PAGE_ADDR_MASK) as usize) as *mut _
 }
 
 // Overlap concerns virtual address only
@@ -281,6 +281,15 @@ impl Segment {
         }
     }
 
+    #[inline]
+    fn get_physical_subframe(&self, subframe_base: usize) -> usize {
+        if self.virtual_base > subframe_base {
+            self.physical_base + self.virtual_base - subframe_base
+        } else {
+            self.physical_base + subframe_base - self.virtual_base
+        }
+    }
+
     unsafe fn build_edge(&self, place: *mut u64, base: usize, size: FrameSize,
                              idx: usize, vbase: usize) -> bool {
         trace!("0x{:x}, 0x{:x}", idx, vbase);
@@ -288,7 +297,8 @@ impl Segment {
         if let Some(next) = size.get_next() {
             let subframe_base = base + (idx * size.get_pagesize() as usize);
             trace!("c 0x{:x}, 0x{:x}", subframe_base, vbase);
-            if (vbase >= subframe_base && vbase - subframe_base >= next.get_pagesize() as usize) ||
+            if !is_aligned(self.get_physical_subframe(subframe_base), size.get_pagesize() as usize) ||
+                (vbase >= subframe_base && vbase - subframe_base >= next.get_pagesize() as usize) ||
                 subframe_base - vbase >= next.get_pagesize() as usize
             {
                 // build a new table here
@@ -306,14 +316,6 @@ impl Segment {
 
         trace!("Creating page at 0x{:x} of size {:?}, idx 0x{:x}", subframe_base, size.get_pagesize(), idx);
 
-        let physical_base;
-
-        if self.virtual_base > subframe_base {
-            physical_base = self.physical_base + self.virtual_base - subframe_base;
-        } else {
-            physical_base = self.physical_base + subframe_base - self.virtual_base;
-        }
-
         let page = Page {
             write: self.write,
             user: self.user,
@@ -324,7 +326,7 @@ impl Segment {
             protection_key: 0,
             global: self.global,
             size: size.get_pagesize(),
-            base: physical_base
+            base: self.get_physical_subframe(subframe_base)
         };
 
         ptr::write(place.offset(idx as isize), page.get_entry());
@@ -349,12 +351,14 @@ impl Segment {
             return false;
         }
 
-        let min_edge = self.build_edge(place, base, size, min_idx, self.virtual_base);
+        if !self.build_edge(place, base, size, min_idx, self.virtual_base) {
+            self.build_page_at(place, base, size, min_idx);
+        }
 
         trace!("a 0x{:x}, 0x{:x}, {:?}", place as usize, base, size);
         trace!("0x{:x}, 0x{:x}", min_idx, max_idx);
 
-        if max_idx > min_idx + 1 || !min_edge {
+        if max_idx > min_idx + 1 {
             if !self.build_edge(place, base, size, max_idx - 1,
                                 align_back(self.virtual_base + self.size as usize, size.get_pagesize() as usize)) {
                 self.build_page_at(place, base, size, max_idx - 1);
@@ -363,8 +367,10 @@ impl Segment {
 
         trace!("b 0x{:x}, 0x{:x}, {:?}", place as usize, base, size);
 
-        for idx in min_idx..max_idx - 1 {
-            self.build_page_at(place, base, size, idx)
+        for idx in min_idx + 1..max_idx - 1 {
+            if !self.build_edge(place, base, size, idx, base + (idx * size.get_pagesize() as usize)) {
+                self.build_page_at(place, base, size, idx)
+            }
         }
 
         true

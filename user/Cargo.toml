@@ -1,0 +1,11 @@
+[package]
+name = "user"
+version = "0.1.0"
+authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
+build = "build.rs"
+
+[dependencies]
+log = {path = "../log"}
+
+[build-dependencies]
+nasm-rs = { git = "https://github.com/jrasky/nasm-rs" }

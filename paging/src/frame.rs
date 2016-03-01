@@ -64,6 +64,7 @@ pub struct Segment {
     physical_base: usize,
     virtual_base: usize,
     size: usize,
+    allocate: bool,
     write: bool,
     user: bool,
     execute: bool,
@@ -202,9 +203,13 @@ impl FrameSize {
 impl Segment {
     pub fn new(physical_base: usize, virtual_base: usize, size: usize,
                write: bool, user: bool, execute: bool, global: bool) -> Segment {
+        debug_assert!(is_aligned(physical_base, 0x1000), "Physical base was not page-aligned");
+        debug_assert!(is_aligned(virtual_base, 0x1000), "Virtual base was not aligned");
+
         Segment {
             physical_base: physical_base,
             virtual_base: virtual_base & ((1 << CANONICAL_BITS) - 1),
+            allocate: true,
             size: size,
             write: write,
             user: user,
@@ -236,6 +241,7 @@ impl Segment {
         Segment {
             physical_base: data.physical_base,
             virtual_base: data.virtual_base,
+            allocate: true,
             size: data.size,
             write: (data.flags & 1 << 0) == 1 << 0,
             user: (data.flags & 1 << 1) == 1 << 1,
@@ -378,6 +384,10 @@ impl Segment {
 
     #[inline]
     pub unsafe fn build_into(&self, place: *mut u64) -> bool {
+        if !self.allocate {
+            return false;
+        }
+
         let min_idx = align_back(self.virtual_base, FrameSize::Giant as usize)
             >> FrameSize::Giant.get_shift();
         let max_idx = align(self.virtual_base + self.size, FrameSize::Giant as usize)

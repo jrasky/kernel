@@ -5,11 +5,12 @@ ASM_DIR = ./asm
 STAGE2_DIR = ./stage2
 LOG_DIR = ./log
 PAGING_DIR = ./paging
+USER_DIR = ./user
 
 GEN_DIR = $(TARGET_DIR)/gen
 ISO_DIR = $(TARGET_DIR)/iso
 
-KERNEL_SOURCES = $(shell find $(KERNEL_DIR)/src -name '*.rs')
+KERNEL_SOURCES = $(shell find $(KERNEL_DIR)/src -name '*.rs') $(shell find $(USER_DIR)/src -name "*.rs") $(shell find $(USER_DIR)/src -name "*.asm")
 KERNEL_TARGET = $(KERNEL_DIR)/target/debug
 KERNEL = $(TARGET_DIR)/kernel.elf
 KERNEL_LINK = $(LIB_DIR)/link.ld

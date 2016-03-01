@@ -20,7 +20,6 @@ extern "C" {
     fn _sysenter_landing(rsp: u64, branch: u64, argument: u64) -> !;
     fn _syscall_landing(rsp: u64, branch: u64, argument: u64) -> !;
     fn _sysenter_return(rsp: u64, result: u64) -> !;
-    fn _sysenter_launch(branch: u64, argument: u64) -> u64;
     fn _syscall_launch(branch: u64, argument: u64) -> u64;
     fn _sysenter_execute(rsp: u64, callback: extern "C" fn(u64) -> u64, argument: u64) -> !;
 }
@@ -43,19 +42,6 @@ unsafe fn _sysenter_execute(_: u64, callback: extern "C" fn(u64) -> u64, argumen
     panic!(callback(argument));
 }
 
-#[cfg(test)]
-unsafe fn _sysenter_launch(branch: u64, argument: u64) -> u64 {
-    if let Err(result) = panic::recover( || sysenter_handler(0, branch, argument)) {
-        if let Some(result) = result.downcast_ref::<u64>() {
-            *result
-        } else {
-            panic!("syscall panicked");
-        }
-    } else {
-        panic!("syscall did not panic");
-    }
-}
-
 pub unsafe fn setup() -> Stack {
     // syscall handler doesn't need a huge stack
     let stack = Stack::create(0xf000);
@@ -71,36 +57,6 @@ pub unsafe fn setup() -> Stack {
 
     // return stack
     stack
-}
-
-pub fn release() {
-    trace!("release");
-    unsafe {
-        _syscall_launch(0, 0);
-    }
-}
-
-pub fn exit() -> ! {
-    trace!("exit");
-    unsafe {
-        _syscall_launch(0, 1);
-    }
-
-    unreachable!("Exited task restarted");
-}
-
-pub fn wait() {
-    trace!("wait");
-    unsafe {
-        _syscall_launch(0, 2);
-    }
-}
-
-pub fn log(request: &log::Request) {
-    trace!("log");
-    unsafe {
-        _syscall_launch(1, request as *const _ as u64);
-    }
 }
 
 extern "C" fn release_callback(_: u64) -> u64 {

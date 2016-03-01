@@ -360,67 +360,6 @@ _sysenter_return:
     mov al, "R"
     jmp _error
 
-_sysenter_launch:
-    push rbp
-    mov rbp, rsp
-
-    ;; move arguments around
-    mov rdx, rsi
-    mov rsi, rdi
-
-    ;; push iretq
-    xor rax, rax
-    mov ax, ss
-    push rax                    ;old ss
-    push rbp                    ;old rsp
-    pushfq                      ;flags
-    mov ax, cs                  
-    push rax                    ;old cs
-    push .continue              ;return instruction
-    mov rdi, rsp                ;return rsp
-
-    ;; rsi: branch
-    ;; rdx: argument
-    
-    sysenter
-
-    ;; rax: result
-    
-.continue:
-    pop rbp
-    ret
-
-_syscall_launch:
-    push rbp
-    mov rbp, rsp
-
-    ;; move arguments around
-    mov rdx, rsi
-    mov rsi, rdi
-
-    ;; push iretq
-    xor rax, rax
-    mov ax, ss
-    push rax                    ;old ss
-    push rbp                    ;old rsp
-    pushfq                      ;flags
-    mov ax, cs                  
-    push rax                    ;old cs
-    push .continue              ;return instruction
-    mov rdi, rsp                ;return rsp
-
-    ;; rsi: branch
-    ;; rdx: argument
-    
-    syscall                     ;clobbers rcx, r11
-
-    ;; rax: result
-    
-.continue:
-    pop rbp
-    ret
-
-
 _sysenter_execute:
     ;; execute a function on another stack
     ;; then return to original procedure

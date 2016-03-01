@@ -23,6 +23,7 @@ extern crate elfloader;
 #[macro_use]
 extern crate log;
 extern crate paging;
+extern crate user;
 
 #[cfg(not(test))]
 use core::fmt;
@@ -102,11 +103,11 @@ extern "C" fn test_task() -> ! {
 
     gate.add_task(task);
 
-    cpu::syscall::release();
+    user::release();
 
     for x in 0..7 {
         info!("x: {}", x);
-        cpu::syscall::release();
+        user::release();
     }
 
     info!("Unblocking other task...");
@@ -114,7 +115,7 @@ extern "C" fn test_task() -> ! {
     gate.finish();
 
     info!("Task 1 done!");
-    cpu::syscall::exit();
+    user::exit();
 }
 
 #[cfg(not(test))]
@@ -131,24 +132,24 @@ extern "C" fn test_task_2() -> ! {
     };
 
     request.message = format!("Hello from another task!");
-    cpu::syscall::log(&request);
+    user::log(&request);
 
     request.message = format!("Waiting...");
-    cpu::syscall::log(&request);
+    user::log(&request);
 
-    cpu::syscall::wait();
+    user::wait();
 
     info!("Unblocked!");
 
     for x2 in 0..5 {
         request.message = format!("x2: {}", x2);
-        cpu::syscall::log(&request);
-        cpu::syscall::release();
+        user::log(&request);
+        user::release();
     }
 
     request.message = format!("Task 2 done!");
-    cpu::syscall::log(&request);
-    cpu::syscall::exit();
+    user::log(&request);
+    user::exit();
 }
 
 #[cfg(not(test))]
@@ -176,29 +177,58 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
     debug!("Done parsing tags");
 
-    // create a heap mapping
-    let mut next_vaddr = HEAP_BEGIN;
+    // try to create an initial heap
+    let mut initial_heap = None;
 
-    for (mut base, mut size) in memory_regions {
+    // create a heap mapping
+    for (mut base, mut size) in memory_regions.iter().cloned() {
         if base < _gen_max_paddr as usize {
             size -= _gen_max_paddr as usize - base;
             base = _gen_max_paddr as usize;
         }
 
-        trace!("Buliding segment 0x{:x} -> 0x{:x} size 0x{:x}", next_vaddr, base, size);
+        if size >= 0x200000 {
+            initial_heap = Some(paging::Region::new(base, 0x200000));
+            break;
+        }
 
-        // write, !user, !execute, !global
-        let segment = paging::Segment::new(base, next_vaddr, size,
+    }
+
+    if let Some(region) = initial_heap {
+        let segment = paging::Segment::new(region.base(), HEAP_BEGIN, region.size(),
                                            true, false, false, false);
 
         unsafe {
-            // register the section in the page tables
             assert!(segment.build_into(_gen_page_tables as *mut _),
                     "failed to build segment");
 
-            // register the region with memory
-            memory::register(next_vaddr as *mut _, size)
-        };
+            memory::register(HEAP_BEGIN as *mut _, region.size());
+        }
+    } else {
+        panic!("No memory found");
+    }
+
+    // create our allocators
+    let mut vmem = paging::Allocator::new();
+    let mut pmem = paging::Allocator::new();
+
+    // allocate our initial heap
+    assert!(vmem.set_used(paging::Region::new(HEAP_BEGIN, 0x200000)));
+    assert!(pmem.set_used(initial_heap.unwrap()));
+
+    let mut next_vaddr = HEAP_BEGIN + 0x200000;
+
+    for (mut base, mut size) in memory_regions {
+        if base < _gen_max_paddr as usize + 0x200000 {
+            if size < 0x200000 {
+                continue;
+            } else {
+                size -= _gen_max_paddr as usize + 0x200000 - base;
+                base = _gen_max_paddr as usize + 0x200000;
+            }
+        }
+
+        assert!(vmem.register(paging::Region::new(base, size)));
 
         // compute the next vaddr
         next_vaddr = align(next_vaddr + size, 0x1000);

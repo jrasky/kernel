@@ -13,6 +13,7 @@ spin = "*"
 elfloader = "*"
 log = { path = "../log" }
 paging = { path = "../paging" }
+user = { path = "../user" }
 
 [target]
 custom_unwind_resume = {}

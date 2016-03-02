@@ -16,7 +16,8 @@ _syscall_launch:
     pushfq                      ;flags
     mov ax, cs
     push rax                    ;old cs
-    push .continue              ;return instruction
+    lea rax, [rel .continue]
+    push rax                    ;return instruction
     mov rdi, rsp                ;return rsp
 
     ;; rsi: branch

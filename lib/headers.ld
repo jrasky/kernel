@@ -8,6 +8,9 @@ MEMORY {
     rodata (ar ! xw) : ORIGIN = 4M - 0x80000000, LENGTH = 2M
     data (aw ! x)    : ORIGIN = 6M - 0x80000000, LENGTH = 2M
     bss (a ! ix)     : ORIGIN = 8M - 0x80000000, LENGTH = 2M
+
+    user_text        : ORIGIN = 4M, LENGTH = 2M
+    user_data        : ORIGIN = 6M, LENGTH = 2M
 }
 
 PHDRS {
@@ -16,4 +19,6 @@ PHDRS {
     rodata PT_LOAD FLAGS(4);
     data PT_LOAD FLAGS(6);
     bss PT_LOAD FLAGS(6);
+    user_text PT_LOAD FLAGS(5);
+    user_data PT_LOAD FLAGS(6);
 }

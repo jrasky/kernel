@@ -78,6 +78,8 @@ pub use cpu::syscall::{sysenter_handler,
                        SYSCALL_STACK};
 
 extern "C" {
+    fn test_task_entry() -> !;
+
     static _gen_segments_size: u64;
     static _gen_max_paddr: u64;
     static _gen_page_tables: u64;
@@ -91,7 +93,7 @@ struct PanicInfo {
 }
 
 #[cfg(not(test))]
-extern "C" fn test_task() -> ! {
+unsafe extern "C" fn test_task() -> ! {
     info!("Hello from a task!");
 
     info!("Spawning another task...");
@@ -119,7 +121,7 @@ extern "C" fn test_task() -> ! {
 }
 
 #[cfg(not(test))]
-extern "C" fn test_task_2() -> ! {
+unsafe extern "C" fn test_task_2() -> ! {
     let mut request = log::Request {
         level: 3,
         location: log::Location {
@@ -208,6 +210,14 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
         panic!("No memory found");
     }
 
+    let segment = paging::Segment::new(0x400000, 0x400000, 0x400000,
+                                       true, true, true, false);
+
+    unsafe {
+        assert!(segment.build_into(_gen_page_tables as *mut _),
+                "failed to build segment");
+    }
+
     // create our allocators
     let mut vmem = paging::Allocator::new();
     let mut pmem = paging::Allocator::new();
@@ -255,6 +265,9 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
     // start some tasks
     cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task,
+                                           cpu::stack::Stack::create(0x10000)));
+
+    cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_entry,
                                            cpu::stack::Stack::create(0x10000)));
 
     loop {

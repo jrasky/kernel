@@ -36,7 +36,7 @@ unsafe fn _do_execute(regs: *const Regs, core_regs: *mut Regs) {
     debug!("_do_execute(regs: {:?}, core_regs: {:?})", regs, core_regs);
 }
 
-extern "C" fn _dummy_entry() -> ! {
+unsafe extern "C" fn _dummy_entry() -> ! {
     unreachable!("Tried to entry dummy entry");
 }
 
@@ -144,7 +144,7 @@ pub struct TaskRef {
 struct TaskInner {
     context: Context,
     #[allow(dead_code)]
-    entry: extern "C" fn() -> !,
+    entry: unsafe extern "C" fn() -> !,
     #[allow(dead_code)]
     level: PrivilegeLevel,
     #[allow(dead_code)]
@@ -266,7 +266,7 @@ impl TaskRef {
 
 impl Task {
     #[inline]
-    pub fn create(level: PrivilegeLevel, entry: extern "C" fn() -> !, stack: Stack) -> Task {
+    pub fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !, stack: Stack) -> Task {
         Task { 
             inner: Arc::new(UnsafeCell::new(TaskInner::create(level, entry, stack)))
         }
@@ -628,7 +628,7 @@ impl Context {
 }
 
 impl TaskInner {
-    pub fn create(level: PrivilegeLevel, entry: extern "C" fn() -> !, stack: Stack) -> TaskInner {
+    pub fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !, stack: Stack) -> TaskInner {
         // create a blank context
         let mut context = Context::empty();
 

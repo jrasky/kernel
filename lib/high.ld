@@ -1,3 +1,15 @@
+/* user text */
+.user_text ORIGIN(user_text) : ALIGN(4K) {
+    KEEP(lib/test (.text*))
+    KEEP(lib/test (.rodata*))
+} > user_text :user_text
+
+/* user data */
+.user_data ORIGIN(user_data) : ALIGN(4K) {
+    KEEP(lib/test (.data*))
+    KEEP(lib/test (.bss*))
+} > user_data :user_data
+
 /* first the multiboot header */
 .text ORIGIN(text) : ALIGN(4K) {
     _kernel_top = .;

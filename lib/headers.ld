@@ -10,7 +10,7 @@ MEMORY {
     bss (a ! ix)     : ORIGIN = 8M - 0x80000000, LENGTH = 2M
 
     user_text        : ORIGIN = 4M, LENGTH = 2M
-    user_data        : ORIGIN = 6M, LENGTH = 2M
+    user_data        : ORIGIN = 0x606000, LENGTH = 2M - 0x6000
 }
 
 PHDRS {

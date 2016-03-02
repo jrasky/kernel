@@ -133,7 +133,7 @@ fn main() {
         "    section .gen_pages\n",
         "    incbin \"{}\"\n",
 
-        "    section .rodata\n",
+        "    section .gen_data\n",
         "_gen_segments_size:\n",
         "    dq {}\n",
         "_gen_max_paddr:\n",

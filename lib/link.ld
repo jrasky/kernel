@@ -25,6 +25,7 @@ SECTIONS {
         * (.boot_rodata)
         * (.boot_data)
         * (.gen_text)
+        * (.gen_data)
         _boot_data = .;
         * (.boot_bss)
     } > boot :boot

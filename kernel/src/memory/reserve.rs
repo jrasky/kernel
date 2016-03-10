@@ -29,6 +29,8 @@ use std::u64;
 
 use constants::*;
 
+use super::MemoryError;
+
 #[cfg(not(test))]
 extern "C" {
     static _slab: u64;
@@ -85,7 +87,7 @@ impl MemoryInner {
         (ptr as usize) >= self.slab.as_ptr() as usize && (ptr as usize) < unsafe {self.slab.as_ptr().offset(self.slab.len() as isize)} as usize
     }
 
-    unsafe fn allocate(&mut self, size: usize, align: usize) -> Option<*mut u8> {
+    unsafe fn allocate(&mut self, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
         // round up to the number of blocks we need to allocate
         let blocks = (size + 7) / 8;
 
@@ -97,7 +99,7 @@ impl MemoryInner {
             // check for oom
             if pos >= (RESERVE_SLAB_SIZE + 7) / 8 {
                 error!("Failed to allocate reserve memory");
-                return None;
+                return Err(MemoryError::OutOfMemory);
             }
 
             // check for free blocks
@@ -135,7 +137,7 @@ impl MemoryInner {
                 let base = self.slab.get_mut(start).unwrap() as *mut _ as *mut u8;
 
                 // return the pointer of interest
-                return Some(base);
+                return Ok(base);
             }
 
             // increment our position
@@ -148,7 +150,7 @@ impl MemoryInner {
         }
     }
 
-    unsafe fn release(&mut self, ptr: *mut u8, size: usize, _: usize) -> Option<usize> {
+    unsafe fn release(&mut self, ptr: *mut u8, size: usize, _: usize) -> Result<usize, MemoryError> {
         let blocks = (size + 7) / 8;
 
         let start = (ptr as usize) - (self.slab.as_ptr() as usize);
@@ -167,13 +169,13 @@ impl MemoryInner {
         }
 
         // successfully freed memory
-        Some(size)
+        Ok(size)
     }
 
-    unsafe fn shrink(&mut self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
+    unsafe fn shrink(&mut self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<(), MemoryError> {
         if granularity(old_size, align) <= size {
             // nothing to do
-            return true;
+            return Ok(());
         }
 
         let start = (ptr as usize) - (self.slab.as_ptr() as usize);
@@ -189,17 +191,17 @@ impl MemoryInner {
                 pos += 1;
             }
 
-            // mark the block sa free
+            // mark the block as free
             self.map[pos] &= !(1 << subpos);
         }
 
-        true
+        Ok(())
     }
 
-    unsafe fn grow(&mut self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
+    unsafe fn grow(&mut self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<(), MemoryError> {
         if granularity(old_size, align) >= size {
             // nothing to do
-            return true;
+            return Ok(());
         }
 
         let start = (ptr as usize) - (self.slab.as_ptr() as usize);
@@ -232,14 +234,14 @@ impl MemoryInner {
                 }
 
                 // failed to grow
-                return false;
+                return Err(MemoryError::OutOfSpace);
             }
 
             subpos += 1;
         }
 
         // successfully grew the allocation
-        true
+        Ok(())
     }
 
     unsafe fn resize(&mut self,
@@ -247,29 +249,30 @@ impl MemoryInner {
                      old_size: usize,
                      size: usize,
                      align: usize)
-                     -> Option<*mut u8> {
+                     -> Result<*mut u8, MemoryError> {
 
+        // TODO: actually treat errors in here separately
         if size > granularity(old_size, align) {
-            if self.grow(ptr, old_size, size, align) {
-                return Some(ptr);
+            if self.grow(ptr, old_size, size, align).is_ok() {
+                return Ok(ptr);
             }
         } else if granularity(old_size, align) < old_size {
-            if self.shrink(ptr, old_size, size, align) {
-                return Some(ptr);
+            if self.shrink(ptr, old_size, size, align).is_ok() {
+                return Ok(ptr);
             }
         }
 
         // otherwise we need to create a new allocation
         match self.release(ptr, old_size, align) {
-            None => {
-                error!("Failed to free pointer on resize");
-                return None;
+            Err(e) => {
+                error!("Failed to free pointer on resize: {}", e);
+                return Err(e);
             }
-            Some(_) => {}
+            Ok(_) => {}
         }
 
         let new_ptr = match self.allocate(size, align) {
-            None => {
+            Err(_) => {
                 // roll back
                 let blocks = (old_size + 7) / 8;
                 let start = (ptr as usize) - (self.slab.as_ptr() as usize);
@@ -288,9 +291,9 @@ impl MemoryInner {
                 }
 
                 // fail, but original allocation is still intact
-                return None;
+                return Err(MemoryError::OutOfMemory);
             }
-            Some(new_ptr) => new_ptr,
+            Ok(new_ptr) => new_ptr,
         };
 
         // only one thread can ever be here at a time, so it's safe
@@ -298,7 +301,7 @@ impl MemoryInner {
         ptr::copy(ptr as *mut u8, new_ptr as *mut u8, old_size);
 
         // success!
-        Some(new_ptr)
+        Ok(new_ptr)
     }
 }
 
@@ -308,35 +311,35 @@ pub fn belongs(ptr: *mut u8) -> bool {
 }
 
 #[inline]
-pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut u8> {
+pub unsafe fn allocate(size: usize, align: usize) -> Result<*mut u8, MemoryError> {
     let result = RESERVE.borrow_mut().allocate(size, align);
     RESERVE.lock();
     result
 }
 
 #[inline]
-pub unsafe fn release(ptr: *mut u8, size: usize, align: usize) -> Option<usize> {
+pub unsafe fn release(ptr: *mut u8, size: usize, align: usize) -> Result<usize, MemoryError> {
     let result = RESERVE.borrow_mut().release(ptr, size, align);
     RESERVE.lock();
     result
 }
 
 #[inline]
-pub unsafe fn grow(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
+pub unsafe fn grow(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<(), MemoryError> {
     let result = RESERVE.borrow_mut().grow(ptr, old_size, size, align);
     RESERVE.lock();
     result
 }
 
 #[inline]
-pub unsafe fn shrink(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
+pub unsafe fn shrink(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<(), MemoryError> {
     let result = RESERVE.borrow_mut().shrink(ptr, old_size, size, align);
     RESERVE.lock();
     result
 }
 
 #[inline]
-pub unsafe fn resize(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Option<*mut u8> {
+pub unsafe fn resize(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
     let result = RESERVE.borrow_mut().resize(ptr, old_size, size, align);
     RESERVE.lock();
     result

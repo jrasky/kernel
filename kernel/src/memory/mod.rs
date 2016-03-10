@@ -7,13 +7,29 @@ use core::sync::atomic::{Ordering, AtomicBool};
 use std::sync::atomic::{Ordering, AtomicBool};
 
 #[cfg(not(test))]
+use core::marker::Reflect;
+#[cfg(test)]
+use std::marker::Reflect;
+
+#[cfg(not(test))]
 use core::ptr;
 #[cfg(test)]
 use std::ptr;
 
+#[cfg(not(test))]
+use core::fmt;
+#[cfg(test)]
+use core::fmt;
+
+#[cfg(not(test))]
+use core::fmt::Display;
+#[cfg(test)]
+use std::fmt::Display;
+
 use alloc;
 
 use constants::*;
+use error::Error;
 
 // Reserve memory
 mod reserve;
@@ -33,11 +49,47 @@ struct Manager {
     use_reserve: AtomicBool
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemoryError {
+    OutOfMemory,
+    OutOfSpace,
+    Disabled,
+    EmptyAllocation,
+    TinyBlock,
+    NoPlace,
+    Overlap
+}
+
+impl Reflect for MemoryError {}
+
+impl Display for MemoryError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "MemoryError: {}", self.description())
+    }
+}
+
+impl Error for MemoryError {
+    fn description(&self) -> &str {
+        use memory::MemoryError::*;
+        match self {
+            &OutOfMemory => "Out of memory",
+            &OutOfSpace => "In-place realloc ran out of space",
+            &Disabled => "Memory disabled",
+            &EmptyAllocation => "Empty allocation",
+            &TinyBlock => "Block was too small",
+            &NoPlace => "Could not place memory region",
+            &Overlap => "Overlap in memory region"
+        }
+    }
+}
+
 impl Manager {
+    #[inline]
     fn is_enabled(&self) -> bool {
         self.enabled.load(Ordering::Relaxed)
     }
 
+    #[inline]
     fn disable(&self) {
         self.enabled.store(false, Ordering::Relaxed);
     }
@@ -49,30 +101,33 @@ impl Manager {
         self.enabled.store(true, Ordering::Relaxed);
     }
 
-    unsafe fn register(&self, ptr: *mut u8, size: usize) -> usize {
+    #[inline]
+    fn enabled(&self) -> Result<(), MemoryError> {
         if self.is_enabled() {
-            // don't register with reserve
-            simple::register(ptr, size)
+            Ok(())
         } else {
-            0
+            Err(MemoryError::Disabled)
         }
     }
 
-    unsafe fn forget(&self, ptr: *mut u8, size: usize) -> usize {
-        if self.is_enabled() {
-            // don't forget from reserve
-            simple::forget(ptr, size)
-        } else {
-            0
-        }
+    unsafe fn register(&self, ptr: *mut u8, size: usize) -> Result<usize, MemoryError> {
+        try!(self.enabled());
+
+        simple::register(ptr, size)
     }
 
-    unsafe fn allocate(&self, size: usize, align: usize) -> Option<*mut u8> {
-        if !self.is_enabled() {
-            None
-        } else if size == 0 {
+    unsafe fn forget(&self, ptr: *mut u8, size: usize) -> Result<usize, MemoryError> {
+        try!(self.enabled());
+
+        simple::forget(ptr, size)
+    }
+
+    unsafe fn allocate(&self, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
+        try!(self.enabled());
+
+        if size == 0 {
             warn!("Tried to allocate zero bytes");
-            Some(ptr::null_mut())
+            Err(MemoryError::EmptyAllocation)
         } else {
             if self.use_reserve.load(Ordering::Relaxed) {
                 reserve::allocate(size, align)
@@ -82,28 +137,22 @@ impl Manager {
         }
     }
 
-    unsafe fn release(&self, ptr: *mut u8, size: usize, align: usize) -> Option<usize> {
-        if !self.is_enabled() {
-            return None;
-        }
+    unsafe fn release(&self, ptr: *mut u8, size: usize, align: usize) -> Result<usize, MemoryError> {
+        try!(self.enabled());
 
         if ptr.is_null() {
             // do nothing
             warn!("Tried to free a null pointer");
-            return Some(0);
-        }
-
-        if reserve::belongs(ptr) {
+            Err(MemoryError::EmptyAllocation)
+        } else if reserve::belongs(ptr) {
             reserve::release(ptr, size, align)
         } else {
             simple::release(ptr, size, align)
         }
     }
 
-    unsafe fn grow(&self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
-        if !self.is_enabled() {
-            return false;
-        }
+    unsafe fn grow(&self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<(), MemoryError> {
+        try!(self.enabled());
 
         if reserve::belongs(ptr) {
             reserve::grow(ptr, old_size, size, align)
@@ -112,10 +161,8 @@ impl Manager {
         }
     }
 
-    unsafe fn shrink(&self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
-        if !self.is_enabled() {
-            return false;
-        }
+    unsafe fn shrink(&self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<(), MemoryError> {
+        try!(self.enabled());
 
         if reserve::belongs(ptr) {
             reserve::shrink(ptr, old_size, size, align)
@@ -124,10 +171,8 @@ impl Manager {
         }
     }
 
-    unsafe fn resize(&self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Option<*mut u8> {
-        if !self.is_enabled() {
-            return None;
-        }
+    unsafe fn resize(&self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
+        try!(self.enabled());
 
         if reserve::belongs(ptr) {
             reserve::resize(ptr, old_size, size, align)
@@ -157,38 +202,38 @@ impl Manager {
 }
 
 #[inline]
-pub unsafe fn register(ptr: *mut u8, size: usize) -> usize {
+pub unsafe fn register(ptr: *mut u8, size: usize) -> Result<usize, MemoryError> {
     MEMORY.register(ptr, size)
 }
 
 #[inline]
 #[allow(dead_code)] // included for completeness
-pub unsafe fn forget(ptr: *mut u8, size: usize) -> usize {
+pub unsafe fn forget(ptr: *mut u8, size: usize) -> Result<usize, MemoryError> {
     MEMORY.forget(ptr, size)
 }
 
 #[inline]
-pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut u8> {
+pub unsafe fn allocate(size: usize, align: usize) -> Result<*mut u8, MemoryError> {
     MEMORY.allocate(size, align)
 }
 
 #[inline]
-pub unsafe fn release(ptr: *mut u8, size: usize, align: usize) -> Option<usize> {
+pub unsafe fn release(ptr: *mut u8, size: usize, align: usize) -> Result<usize, MemoryError> {
     MEMORY.release(ptr, size, align)
 }
 
 #[inline]
-pub unsafe fn grow(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
+pub unsafe fn grow(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<(), MemoryError> {
     MEMORY.grow(ptr, old_size, size, align)
 }
 
 #[inline]
-pub unsafe fn shrink(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
+pub unsafe fn shrink(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<(), MemoryError> {
     MEMORY.shrink(ptr, old_size, size, align)
 }
 
 #[inline]
-pub unsafe fn resize(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Option<*mut u8> {
+pub unsafe fn resize(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
     MEMORY.resize(ptr, old_size, size, align)
 }
 
@@ -236,12 +281,15 @@ pub extern "C" fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
         panic!("Tried to allocate with memory disabled");
     }
 
-    if let Some(ptr) = unsafe {allocate(size, align)} {
-        trace!("Allocated at: {:?}", ptr);
-        ptr as *mut _
-    } else {
-        critical!("Out of memory");
-        ptr::null_mut()
+    match unsafe {allocate(size, align)} {
+        Ok(ptr) => {
+            trace!("Allocate at: {:?}", ptr);
+            ptr as *mut _
+        },
+        Err(error) => {
+            critical!("Could not allocate: {}", error);
+            ptr::null_mut()
+        }
     }
 }
 
@@ -252,8 +300,8 @@ pub extern "C" fn __rust_deallocate(ptr: *mut u8, size: usize, align: usize) {
         panic!("Tried to release with memory disabled");
     }
 
-    if unsafe {release(ptr as *mut _, size, align)}.is_none() {
-        critical!("Failed to release pointer: {:?}", ptr);
+    if let Err(e) = unsafe {release(ptr as *mut _, size, align)} {
+        critical!("Failed to release pointer {:?}: {}", ptr, e);
     }
 }
 
@@ -264,12 +312,15 @@ pub extern "C" fn __rust_reallocate(ptr: *mut u8, old_size: usize, size: usize, 
         panic!("Tried to reallocate with memory disabled");
     }
 
-    if let Some(new_ptr) = unsafe {resize(ptr as *mut _, old_size, size, align)} {
-        trace!("Reallocated to: {:?}", new_ptr);
-        new_ptr as *mut _
-    } else {
-        critical!("Failed to reallocate");
-        ptr::null_mut()
+    match unsafe {resize(ptr as *mut _, old_size, size, align)} {
+        Ok(new_ptr) => {
+            trace!("Reallocated to: {:?}", new_ptr);
+            new_ptr as *mut _
+        },
+        Err(e) => {
+            critical!("Failed to reallocate: {}", e);
+            ptr::null_mut()
+        }
     }
 }
 
@@ -281,18 +332,18 @@ pub extern "C" fn __rust_reallocate_inplace(ptr: *mut u8, old_size: usize, size:
     }
 
     if size > old_size {
-        if unsafe {grow(ptr as *mut _, old_size, size, align)} {
-            granularity(size, align)
-        } else {
-            critical!("Failed to reallocate inplace");
+        if let Err(e) = unsafe {grow(ptr as *mut _, old_size, size, align)} {
+            critical!("Failed to reallocate inplace: {}", e);
             granularity(old_size, align)
+        } else {
+            granularity(size, align)
         }
     } else if size < old_size {
-        if unsafe {shrink(ptr as *mut _, old_size, size, align)} {
-            granularity(size, align)
-        } else {
-            critical!("Failed to reallocate inplace");
+        if let Err(e) = unsafe {shrink(ptr as *mut _, old_size, size, align)} {
+            critical!("Failed to reallocate inplace: {}", e);
             granularity(old_size, align)
+        } else {
+            granularity(size, align)
         }
     } else {
         // noop

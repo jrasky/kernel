@@ -1,6 +1,8 @@
 use collections::BTreeMap;
 use collections::Bound::{Included, Unbounded};
 
+use collections::btree_map;
+
 use allocator::Region;
 
 pub struct Map {
@@ -15,18 +17,24 @@ impl Map {
     }
 
     pub fn map(&mut self, from: Region, to: Region) -> bool {
-        self.entries.insert(virt, phys)
+        match self.entries.entry(from) {
+            btree_map::Entry::Vacant(entry) => {
+                entry.insert(to);
+                true
+            },
+            _ => false
+        }
     }
 
     pub fn unmap(&mut self, from: &Region) -> bool {
-        self.entries.remove(virt)
+        self.entries.remove(from).is_some()
     }
 
     pub fn translate(&self, addr: usize) -> Option<usize> {
         // create a dummy region
         let dummy = Region::new(addr, 0);
 
-        if let Some(from, to) = self.entries.range(Included(&dummy), Included(&dummy)).next() {
+        if let Some((from, to)) = self.entries.range(Included(&dummy), Included(&dummy)).next() {
             Some((to.base() as isize + (addr as isize - from.base() as isize)) as usize)
         } else {
             None

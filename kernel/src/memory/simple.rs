@@ -17,6 +17,8 @@ use spin::Mutex;
 use constants::*;
 use constants;
 
+use super::MemoryError;
+
 static MEMORY: Mutex<Manager> = Mutex::new(Manager::new());
 
 #[derive(Debug, Clone, Copy)]
@@ -38,7 +40,7 @@ impl Manager {
         }
     }
 
-    unsafe fn register(&mut self, ptr: *mut u8, size: usize) -> usize {
+    unsafe fn register(&mut self, ptr: *mut u8, size: usize) -> Result<usize, MemoryError> {
         debug_assert!(!ptr.is_null(), "Tried to register a null block");
 
         trace!("Registering block at {:#x} of size {:#x}", ptr as usize, size);
@@ -46,7 +48,7 @@ impl Manager {
         if self.free.is_null() {
             if size < mem::size_of::<Block>() {
                 warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
-                return 0;
+                return Err(MemoryError::TinyBlock);
             }
             self.free = ptr as *mut _;
             *self.free.as_mut().unwrap() = Block {
@@ -61,7 +63,7 @@ impl Manager {
             trace!("{:?}", self.free.as_mut().unwrap().next);
             trace!("{:?}", self.free.as_mut().unwrap().last);
 
-            return size;
+            return Ok(size);
         }
 
         let base = (ptr as *mut Block).offset(1) as *mut u8;
@@ -77,7 +79,7 @@ impl Manager {
             trace!("before");
             if size < mem::size_of::<Block>() {
                 warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
-                return 0;
+                return Err(MemoryError::TinyBlock);
             }
             self.free = ptr as *mut _;
             *self.free.as_mut().unwrap() = Block {
@@ -87,7 +89,7 @@ impl Manager {
                 last: ptr::null_mut()
             };
 
-            return size;
+            return Ok(size);
         } else if end == self.free as *mut _ {
             // extend the first element backwards
             trace!("a: {:?}", base);
@@ -105,7 +107,7 @@ impl Manager {
 
             self.free = new_block;
 
-            return size;
+            return Ok(size);
         }
 
         // search in the list for a place to insert this block
@@ -116,7 +118,7 @@ impl Manager {
                 if ptr > block.end {
                     if size < mem::size_of::<Block>() {
                         warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
-                        return 0;
+                        return Err(MemoryError::TinyBlock);
                     }
                     block.next = ptr as *mut Block;
                     *block.next.as_mut().unwrap() = Block {
@@ -126,15 +128,15 @@ impl Manager {
                         last: block
                     };
 
-                    return size;
+                    return Ok(size);
                 } else if ptr == block.end {
                     // extend the last block
                     block.end = end;
 
-                    return size;
+                    return Ok(size);
                 } else {
                     error!("Unable to register block, likely overlapping");
-                    return 0;
+                    return Err(MemoryError::NoPlace);
                 }
             }
 
@@ -146,7 +148,7 @@ impl Manager {
                 next.last = ptr as *mut Block;
                 if size < mem::size_of::<Block>() {
                     warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
-                    return 0;
+                    return Err(MemoryError::TinyBlock);
                 }
                 *block.next.as_mut().unwrap() = Block {
                     base: base,
@@ -155,18 +157,18 @@ impl Manager {
                     last: block
                 };
 
-                return size;
+                return Ok(size);
             } else if ptr == block.end && end == block.next as *mut _ {
                 // join the two elements together
                 block.end = next.end;
                 block.next = next.next;
 
-                return size;
+                return Ok(size);
             } else if ptr == block.end && end < block.next as *mut _ {
                 // extend block
                 block.end = end;
 
-                return size;
+                return Ok(size);
             } else if ptr > block.end && end == block.next as *mut _ {
                 // extend next
                 block.next = ptr as *mut Block;
@@ -177,7 +179,7 @@ impl Manager {
                     last: block
                 };
 
-                return size;
+                return Ok(size);
             } else {
                 // advance
                 block = block.next.as_mut().unwrap();
@@ -185,14 +187,18 @@ impl Manager {
         }
     }
 
-    unsafe fn forget(&mut self, ptr: *mut u8, size: usize) -> usize {
+    unsafe fn forget(&mut self, ptr: *mut u8, size: usize) -> Result<usize, MemoryError> {
         let mut block = match self.free.as_mut() {
             None => {
                 warn!("Tried to forget memory, but nothing was registered");
-                return 0;
+                return Err(MemoryError::OutOfMemory);
             },
             Some(block) => block
         };
+
+        if size == 0 {
+            return Err(MemoryError::TinyBlock);
+        }
 
         trace!("Forgetting at {:#x} size {:#x}", ptr as usize, size);
 
@@ -258,19 +264,23 @@ impl Manager {
 
                 block.next = new_block;
 
-                return size;
+                return Ok(size);
             }
 
             if let Some(next_block) = block.next.as_mut() {
                 block = next_block;
             } else {
                 // done!
-                return forgotten_size;
+                if forgotten_size > 0 {
+                    return Ok(forgotten_size);
+                } else {
+                    return Err(MemoryError::NoPlace);
+                }
             }
         }
     }
 
-    unsafe fn allocate(&mut self, size: usize, align: usize) -> Option<*mut u8> {
+    unsafe fn allocate(&mut self, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
         let mut block = self.free;
 
         let size = granularity(size, align);
@@ -353,33 +363,33 @@ impl Manager {
                 }
             } else {
                 // oom
-                return None;
+                return Err(MemoryError::OutOfMemory);
             }
         }
 
         // produce pointer
-        Some(aligned_base)
+        Ok(aligned_base)
     }
 
-    unsafe fn release(&mut self, ptr: *mut u8, size: usize, align: usize) -> Option<usize> {
+    unsafe fn release(&mut self, ptr: *mut u8, size: usize, align: usize) -> Result<usize, MemoryError> {
         let size = granularity(size, align);
-        let registered_size = self.register(ptr, size);
+        let registered_size = try!(self.register(ptr, size));
         trace!("{}", registered_size);
 
         if registered_size == size {
-            Some(size)
+            Ok(size)
         } else {
-            None
+            Err(MemoryError::Overlap)
         }
     }
 
-    unsafe fn grow(&mut self, ptr: *mut u8, old_size: usize, mut size: usize, align: usize) -> bool {
+    unsafe fn grow(&mut self, ptr: *mut u8, old_size: usize, mut size: usize, align: usize) -> Result<(), MemoryError> {
         // adjust size, alignment does not matter in this case
         size = granularity(size, align);
 
         if size <= old_size {
             // done
-            return true;
+            return Ok(());
         }
 
         let end = (ptr as *mut u8).offset(old_size as isize) as *mut u8;
@@ -415,7 +425,7 @@ impl Manager {
 
                         trace!("{:?}, {:?}", new_end, new_block);
                         *(new_end as *mut Block).as_mut().unwrap() = new_block;
-                        return true;
+                        return Ok(());
                     } else {
                         // delete the block
                         if let Some(last) = block_ref.last.as_mut() {
@@ -426,7 +436,7 @@ impl Manager {
                             next.last = block_ref.last;
                         }
 
-                        return true;
+                        return Ok(());
                     }
                 } else {
                     // advance
@@ -434,32 +444,32 @@ impl Manager {
                 }
             } else {
                 // we cannot grow this allocation
-                return false;
+                return Err(MemoryError::OutOfSpace);
             }
         }
     }
 
-    unsafe fn shrink(&mut self, ptr: *mut u8, old_size: usize, mut size: usize, align: usize) -> bool {
+    unsafe fn shrink(&mut self, ptr: *mut u8, old_size: usize, mut size: usize, align: usize) -> Result<(), MemoryError> {
         // adjust size
         size = granularity(size, align);
         
         if size >= granularity(old_size, align) {
-            return true;
+            return Ok(());
         }
 
         let difference = size - old_size;
-        let registered_size = self.register((ptr as *mut u8).offset(size as isize) as *mut u8, difference);
+        let registered_size = try!(self.register((ptr as *mut u8).offset(size as isize) as *mut u8, difference));
 
         trace!("f: {}, {}", difference, registered_size);
 
         if registered_size != difference {
-            return false;
+            return Err(MemoryError::Overlap);
         } else {
-            return true;
+            return Ok(());
         }
     }
 
-    unsafe fn resize(&mut self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Option<*mut u8> {
+    unsafe fn resize(&mut self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
         trace!("Resizing at {:?} to 0x{:x} with align 0x{:x}", ptr, size, align);
 
         if (ptr as usize) & (align - 1) == 0 {
@@ -467,18 +477,18 @@ impl Manager {
             trace!("Trying inplace");
             if granularity(size, align) > granularity(old_size, align) {
                 trace!("Growing");
-                if self.grow(ptr, old_size, size, align) {
-                    return Some(ptr);
+                if self.grow(ptr, old_size, size, align).is_ok() {
+                    return Ok(ptr);
                 }
             } else if granularity(size, align) < granularity(old_size, align) {
                 trace!("Shrinking");
-                if self.shrink(ptr, old_size, size, align) {
-                    return Some(ptr);
+                if self.shrink(ptr, old_size, size, align).is_ok() {
+                    return Ok(ptr);
                 }
             } else {
                 // pointer is aligned and the right size, do nothing
                 trace!("Doing nothing");
-                return Some(ptr);
+                return Ok(ptr);
             }
         }
 
@@ -489,12 +499,12 @@ impl Manager {
         ptr::copy(ptr as *mut u8, (&mut store as *mut _ as *mut u8)
                   .offset(diff_size as isize), diff_size);
 
-        if self.release(ptr, old_size, align).is_none() {
-            error!("Failed to free pointer on resize");
-            return None;
+        if let Err(e) = self.release(ptr, old_size, align) {
+            error!("Failed to free pointer on resize: {}", e);
+            return Err(e);
         }
 
-        if let Some(new_ptr) = self.allocate(size, align) {
+        if let Ok(new_ptr) = self.allocate(size, align) {
             trace!("{:?}, {:?}, {:?}", ptr, new_ptr, old_size);
 
             // copy the data from the old pointer
@@ -506,7 +516,7 @@ impl Manager {
                       .offset(diff_size as isize), new_ptr as *mut u8, diff_size);
 
             // succeeded!
-            Some(new_ptr)
+            Ok(new_ptr)
         } else {
             // roll back
             let end = (ptr as *mut u8).offset(old_size as isize) as *mut u8;
@@ -564,43 +574,43 @@ impl Manager {
             }
 
             // failed
-            None
+            Err(MemoryError::OutOfMemory)
         }
     }
 }
 
 #[inline]
-pub unsafe fn register(ptr: *mut u8, size: usize) -> usize {
+pub unsafe fn register(ptr: *mut u8, size: usize) -> Result<usize, MemoryError> {
     MEMORY.lock().register(ptr, size)
 }
 
 #[inline]
-pub unsafe fn forget(ptr: *mut u8, size: usize) -> usize {
+pub unsafe fn forget(ptr: *mut u8, size: usize) -> Result<usize, MemoryError> {
     MEMORY.lock().forget(ptr, size)
 }
 
 #[inline]
-pub unsafe fn allocate(size: usize, align: usize) -> Option<*mut u8> {
+pub unsafe fn allocate(size: usize, align: usize) -> Result<*mut u8, MemoryError> {
     MEMORY.lock().allocate(size, align)
 }
 
 #[inline]
-pub unsafe fn release(ptr: *mut u8, size: usize, align: usize) -> Option<usize> {
+pub unsafe fn release(ptr: *mut u8, size: usize, align: usize) -> Result<usize, MemoryError> {
     MEMORY.lock().release(ptr, size, align)
 }
 
 #[inline]
-pub unsafe fn grow(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
+pub unsafe fn grow(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<(), MemoryError> {
     MEMORY.lock().grow(ptr, old_size, size, align)
 }
 
 #[inline]
-pub unsafe fn shrink(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> bool {
+pub unsafe fn shrink(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<(), MemoryError> {
     MEMORY.lock().shrink(ptr, old_size, size, align)
 }
 
 #[inline]
-pub unsafe fn resize(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Option<*mut u8> {
+pub unsafe fn resize(ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
     MEMORY.lock().resize(ptr, old_size, size, align)
 }
 

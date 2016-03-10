@@ -50,4 +50,5 @@ _data_end = .;
 
 /DISCARD/ : {
     * (.gcc_except_table)
+    * (.note*)
 }

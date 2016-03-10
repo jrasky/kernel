@@ -183,7 +183,9 @@ fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
             assert!(segment.build_into(_gen_page_tables as *mut _),
                     "failed to build segment");
 
-            memory::register(HEAP_BEGIN as *mut _, region.size());
+            if let Err(e) = memory::register(HEAP_BEGIN as *mut _, region.size()) {
+                panic!("Failed to register initial heap: {}", e);
+            }
         }
 
         let segment = paging::Segment::new(0x400000, 0x400000, 0x400000,

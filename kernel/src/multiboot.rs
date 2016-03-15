@@ -18,6 +18,8 @@ use cpu;
 
 use paging;
 
+use alloc::heap;
+
 use elfloader::elf;
 
 use constants::*;
@@ -229,6 +231,12 @@ unsafe fn parse_memory(ptr: *const u32) -> Vec<(usize, usize)> {
     memory_regions
 }
 
+fn get_physical_table() -> u64 {
+    cpu::task::to_physical(unsafe {
+        heap::allocate(0x200 * U64_BYTES, 0x1000) as usize
+    }).unwrap() as u64
+}
+
 fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
     // try to create an initial heap
     let mut initial_heap = None;
@@ -252,7 +260,7 @@ fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
                                            true, false, false, false);
 
         unsafe {
-            assert!(segment.build_into(_gen_page_tables as *mut _),
+            assert!(segment.build_into(_gen_page_tables as *mut _, &mut get_physical_table),
                     "failed to build segment");
 
             if let Err(e) = memory::register(HEAP_BEGIN as *mut _, region.size()) {
@@ -264,7 +272,7 @@ fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
                                        true, true, true, false);
 
         unsafe {
-            assert!(segment.build_into(_gen_page_tables as *mut _),
+            assert!(segment.build_into(_gen_page_tables as *mut _, &mut get_physical_table),
                     "failed to build initial heap segment");
         }
 

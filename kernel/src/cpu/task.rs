@@ -1,4 +1,5 @@
 use collections::{VecDeque, Vec, BTreeMap};
+use collections::Bound::{Included, Unbounded};
 
 #[cfg(not(test))]
 use core::iter::{IntoIterator, Iterator};
@@ -67,6 +68,10 @@ pub fn switch_task(task: Task) -> Task {
 
 pub fn release() {
     unsafe { MANAGER.switch_core() }
+}
+
+pub fn to_physical(addr: usize) -> Option<usize> {
+    unsafe { MANAGER.to_physical(addr) }
 }
 
 pub fn map_core(virt: Region, phys: Region) -> Option<Region> {
@@ -257,6 +262,33 @@ impl TaskRef {
     }
 
     #[inline]
+    pub fn map(&mut self, virt: Region, phys: Region) -> Option<Region> {
+        if let Some(inner) = self.get_mut() {
+            inner.map(virt, phys)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn unmap(&mut self, virt: Region) -> Option<Region> {
+        if let Some(inner) = self.get_mut() {
+            inner.unmap(virt)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn to_physical(&self, addr: usize) -> Option<usize> {
+        if let Some(inner) = self.get_inner() {
+            inner.to_physical(addr)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
     pub fn set_done(&mut self) {
         if let Some(inner) = self.get_mut() {
             inner.set_done()
@@ -333,6 +365,11 @@ impl Task {
     #[inline]
     pub fn unmap(&mut self, virt: Region) -> Option<Region> {
         unsafe {self.inner.get().as_mut().unwrap().unmap(virt)}
+    }
+
+    #[inline]
+    pub fn to_physical(&self, addr: usize) -> Option<usize> {
+        unsafe {self.inner.get().as_ref().unwrap().to_physical(addr)}
     }
 
     #[inline]
@@ -423,6 +460,11 @@ impl Manager {
                 self.inner.as_mut().unwrap()
             }
         }
+    }
+
+    #[inline]
+    pub fn to_physical(&mut self, addr: usize) -> Option<usize> {
+        self.get_inner().to_physical(addr)
     }
 
     #[inline]
@@ -528,6 +570,16 @@ impl ManagerInner {
     #[inline]
     fn in_core(&self) -> bool {
         self.core.busy != 0
+    }
+
+    fn to_physical(&self, addr: usize) -> Option<usize> {
+        if self.in_core() {
+            self.core.to_physical(addr)
+        } else if let Some(ref task) = self.current {
+            task.to_physical(addr)
+        } else {
+            unreachable!("Core task was not busy, but there was to current task");
+        }
     }
 
     #[inline]
@@ -786,7 +838,7 @@ impl Context {
 }
 
 impl TaskInner {
-    pub fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !, stack: Stack) -> TaskInner {
+    fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !, stack: Stack) -> TaskInner {
         // create a blank context
         let mut context = Context::empty();
 
@@ -830,37 +882,47 @@ impl TaskInner {
     }
 
     #[inline]
-    pub fn map(&mut self, virt: Region, phys: Region) -> Option<Region> {
+    fn map(&mut self, virt: Region, phys: Region) -> Option<Region> {
         self.memory.insert(virt, phys)
     }
 
     #[inline]
-    pub fn unmap(&mut self, virt: Region) -> Option<Region> {
+    fn unmap(&mut self, virt: Region) -> Option<Region> {
         self.memory.remove(&virt)
     }
 
+    fn to_physical(&self, addr: usize) -> Option<usize> {
+        let dummy = Region::new(addr, 0);
+
+        if let Some((virt, phys)) = self.memory.range(Included(&dummy), Included(&dummy)).next() {
+            Some(phys.base() + addr - virt.base())
+        } else {
+            None
+        }
+    }
+
     #[inline]
-    pub fn set_done(&mut self) {
+    fn set_done(&mut self) {
         self.done = true;
     }
 
     #[inline]
-    pub fn is_done(&self) -> bool {
+    fn is_done(&self) -> bool {
         self.done
     }
 
     #[inline]
-    pub fn block(&mut self) {
+    fn block(&mut self) {
         self.blocked = true;
     }
 
     #[inline]
-    pub fn unblock(&mut self) {
+    fn unblock(&mut self) {
         self.blocked = false;
     }
 
     #[inline]
-    pub fn is_blocked(&self) -> bool {
+    fn is_blocked(&self) -> bool {
         self.blocked
     }
 }

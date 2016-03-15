@@ -84,12 +84,13 @@ pub fn raw_segment_size() -> usize {
     mem::size_of::<RawSegment>()
 }
 
-unsafe fn get_pointer(place: *mut u64, idx: isize) -> *mut u64 {
+unsafe fn get_pointer(place: *mut u64, idx: isize, new_table: &mut FnMut() -> u64) -> *mut u64 {
     let mut entry = ptr::read(place.offset(idx));
 
     if entry & 1 == 0 || entry & (1 << 7) == 1 << 7 {
         // allocate a new table
-        entry = heap::allocate(0x200 * U64_BYTES, 0x1000) as u64 | 0x7;
+        // 0x200 * U64_BYTES, 0x1000
+        entry = new_table() | 0x7;
         ptr::write(place.offset(idx), entry);
     }
 
@@ -297,7 +298,7 @@ impl Segment {
     }
 
     unsafe fn build_edge(&self, place: *mut u64, base: usize, size: FrameSize,
-                             idx: usize, vbase: usize) -> bool {
+                             idx: usize, vbase: usize, new_table: &mut FnMut() -> u64) -> bool {
         trace!("0x{:x}, 0x{:x}", idx, vbase);
 
         if let Some(next) = size.get_next() {
@@ -308,7 +309,7 @@ impl Segment {
                 subframe_base - vbase >= next.get_pagesize() as usize
             {
                 // build a new table here
-                let result = self.build_into_inner(get_pointer(place, idx as isize), subframe_base, next);
+                let result = self.build_into_inner(get_pointer(place, idx as isize, new_table), subframe_base, next, new_table);
                 debug_assert!(result, "Failed to insert subframe");
                 return true;
             }
@@ -338,7 +339,8 @@ impl Segment {
         ptr::write(place.offset(idx as isize), page.get_entry());
     }
 
-    unsafe fn build_into_inner(&self, place: *mut u64, base: usize, size: FrameSize) -> bool {
+    unsafe fn build_into_inner(&self, place: *mut u64, base: usize, size: FrameSize,
+                               new_table: &mut FnMut() -> u64) -> bool {
         trace!("0x{:x}, 0x{:x}, {:?}", place as usize, base, size);
 
         let min_idx = if base > self.virtual_base {
@@ -357,7 +359,7 @@ impl Segment {
             return false;
         }
 
-        if !self.build_edge(place, base, size, min_idx, self.virtual_base) {
+        if !self.build_edge(place, base, size, min_idx, self.virtual_base, new_table) {
             self.build_page_at(place, base, size, min_idx);
         }
 
@@ -366,7 +368,7 @@ impl Segment {
 
         if max_idx > min_idx + 1 {
             if !self.build_edge(place, base, size, max_idx - 1,
-                                align_back(self.virtual_base + self.size as usize, size.get_pagesize() as usize)) {
+                                align_back(self.virtual_base + self.size as usize, size.get_pagesize() as usize), new_table) {
                 self.build_page_at(place, base, size, max_idx - 1);
             }
         }
@@ -374,7 +376,7 @@ impl Segment {
         trace!("b 0x{:x}, 0x{:x}, {:?}", place as usize, base, size);
 
         for idx in min_idx + 1..max_idx - 1 {
-            if !self.build_edge(place, base, size, idx, base + (idx * size.get_pagesize() as usize)) {
+            if !self.build_edge(place, base, size, idx, base + (idx * size.get_pagesize() as usize), new_table) {
                 self.build_page_at(place, base, size, idx)
             }
         }
@@ -383,7 +385,7 @@ impl Segment {
     }
 
     #[inline]
-    pub unsafe fn build_into(&self, place: *mut u64) -> bool {
+    pub unsafe fn build_into(&self, place: *mut u64, new_table: &mut FnMut() -> u64) -> bool {
         if !self.allocate {
             return false;
         }
@@ -395,8 +397,8 @@ impl Segment {
 
         for idx in min_idx..max_idx {
             if !self.build_into_inner(
-                get_pointer(place, idx as isize),
-                idx * FrameSize::Giant as usize, FrameSize::Giant)
+                get_pointer(place, idx as isize, new_table),
+                idx * FrameSize::Giant as usize, FrameSize::Giant, new_table)
             {
                 return false;
             }

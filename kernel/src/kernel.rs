@@ -1,3 +1,5 @@
+#![feature(btree_range)]
+#![feature(collections_bound)]
 #![feature(reflect_marker)]
 #![feature(unsafe_no_drop_flag)]
 #![feature(lang_items)]

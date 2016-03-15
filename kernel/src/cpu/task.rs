@@ -1,4 +1,4 @@
-use collections::{VecDeque, Vec};
+use collections::{VecDeque, Vec, BTreeMap};
 
 #[cfg(not(test))]
 use core::iter::{IntoIterator, Iterator};
@@ -17,6 +17,8 @@ use alloc::arc::{Arc, Weak};
 use core::cell::UnsafeCell;
 #[cfg(test)]
 use std::cell::UnsafeCell;
+
+use paging::{Region, Allocator};
 
 use spin::Mutex;
 
@@ -67,6 +69,46 @@ pub fn release() {
     unsafe { MANAGER.switch_core() }
 }
 
+pub fn map_core(virt: Region, phys: Region) -> Option<Region> {
+    unsafe { MANAGER.map_core(virt, phys) }
+}
+
+pub fn unmap_core(virt: Region) -> Option<Region> {
+    unsafe { MANAGER.unmap_core(virt) }
+}
+
+pub fn set_used(region: Region) -> bool {
+    unsafe { MANAGER.set_used(region) }
+}
+
+pub fn register(region: Region) -> bool {
+    unsafe { MANAGER.register(region) }
+}
+
+pub fn forget(region: Region) -> bool {
+    unsafe { MANAGER.forget(region) }
+}
+
+pub fn allocate(size: usize, align: usize) -> Option<Region> {
+    unsafe { MANAGER.allocate(size, align) }
+}
+
+pub fn deallocate(region: Region) -> bool {
+    unsafe { MANAGER.deallocate(region) }
+}
+
+pub fn grow(region: Region, size: usize) -> bool {
+    unsafe { MANAGER.grow(region, size) }
+}
+
+pub fn shrink(region: Region, size: usize) -> bool {
+    unsafe { MANAGER.shrink(region, size) }
+}
+
+pub fn resize(region: Region, size: usize, align: usize) -> Option<Region> {
+    unsafe { MANAGER.resize(region, size, align) }
+}
+
 pub enum RunNextResult {
     NoTasks,
     Blocked(TaskRef)
@@ -89,6 +131,8 @@ struct Manager {
 
 struct ManagerInner {
     core: TaskInner,
+    // physical memory
+    memory: Allocator,
     tasks: VecDeque<Task>,
     current: Option<Task>,
 }
@@ -149,6 +193,8 @@ struct TaskInner {
     level: PrivilegeLevel,
     #[allow(dead_code)]
     stack: Stack,
+    // mapped virtual memory to physical memory
+    memory: BTreeMap<Region, Region>,
     busy: u16,
     done: bool,
     blocked: bool
@@ -280,6 +326,16 @@ impl Task {
     }
 
     #[inline]
+    pub fn map(&mut self, virt: Region, phys: Region) -> Option<Region> {
+        unsafe {self.inner.get().as_mut().unwrap().map(virt, phys)}
+    }
+
+    #[inline]
+    pub fn unmap(&mut self, virt: Region) -> Option<Region> {
+        unsafe {self.inner.get().as_mut().unwrap().unmap(virt)}
+    }
+
+    #[inline]
     pub fn set_done(&mut self) {
         unsafe {self.inner.get().as_mut().unwrap().set_done()}
     }
@@ -370,6 +426,56 @@ impl Manager {
     }
 
     #[inline]
+    pub fn map_core(&mut self, virt: Region, phys: Region) -> Option<Region> {
+        self.get_inner().map_core(virt, phys)
+    }
+
+    #[inline]
+    pub fn unmap_core(&mut self, virt: Region) -> Option<Region> {
+        self.get_inner().unmap_core(virt)
+    }
+
+    #[inline]
+    pub fn set_used(&mut self, region: Region) -> bool {
+        self.get_inner().set_used(region)
+    }
+
+    #[inline]
+    pub fn register(&mut self, region: Region) -> bool {
+        self.get_inner().register(region)
+    }
+
+    #[inline]
+    pub fn forget(&mut self, region: Region) -> bool {
+        self.get_inner().forget(region)
+    }
+
+    #[inline]
+    pub fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
+        self.get_inner().allocate(size, align)
+    }
+
+    #[inline]
+    pub fn deallocate(&mut self, region: Region) -> bool {
+        self.get_inner().deallocate(region)
+    }
+
+    #[inline]
+    pub fn grow(&mut self, region: Region, size: usize) -> bool {
+        self.get_inner().grow(region, size)
+    }
+
+    #[inline]
+    pub fn shrink(&mut self, region: Region, size: usize) -> bool {
+        self.get_inner().shrink(region, size)
+    }
+
+    #[inline]
+    pub fn resize(&mut self, region: Region, size: usize, align: usize) -> Option<Region> {
+        self.get_inner().resize(region, size, align)
+    }
+
+    #[inline]
     pub fn run_next(&mut self) -> Result<TaskRef, RunNextResult> {
         self.get_inner().run_next()
     }
@@ -408,10 +514,12 @@ impl ManagerInner {
                 entry: _dummy_entry,
                 level: PrivilegeLevel::CORE,
                 stack: unsafe { Stack::kernel() },
+                memory: BTreeMap::new(),
                 busy: !0,
                 done: false,
                 blocked: false
             },
+            memory: Allocator::new(),
             tasks: VecDeque::new(),
             current: None
         }
@@ -420,6 +528,56 @@ impl ManagerInner {
     #[inline]
     fn in_core(&self) -> bool {
         self.core.busy != 0
+    }
+
+    #[inline]
+    fn map_core(&mut self, virt: Region, phys: Region) -> Option<Region> {
+        self.core.map(virt, phys)
+    }
+
+    #[inline]
+    fn unmap_core(&mut self, virt: Region) -> Option<Region> {
+        self.core.unmap(virt)
+    }
+
+    #[inline]
+    fn set_used(&mut self, region: Region) -> bool {
+        self.memory.set_used(region)
+    }
+
+    #[inline]
+    fn register(&mut self, region: Region) -> bool {
+        self.memory.register(region)
+    }
+
+    #[inline]
+    fn forget(&mut self, region: Region) -> bool {
+        self.memory.forget(region)
+    }
+
+    #[inline]
+    fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
+        self.memory.allocate(size, align)
+    }
+
+    #[inline]
+    fn deallocate(&mut self, region: Region) -> bool {
+        self.memory.release(region)
+    }
+
+    #[inline]
+    fn grow(&mut self, region: Region, size: usize) -> bool {
+        self.memory.grow(region, size)
+    }
+
+    #[inline]
+    fn shrink(&mut self, region: Region, size: usize) -> bool {
+        self.memory.shrink(region, size)
+    }
+
+    #[inline]
+    fn resize(&mut self, region: Region, size: usize, align: usize) -> Option<Region> {
+        self.memory.resize(region, size, align)
     }
 
     fn add(&mut self, task: Task) -> TaskRef {
@@ -664,10 +822,21 @@ impl TaskInner {
             entry: entry,
             level: level,
             stack: stack,
+            memory: BTreeMap::new(),
             busy: 0,
             done: false,
             blocked: false
         }
+    }
+
+    #[inline]
+    pub fn map(&mut self, virt: Region, phys: Region) -> Option<Region> {
+        self.memory.insert(virt, phys)
+    }
+
+    #[inline]
+    pub fn unmap(&mut self, virt: Region) -> Option<Region> {
+        self.memory.remove(&virt)
     }
 
     #[inline]

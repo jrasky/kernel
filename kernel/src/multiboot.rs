@@ -14,6 +14,10 @@ use std::str;
 #[cfg(test)]
 use std::cmp;
 
+use cpu;
+
+use paging;
+
 use elfloader::elf;
 
 use constants::*;
@@ -25,6 +29,9 @@ extern "C" {
     static _image_end: u8;
     static _kernel_top: u8;
     static _gen_max_paddr: u64;
+    static _gen_segments_size: u64;
+    static _gen_page_tables: u64;
+    static _gen_segments: u8;
 }
 
 struct MemoryTag {
@@ -222,7 +229,80 @@ unsafe fn parse_memory(ptr: *const u32) -> Vec<(usize, usize)> {
     memory_regions
 }
 
-pub unsafe fn parse_multiboot_tags(boot_info: *const u32) -> Vec<(usize, usize)> {
+fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
+    // try to create an initial heap
+    let mut initial_heap = None;
+
+    // create a heap mapping
+    for (mut base, mut size) in regions.iter().cloned() {
+        if base < _gen_max_paddr as usize {
+            size -= _gen_max_paddr as usize - base;
+            base = _gen_max_paddr as usize;
+        }
+
+        if size >= 0x200000 {
+            initial_heap = Some(paging::Region::new(base, 0x200000));
+            break;
+        }
+
+    }
+
+    if let Some(region) = initial_heap {
+        let segment = paging::Segment::new(region.base(), HEAP_BEGIN, region.size(),
+                                           true, false, false, false);
+
+        unsafe {
+            assert!(segment.build_into(_gen_page_tables as *mut _),
+                    "failed to build segment");
+
+            if let Err(e) = memory::register(HEAP_BEGIN as *mut _, region.size()) {
+                panic!("Failed to register initial heap: {}", e);
+            }
+        }
+
+        let segment = paging::Segment::new(0x400000, 0x400000, 0x400000,
+                                       true, true, true, false);
+
+        unsafe {
+            assert!(segment.build_into(_gen_page_tables as *mut _),
+                    "failed to build initial heap segment");
+        }
+
+        region
+    } else {
+        panic!("Failed to place initial heap");
+    }
+}
+
+fn setup_memory(memory_regions: Vec<(usize, usize)>) {
+    // create initial heap
+    let initial_heap = build_initial_heap(memory_regions.as_ref());
+
+    // can now use simple allocator
+    memory::exit_reserved();
+    debug!("Out of reserve memory");
+
+    // register our initial heap
+    assert!(cpu::task::map_core(paging::Region::new(HEAP_BEGIN, 0x200000), initial_heap).is_none());
+
+    // register the rest of physical memory
+    for (mut base, mut size) in memory_regions {
+        if base < _gen_max_paddr as usize + 0x200000 {
+            if size < 0x200000 {
+                continue;
+            } else {
+                size -= _gen_max_paddr as usize + 0x200000 - base;
+                base = _gen_max_paddr as usize + 0x200000;
+            }
+        }
+
+        assert!(cpu::task::register(paging::Region::new(base, size)));
+    }
+
+    debug!("Done building into page tables");
+}
+
+pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
     // read multiboot info
     let mut ptr: *const u32 = boot_info;
 
@@ -231,8 +311,6 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32) -> Vec<(usize, usize)>
     let end: *const u32 = (ptr as usize + total_size as usize) as *const _;
 
     ptr = align(ptr.offset(2) as usize, 8) as *const _;
-
-    let mut memory_regions = vec![];
 
     while ptr < end {
         match *ptr.as_ref().unwrap() {
@@ -247,7 +325,9 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32) -> Vec<(usize, usize)>
                 parse_bootloader(ptr);
             }
             6 => {
-                memory_regions = parse_memory(ptr);
+                let memory_regions = parse_memory(ptr);
+
+                setup_memory(memory_regions);
             }
             9 => {
                 parse_elf(ptr);
@@ -261,6 +341,4 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32) -> Vec<(usize, usize)>
         // advance to the next tag
         ptr = align(ptr as usize + *ptr.offset(1).as_ref().unwrap() as usize, 8) as *const _;
     }
-
-    memory_regions
 }

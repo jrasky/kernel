@@ -51,7 +51,7 @@ use alloc::boxed::Box;
 #[cfg(test)]
 use std::boxed::Box;
 
-use collections::Vec;
+use collections::{Vec, BTreeMap};
 
 use constants::*;
 
@@ -83,8 +83,11 @@ pub use cpu::syscall::{sysenter_handler,
 extern "C" {
     fn test_task_entry() -> !;
 
-    static _gen_segments_size: u64;
+    static _image_begin: u8;
+    static _image_end: u8;
+    static _kernel_top: u8;
     static _gen_max_paddr: u64;
+    static _gen_segments_size: u64;
     static _gen_page_tables: u64;
     static _gen_segments: u8;
 }
@@ -157,50 +160,6 @@ unsafe extern "C" fn test_task_2() -> ! {
     user::exit();
 }
 
-fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
-    // try to create an initial heap
-    let mut initial_heap = None;
-
-    // create a heap mapping
-    for (mut base, mut size) in regions.iter().cloned() {
-        if base < _gen_max_paddr as usize {
-            size -= _gen_max_paddr as usize - base;
-            base = _gen_max_paddr as usize;
-        }
-
-        if size >= 0x200000 {
-            initial_heap = Some(paging::Region::new(base, 0x200000));
-            break;
-        }
-
-    }
-
-    if let Some(region) = initial_heap {
-        let segment = paging::Segment::new(region.base(), HEAP_BEGIN, region.size(),
-                                           true, false, false, false);
-
-        unsafe {
-            assert!(segment.build_into(_gen_page_tables as *mut _),
-                    "failed to build segment");
-
-            if let Err(e) = memory::register(HEAP_BEGIN as *mut _, region.size()) {
-                panic!("Failed to register initial heap: {}", e);
-            }
-        }
-
-        let segment = paging::Segment::new(0x400000, 0x400000, 0x400000,
-                                       true, true, true, false);
-
-        unsafe {
-            assert!(segment.build_into(_gen_page_tables as *mut _),
-                    "failed to build initial heap segment");
-        }
-
-        region
-    } else {
-        panic!("Failed to place initial heap");
-    }
-}
 
 #[cfg(not(test))]
 #[no_mangle]
@@ -223,45 +182,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     debug!("Highest paddr: 0x{:x}", _gen_max_paddr);
 
     // parse multiboot info
-    let memory_regions = unsafe { multiboot::parse_multiboot_tags(boot_info) };
-
-    debug!("Done parsing tags");
-
-    // create initial heap
-    let initial_heap = build_initial_heap(memory_regions.as_ref());
-    debug!("Build initial heap");
-
-    // can now use the simple allocator
-    memory::exit_reserved();
-    debug!("Out of reserve memory");
-
-    // create our allocators
-    let mut vmem = paging::Allocator::new();
-    let mut pmem = paging::Allocator::new();
-
-    // allocate our initial heap
-    assert!(vmem.set_used(paging::Region::new(HEAP_BEGIN, 0x200000)));
-    assert!(pmem.set_used(initial_heap));
-
-    let mut next_vaddr = HEAP_BEGIN + 0x200000;
-
-    for (mut base, mut size) in memory_regions {
-        if base < _gen_max_paddr as usize + 0x200000 {
-            if size < 0x200000 {
-                continue;
-            } else {
-                size -= _gen_max_paddr as usize + 0x200000 - base;
-                base = _gen_max_paddr as usize + 0x200000;
-            }
-        }
-
-        assert!(vmem.register(paging::Region::new(base, size)));
-
-        // compute the next vaddr
-        next_vaddr = align(next_vaddr + size, 0x1000);
-    }
-
-    debug!("Done building into page tables");
+    unsafe { multiboot::parse_multiboot_tags(boot_info) };
 
     // set up cpu data structures and other settings
     // keep references around so we don't break things

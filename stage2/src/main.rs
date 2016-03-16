@@ -15,6 +15,7 @@ use elfloader::ElfBinary;
 use elfloader::elf::{PF_X, PF_W, PF_R};
 
 pub const U64_BYTES: usize = 0x8;
+pub const HEAP_BEGIN: usize = 0xffffffff81000000;
 
 pub const PAGE_TABLES_OFFSET: usize = 0x180000;
 
@@ -94,6 +95,19 @@ fn main() {
     }
 
     trace!("Max paddr: 0x{:x}", max_paddr);
+
+    // optimistically insert a 2-MB segment immediately following max_paddr
+    let segment = paging::Segment::new(
+        max_paddr, HEAP_BEGIN, 0x200000,
+        true, // write
+        false, // user
+        false, // execute
+        false, // global
+    );
+
+    trace!("Inserting segment: {:?}", segment);
+    segments.push(segment.clone());
+    assert!(layout.insert(segment), "Failed to insert heap segment");
 
     debug!("Creating tables");
 

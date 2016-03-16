@@ -231,12 +231,6 @@ unsafe fn parse_memory(ptr: *const u32) -> Vec<(usize, usize)> {
     memory_regions
 }
 
-fn get_physical_table() -> u64 {
-    cpu::task::to_physical(unsafe {
-        heap::allocate(0x200 * U64_BYTES, 0x1000) as usize
-    }).unwrap() as u64
-}
-
 fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
     // try to create an initial heap
     let mut initial_heap = None;
@@ -256,29 +250,45 @@ fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
     }
 
     if let Some(region) = initial_heap {
-        let segment = paging::Segment::new(region.base(), HEAP_BEGIN, region.size(),
-                                           true, false, false, false);
+        // stage2 inserts a 2MB segment immediately following max_paddr
+        // if that's what we found, return now
+        if region.base() as u64 == _gen_max_paddr {
+            debug!("Found region matching optimistic heap");
+        } else {
+            // otherwise create the new mapping
+
+            let segment = paging::Segment::new(region.base(), HEAP_BEGIN, region.size(),
+                                               true, false, false, false);
+
+            unsafe {
+                assert!(segment.build_into(_gen_page_tables as *mut _),
+                        "failed to build segment");
+            }
+        }
 
         unsafe {
-            assert!(segment.build_into(_gen_page_tables as *mut _, &mut get_physical_table),
-                    "failed to build segment");
+            // register our initial segment
 
             if let Err(e) = memory::register(HEAP_BEGIN as *mut _, region.size()) {
                 panic!("Failed to register initial heap: {}", e);
             }
         }
 
-        let segment = paging::Segment::new(0x400000, 0x400000, 0x400000,
-                                       true, true, true, false);
-
-        unsafe {
-            assert!(segment.build_into(_gen_page_tables as *mut _, &mut get_physical_table),
-                    "failed to build initial heap segment");
-        }
-
         region
     } else {
         panic!("Failed to place initial heap");
+    }
+}
+
+fn build_test_external_task() {
+    // identity-map the external task we have
+
+    let segment = paging::Segment::new(0x400000, 0x400000, 0x400000,
+                                       true, true, true, false);
+
+    unsafe {
+        assert!(segment.build_into(_gen_page_tables as *mut _),
+                "failed to build initial heap segment");
     }
 }
 
@@ -308,6 +318,11 @@ fn setup_memory(memory_regions: Vec<(usize, usize)>) {
     }
 
     debug!("Done building into page tables");
+
+    // build external task tables
+    build_test_external_task();
+
+    debug!("Done building external task tables");
 }
 
 pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {

@@ -19,7 +19,7 @@ use core::cell::UnsafeCell;
 #[cfg(test)]
 use std::cell::UnsafeCell;
 
-use paging::{Region, Allocator};
+use paging::{Region, Allocator, Layout, Segment};
 
 use spin::Mutex;
 
@@ -61,12 +61,15 @@ pub fn add(task: Task) -> TaskRef {
     unsafe { MANAGER.add(task) }
 }
 
-#[allow(dead_code)] // may be used in the future
 pub fn switch_task(task: Task) -> Task {
     unsafe { MANAGER.switch_task(task) }
 }
 
-pub fn release() {
+pub fn current() -> TaskRef {
+    unsafe { MANAGER.current() }
+}
+
+pub fn switch_core() {
     unsafe { MANAGER.switch_core() }
 }
 
@@ -74,16 +77,12 @@ pub fn to_physical(addr: usize) -> Option<usize> {
     unsafe { MANAGER.to_physical(addr) }
 }
 
-pub fn map_core(virt: Region, phys: Region) -> Option<Region> {
-    unsafe { MANAGER.map_core(virt, phys) }
+pub fn allocate(size: usize, align: usize) -> Option<Region> {
+    unsafe { MANAGER.allocate(size, align) }
 }
 
-pub fn unmap_core(virt: Region) -> Option<Region> {
-    unsafe { MANAGER.unmap_core(virt) }
-}
-
-pub fn set_used(region: Region) -> bool {
-    unsafe { MANAGER.set_used(region) }
+pub fn release(region: Region) -> bool {
+    unsafe { MANAGER.release(region) }
 }
 
 pub fn register(region: Region) -> bool {
@@ -94,24 +93,8 @@ pub fn forget(region: Region) -> bool {
     unsafe { MANAGER.forget(region) }
 }
 
-pub fn allocate(size: usize, align: usize) -> Option<Region> {
-    unsafe { MANAGER.allocate(size, align) }
-}
-
-pub fn deallocate(region: Region) -> bool {
-    unsafe { MANAGER.deallocate(region) }
-}
-
-pub fn grow(region: Region, size: usize) -> bool {
-    unsafe { MANAGER.grow(region, size) }
-}
-
-pub fn shrink(region: Region, size: usize) -> bool {
-    unsafe { MANAGER.shrink(region, size) }
-}
-
-pub fn resize(region: Region, size: usize, align: usize) -> Option<Region> {
-    unsafe { MANAGER.resize(region, size, align) }
+pub fn set_used(region: Region) -> bool {
+    unsafe { MANAGER.set_used(region) }
 }
 
 pub enum RunNextResult {
@@ -135,7 +118,7 @@ struct Manager {
 }
 
 struct ManagerInner {
-    core: TaskInner,
+    core: Task,
     // physical memory
     memory: Allocator,
     tasks: VecDeque<Task>,
@@ -198,8 +181,7 @@ struct TaskInner {
     level: PrivilegeLevel,
     #[allow(dead_code)]
     stack: Stack,
-    // mapped virtual memory to physical memory
-    memory: BTreeMap<Region, Region>,
+    memory: Layout,
     busy: u16,
     done: bool,
     blocked: bool
@@ -254,29 +236,10 @@ impl GateInner {
     }
 }
 
-#[allow(dead_code)] // will use eventually
 impl TaskRef {
     #[inline]
     pub fn dropped(&self) -> bool {
         self.get_inner().is_some()
-    }
-
-    #[inline]
-    pub fn map(&mut self, virt: Region, phys: Region) -> Option<Region> {
-        if let Some(inner) = self.get_mut() {
-            inner.map(virt, phys)
-        } else {
-            None
-        }
-    }
-
-    #[inline]
-    pub fn unmap(&mut self, virt: Region) -> Option<Region> {
-        if let Some(inner) = self.get_mut() {
-            inner.unmap(virt)
-        } else {
-            None
-        }
     }
 
     #[inline]
@@ -288,6 +251,33 @@ impl TaskRef {
         }
     }
 
+    #[inline]
+    pub fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
+        if let Some(inner) = self.get_mut() {
+            inner.allocate(size, align)
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub fn map(&mut self, segment: Segment) -> bool {
+        if let Some(inner) = self.get_mut() {
+            inner.map(segment)
+        } else {
+            false
+        }
+    }
+
+    #[inline]
+    pub fn unmap(&mut self, segment: Segment) -> bool {
+        if let Some(inner) = self.get_mut() {
+            inner.unmap(segment)
+        } else {
+            false
+        }
+    }
+    
     #[inline]
     pub fn set_done(&mut self) {
         if let Some(inner) = self.get_mut() {
@@ -344,9 +334,10 @@ impl TaskRef {
 
 impl Task {
     #[inline]
-    pub fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !, stack: Stack) -> Task {
+    pub fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
+                  stack: Stack, memory: Region) -> Task {
         Task { 
-            inner: Arc::new(UnsafeCell::new(TaskInner::create(level, entry, stack)))
+            inner: Arc::new(UnsafeCell::new(TaskInner::create(level, entry, stack, memory)))
         }
     }
 
@@ -358,18 +349,53 @@ impl Task {
     }
 
     #[inline]
-    pub fn map(&mut self, virt: Region, phys: Region) -> Option<Region> {
-        unsafe {self.inner.get().as_mut().unwrap().map(virt, phys)}
+    fn set_busy(&mut self, busy: bool) {
+        unsafe {self.inner.get().as_mut().unwrap().set_busy(busy)}
     }
 
     #[inline]
-    pub fn unmap(&mut self, virt: Region) -> Option<Region> {
-        unsafe {self.inner.get().as_mut().unwrap().unmap(virt)}
+    fn is_busy(&self) -> bool {
+        unsafe {self.inner.get().as_ref().unwrap().is_busy()}
+    }
+
+    #[inline]
+    fn fxsave_ptr(&self) -> *const u8 {
+        unsafe {self.inner.get().as_ref().unwrap().fxsave_ptr()}
+    }
+
+    #[inline]
+    fn fxsave_mut_ptr(&mut self) -> *mut u8 {
+        unsafe {self.inner.get().as_mut().unwrap().fxsave_mut_ptr()}
+    }
+
+    #[inline]
+    fn regs_ptr(&self) -> *const Regs {
+        unsafe {self.inner.get().as_ref().unwrap().regs_ptr()}
+    }
+
+    #[inline]
+    fn regs_mut_ptr(&mut self) -> *mut Regs {
+        unsafe {self.inner.get().as_mut().unwrap().regs_mut_ptr()}
     }
 
     #[inline]
     pub fn to_physical(&self, addr: usize) -> Option<usize> {
         unsafe {self.inner.get().as_ref().unwrap().to_physical(addr)}
+    }
+
+    #[inline]
+    pub fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
+        unsafe {self.inner.get().as_mut().unwrap().allocate(size, align)}
+    }
+
+    #[inline]
+    pub fn map(&mut self, segment: Segment) -> bool {
+        unsafe {self.inner.get().as_mut().unwrap().map(segment)}
+    }
+
+    #[inline]
+    pub fn unmap(&mut self, segment: Segment) -> bool {
+        unsafe {self.inner.get().as_mut().unwrap().unmap(segment)}
     }
 
     #[inline]
@@ -387,7 +413,6 @@ impl Task {
         unsafe {self.inner.get().as_mut().unwrap().block()}
     }
 
-    #[allow(dead_code)] // will use eventually
     #[inline]
     pub fn unblock(&mut self) {
         unsafe {self.inner.get().as_mut().unwrap().unblock()}
@@ -442,6 +467,14 @@ impl Regs {
             gs: 0,
         }
     }
+
+    fn as_ptr(&self) -> *const Regs {
+        self as *const _
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut Regs {
+        self as *mut _
+    }
 }
 
 impl Manager {
@@ -468,18 +501,18 @@ impl Manager {
     }
 
     #[inline]
-    pub fn map_core(&mut self, virt: Region, phys: Region) -> Option<Region> {
-        self.get_inner().map_core(virt, phys)
-    }
-
-    #[inline]
-    pub fn unmap_core(&mut self, virt: Region) -> Option<Region> {
-        self.get_inner().unmap_core(virt)
-    }
-
-    #[inline]
     pub fn set_used(&mut self, region: Region) -> bool {
         self.get_inner().set_used(region)
+    }
+
+    #[inline]
+    pub fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
+        self.get_inner().allocate(size, align)
+    }
+
+    #[inline]
+    pub fn release(&mut self, region: Region) -> bool {
+        self.get_inner().release(region)
     }
 
     #[inline]
@@ -490,31 +523,6 @@ impl Manager {
     #[inline]
     pub fn forget(&mut self, region: Region) -> bool {
         self.get_inner().forget(region)
-    }
-
-    #[inline]
-    pub fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
-        self.get_inner().allocate(size, align)
-    }
-
-    #[inline]
-    pub fn deallocate(&mut self, region: Region) -> bool {
-        self.get_inner().deallocate(region)
-    }
-
-    #[inline]
-    pub fn grow(&mut self, region: Region, size: usize) -> bool {
-        self.get_inner().grow(region, size)
-    }
-
-    #[inline]
-    pub fn shrink(&mut self, region: Region, size: usize) -> bool {
-        self.get_inner().shrink(region, size)
-    }
-
-    #[inline]
-    pub fn resize(&mut self, region: Region, size: usize, align: usize) -> Option<Region> {
-        self.get_inner().resize(region, size, align)
     }
 
     #[inline]
@@ -546,21 +554,19 @@ impl Manager {
     pub fn switch_core(&mut self) {
         self.get_inner().switch_core()
     }
+
+    #[inline]
+    pub fn current(&mut self) -> TaskRef {
+        self.get_inner().current()
+    }
 }
 
 impl ManagerInner {
     fn new() -> ManagerInner {
+        // don't map things before the heap
         ManagerInner {
-            core: TaskInner {
-                context: Context::empty(),
-                entry: _dummy_entry,
-                level: PrivilegeLevel::CORE,
-                stack: unsafe { Stack::kernel() },
-                memory: BTreeMap::new(),
-                busy: !0,
-                done: false,
-                blocked: false
-            },
+            core: Task::create(PrivilegeLevel::CORE, _dummy_entry, unsafe { Stack::kernel() },
+                               Region::new(HEAP_BEGIN, CORE_SIZE - (HEAP_BEGIN - CORE_BEGIN))),
             memory: Allocator::new(),
             tasks: VecDeque::new(),
             current: None
@@ -569,32 +575,22 @@ impl ManagerInner {
 
     #[inline]
     fn in_core(&self) -> bool {
-        self.core.busy != 0
-    }
-
-    fn to_physical(&self, addr: usize) -> Option<usize> {
-        if self.in_core() {
-            self.core.to_physical(addr)
-        } else if let Some(ref task) = self.current {
-            task.to_physical(addr)
-        } else {
-            unreachable!("Core task was not busy, but there was to current task");
-        }
-    }
-
-    #[inline]
-    fn map_core(&mut self, virt: Region, phys: Region) -> Option<Region> {
-        self.core.map(virt, phys)
-    }
-
-    #[inline]
-    fn unmap_core(&mut self, virt: Region) -> Option<Region> {
-        self.core.unmap(virt)
+        self.core.is_busy()
     }
 
     #[inline]
     fn set_used(&mut self, region: Region) -> bool {
         self.memory.set_used(region)
+    }
+
+    #[inline]
+    fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
+        self.memory.allocate(size, align)
+    }
+
+    #[inline]
+    fn release(&mut self, region: Region) -> bool {
+        self.memory.release(region)
     }
 
     #[inline]
@@ -607,29 +603,24 @@ impl ManagerInner {
         self.memory.forget(region)
     }
 
-    #[inline]
-    fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
-        self.memory.allocate(size, align)
+    fn to_physical(&self, addr: usize) -> Option<usize> {
+        if self.in_core() {
+            self.core.to_physical(addr)
+        } else if let Some(ref task) = self.current {
+            task.to_physical(addr)
+        } else {
+            unreachable!("Core task was not busy, but there was to current task");
+        }
     }
 
-    #[inline]
-    fn deallocate(&mut self, region: Region) -> bool {
-        self.memory.release(region)
-    }
-
-    #[inline]
-    fn grow(&mut self, region: Region, size: usize) -> bool {
-        self.memory.grow(region, size)
-    }
-
-    #[inline]
-    fn shrink(&mut self, region: Region, size: usize) -> bool {
-        self.memory.shrink(region, size)
-    }
-
-    #[inline]
-    fn resize(&mut self, region: Region, size: usize, align: usize) -> Option<Region> {
-        self.memory.resize(region, size, align)
+    fn current(&self) -> TaskRef {
+        if self.in_core() {
+            self.core.get_ref()
+        } else if let Some(ref task) = self.current {
+            task.get_ref()
+        } else {
+            unreachable!("No busy task, but also not in core");
+        }
     }
 
     fn add(&mut self, task: Task) -> TaskRef {
@@ -708,11 +699,11 @@ impl ManagerInner {
         }
 
 
-        if task.get_inner().busy != 0 {
+        if task.is_busy() {
             panic!("Tried to execute a busy task");
         }
 
-        if task.get_inner().blocked {
+        if task.is_blocked() {
             warn!("Tried to switch to a blocked task");
             return task;
         }
@@ -726,18 +717,18 @@ impl ManagerInner {
 
             #[cfg(not(test))]
             ptr::copy(_fxsave_task.as_ptr(),
-                      self.core.context.fxsave.as_mut_ptr(),
-                      self.core.context.fxsave.len());
+                      self.core.fxsave_mut_ptr(),
+                      0x200);
 
             #[cfg(not(test))]
-            ptr::copy(task.get_inner().context.fxsave.as_ptr(),
+            ptr::copy(task.fxsave_ptr(),
                       _fxsave_task.as_mut_ptr(),
-                      task.get_inner().context.fxsave.len());
+                      0x200);
 
             debug!("Executing task");
 
-            task.get_mut().busy = !0;
-            self.core.busy = 0;
+            task.set_busy(true);
+            self.core.set_busy(false);
 
             self.current = Some(task);
 
@@ -746,15 +737,15 @@ impl ManagerInner {
                  :: "*m"(_fxsave_task.as_ptr())
                  :: "intel");
 
-            _do_execute(&self.current.as_ref().unwrap().get_inner().context.regs,
-                        &mut self.core.context.regs);
+            _do_execute(self.current.as_ref().unwrap().regs_ptr(),
+                        self.core.regs_mut_ptr());
 
             let mut task = self.current.take().unwrap();
 
             #[cfg(not(test))]
-            ptr::copy(self.core.context.fxsave.as_mut_ptr(),
+            ptr::copy(self.core.fxsave_mut_ptr(),
                       _fxsave_task.as_mut_ptr(),
-                      self.core.context.fxsave.len());
+                      0x200);
 
             #[cfg(not(test))]
             asm!("fxrstor $0"
@@ -763,8 +754,8 @@ impl ManagerInner {
 
             debug!("Switched back");
 
-            self.core.busy = !0;
-            task.get_mut().busy = 0;
+            self.core.set_busy(true);
+            task.set_busy(false);
 
             task
         }
@@ -782,7 +773,7 @@ impl ManagerInner {
                            .as_mut()
                            .expect("Tried to switch to core, but there was no current task");
 
-        if task.get_inner().busy == 0 {
+        if task.is_busy() {
             panic!("Tried to switch te core, but current task was not busy");
         }
 
@@ -795,13 +786,13 @@ impl ManagerInner {
 
             #[cfg(not(test))]
             ptr::copy(_fxsave_task.as_ptr(),
-                      task.get_mut().context.fxsave.as_mut_ptr(),
-                      task.get_mut().context.fxsave.len());
+                      task.fxsave_mut_ptr(),
+                      0x200);
 
             #[cfg(not(test))]
-            ptr::copy(self.core.context.fxsave.as_ptr(),
+            ptr::copy(self.core.fxsave_ptr(),
                       _fxsave_task.as_mut_ptr(),
-                      self.core.context.fxsave.len());
+                      0x200);
 
             debug!("Switching back to core");
 
@@ -810,13 +801,13 @@ impl ManagerInner {
                  :: "*m"(_fxsave_task.as_ptr())
                  :: "intel");
 
-            _do_execute(&self.core.context.regs,
-                        &mut task.get_mut().context.regs);
+            _do_execute(self.core.regs_ptr(),
+                        task.regs_mut_ptr());
 
             #[cfg(not(test))]
-            ptr::copy(task.get_inner().context.fxsave.as_ptr(),
+            ptr::copy(task.fxsave_ptr(),
                       _fxsave_task.as_mut_ptr(),
-                      task.get_inner().context.fxsave.len());
+                      0x200);
 
             #[cfg(not(test))]
             asm!("fxrstor $0"
@@ -835,10 +826,31 @@ impl Context {
             regs: Regs::empty(),
         }
     }
+
+    #[inline]
+    fn fxsave_ptr(&self) -> *const u8 {
+        self.fxsave.as_ptr()
+    }
+
+    #[inline]
+    fn fxsave_mut_ptr(&mut self) -> *mut u8 {
+        self.fxsave.as_mut_ptr()
+    }
+
+    #[inline]
+    fn regs_ptr(&self) -> *const Regs {
+        self.regs.as_ptr()
+    }
+
+    #[inline]
+    fn regs_mut_ptr(&mut self) -> *mut Regs {
+        self.regs.as_mut_ptr()
+    }
 }
 
 impl TaskInner {
-    fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !, stack: Stack) -> TaskInner {
+    fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
+              stack: Stack, memory: Region) -> TaskInner {
         // create a blank context
         let mut context = Context::empty();
 
@@ -869,12 +881,17 @@ impl TaskInner {
         context.regs.fs = 0x02 << 3;
         context.regs.gs = 0x02 << 3;
 
+        // create our layout
+        let mut layout = Layout::new();
+
+        layout.register(memory);
+
         TaskInner {
             context: context,
             entry: entry,
             level: level,
             stack: stack,
-            memory: BTreeMap::new(),
+            memory: layout,
             busy: 0,
             done: false,
             blocked: false
@@ -882,23 +899,57 @@ impl TaskInner {
     }
 
     #[inline]
-    fn map(&mut self, virt: Region, phys: Region) -> Option<Region> {
-        self.memory.insert(virt, phys)
+    fn to_physical(&self, addr: usize) -> Option<usize> {
+        self.memory.to_physical(addr)
     }
 
     #[inline]
-    fn unmap(&mut self, virt: Region) -> Option<Region> {
-        self.memory.remove(&virt)
+    fn fxsave_ptr(&self) -> *const u8 {
+        self.context.fxsave_ptr()
     }
 
-    fn to_physical(&self, addr: usize) -> Option<usize> {
-        let dummy = Region::new(addr, 0);
+    #[inline]
+    fn fxsave_mut_ptr(&mut self) -> *mut u8 {
+        self.context.fxsave_mut_ptr()
+    }
 
-        if let Some((virt, phys)) = self.memory.range(Included(&dummy), Included(&dummy)).next() {
-            Some(phys.base() + addr - virt.base())
+    #[inline]
+    fn regs_ptr(&self) -> *const Regs {
+        self.context.regs_ptr()
+    }
+
+    #[inline]
+    fn regs_mut_ptr(&mut self) -> *mut Regs {
+        self.context.regs_mut_ptr()
+    }
+
+    #[inline]
+    fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
+        self.memory.allocate(size, align)
+    }
+
+    #[inline]
+    fn map(&mut self, segment: Segment) -> bool {
+        self.memory.insert(segment)
+    }
+
+    #[inline]
+    fn unmap(&mut self, segment: Segment) -> bool {
+        self.memory.remove(segment)
+    }
+
+    #[inline]
+    fn set_busy(&mut self, busy: bool) {
+        if busy {
+            self.busy = !0;
         } else {
-            None
+            self.busy = 0;
         }
+    }
+
+    #[inline]
+    fn is_busy(&self) -> bool {
+        self.busy != 0
     }
 
     #[inline]

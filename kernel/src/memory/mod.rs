@@ -31,6 +31,8 @@ use alloc;
 use constants::*;
 use error::Error;
 
+use cpu::task;
+
 // Reserve memory
 mod reserve;
 
@@ -132,6 +134,19 @@ impl Manager {
             if self.use_reserve.load(Ordering::Relaxed) {
                 reserve::allocate(size, align)
             } else {
+                // try to make sure we have enough of a heap
+                // lazily avoid growing the simple allocator recursively
+                static TRY_GROW: AtomicBool = AtomicBool::new(true);
+
+                if simple::hint() < size && TRY_GROW.swap(false, Ordering::Acquire) {
+                    // allocate another 2MB page to the simple heap
+                    if let Some(region) = task::allocate(0x200000, 0x200000) {
+                        unimplemented!();
+                        //let segment = paging::Segment::new(region.base(), )
+                    }
+                    TRY_GROW.store(true, Ordering::Release);
+                }
+
                 simple::allocate(size, align)
             }
         }
@@ -187,6 +202,14 @@ impl Manager {
             reserve::granularity(size, align)
         } else {
             simple::granularity(size, align)
+        }
+    }
+
+    fn hint(&self) -> usize {
+        if self.use_reserve.load(Ordering::Relaxed) {
+            reserve::hint()
+        } else {
+            simple::hint()
         }
     }
 
@@ -265,6 +288,11 @@ pub fn exit_reserved() -> bool {
 #[inline]
 pub fn granularity(size: usize, align: usize) -> usize {
     MEMORY.granularity(size, align)
+}
+
+#[inline]
+pub fn hint() -> usize {
+    MEMORY.hint()
 }
 
 fn oom() -> ! {

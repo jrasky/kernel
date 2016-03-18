@@ -301,7 +301,13 @@ fn setup_memory(memory_regions: Vec<(usize, usize)>) {
     debug!("Out of reserve memory");
 
     // register our initial heap
-    assert!(cpu::task::map_core(paging::Region::new(HEAP_BEGIN, 0x200000), initial_heap).is_none());
+    assert!(cpu::task::register(initial_heap));
+    assert!(cpu::task::set_used(initial_heap));
+
+    assert!(cpu::task::current().map(
+        paging::Segment::new(initial_heap.base(), HEAP_BEGIN, 0x200000,
+                             // write, !user, !execute, !global
+                             true, false, false, false)));
 
     // register the rest of physical memory
     for (mut base, mut size) in memory_regions {

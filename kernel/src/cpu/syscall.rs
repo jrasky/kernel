@@ -61,7 +61,7 @@ pub unsafe fn setup() -> Stack {
 
 extern "C" fn release_callback(_: u64) -> u64 {
     // release the task
-    cpu::task::release();
+    cpu::task::switch_core();
 
     1
 }

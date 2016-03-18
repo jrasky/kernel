@@ -21,7 +21,12 @@ pub const CORE_SS: u16 = 0x10;
 pub const U64_BYTES: usize = 0x8;
 pub const FXSAVE_SIZE: usize = 0x200;
 
+pub const CORE_BEGIN: usize = 0xffffffff80000000;
+pub const CORE_SIZE: usize = 0x80000000;
 pub const HEAP_BEGIN: usize = 0xffffffff81000000;
+
+pub const TASK_BEGIN: usize = 0x400000;
+pub const TASK_SIZE: usize = 0x7fc00000;
 
 #[inline]
 pub const fn align(n: usize, to: usize) -> usize {

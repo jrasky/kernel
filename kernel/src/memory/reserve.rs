@@ -39,6 +39,7 @@ extern "C" {
 
 static RESERVE: Memory = Memory {
     inner: UnsafeCell::new(MemoryInner {
+        hint: U64_BYTES * RESERVE_SLAB_SIZE,
         slab: [0; RESERVE_SLAB_SIZE],
         map: [0; (RESERVE_SLAB_SIZE + 7) / 8]
     }),
@@ -54,6 +55,7 @@ unsafe impl Send for Memory {}
 unsafe impl Sync for Memory {}
 
 struct MemoryInner {
+    hint: usize,
     slab: [u64; RESERVE_SLAB_SIZE],
     map: [u8; (RESERVE_SLAB_SIZE + 7) / 8]
 }
@@ -79,12 +81,22 @@ impl Memory {
     fn belongs(&self, ptr: *mut u8) -> bool {
         unsafe {self.inner.get().as_ref().unwrap().belongs(ptr)}
     }
+
+    #[inline]
+    fn hint(&self) -> usize {
+        unsafe {self.inner.get().as_ref().unwrap().hint()}
+    }
 }
 
 impl MemoryInner {
     #[inline]
     fn belongs(&self, ptr: *mut u8) -> bool {
         (ptr as usize) >= self.slab.as_ptr() as usize && (ptr as usize) < unsafe {self.slab.as_ptr().offset(self.slab.len() as isize)} as usize
+    }
+
+    #[inline]
+    fn hint(&self) -> usize {
+        self.hint
     }
 
     unsafe fn allocate(&mut self, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
@@ -135,6 +147,9 @@ impl MemoryInner {
 
                 // create the header
                 let base = self.slab.get_mut(start).unwrap() as *mut _ as *mut u8;
+
+                // update our size hint
+                self.hint = U64_BYTES * (RESERVE_SLAB_SIZE - start - blocks);
 
                 // return the pointer of interest
                 return Ok(base);
@@ -343,6 +358,11 @@ pub unsafe fn resize(ptr: *mut u8, old_size: usize, size: usize, align: usize) -
     let result = RESERVE.borrow_mut().resize(ptr, old_size, size, align);
     RESERVE.lock();
     result
+}
+
+#[inline]
+pub fn hint() -> usize {
+    RESERVE.hint()
 }
 
 #[inline]

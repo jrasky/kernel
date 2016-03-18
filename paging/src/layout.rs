@@ -22,10 +22,12 @@ use std::mem;
 
 use constants::*;
 use frame::{Frame, Segment, FrameSize};
+use allocator::{Allocator, Region};
 
 pub struct Layout {
     entries: Vec<Option<Frame>>,
-    map: BTreeSet<Segment>, // use a map for convenience
+    map: BTreeSet<Segment>,
+    free: Allocator,
     buffers: Vec<RawVec<u64>>
 }
 
@@ -62,7 +64,54 @@ impl Layout {
         Layout {
             entries: entries,
             map: BTreeSet::new(),
+            free: Allocator::new(),
             buffers: vec![]
+        }
+    }
+
+    #[inline]
+    pub fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
+        self.free.allocate(size, align)
+    }
+
+    #[inline]
+    pub fn register(&mut self, region: Region) -> bool {
+        self.free.register(region)
+    }
+
+    #[inline]
+    pub fn forget(&mut self, region: Region) -> bool {
+        self.free.forget(region)
+    }
+    
+    pub fn insert(&mut self, segment: Segment) -> bool {
+        if self.map.insert(segment.clone()) {
+            let region = Region::new(segment.virtual_base(), segment.size());
+            // may or may not already be allocated
+            self.free.set_used(region);
+
+            trace!("Inserting segment {:?}", &segment);
+            self.merge(segment, false);
+            true
+        } else {
+            if let Some(old_segment) = self.map.get(&segment) {
+                if !old_segment.same_settings(&segment) {
+                        warn!("Failed to insert overlapping segment: {:?}, overlapped by {:?}",
+                              segment, old_segment);
+                    }
+            }
+            false
+        }
+    }
+
+    pub fn remove(&mut self, segment: Segment) -> bool {
+        let region = Region::new(segment.virtual_base(), segment.size());
+
+        if self.free.release(region) && self.map.remove(&segment) {
+            self.merge(segment, true);
+            true
+        } else {
+            false
         }
     }
 
@@ -144,30 +193,9 @@ impl Layout {
         (entry, buffer)
     }
 
-    pub fn insert(&mut self, segment: Segment) -> bool {
-        if self.map.insert(segment.clone()) {
-            trace!("Inserting segment {:?}", &segment);
-            self.merge(segment, false);
-            true
-        } else {
-            if let Some(old_segment) = self.map.get(&segment) {
-                if !old_segment.same_settings(&segment) {
-                        warn!("Failed to insert overlapping segment: {:?}, overlapped by {:?}",
-                              segment, old_segment);
-                    }
-            }
-            false
-        }
-    }
-
-    #[allow(dead_code)] // will use eventually
-    pub fn remove(&mut self, segment: Segment) -> bool {
-        if self.map.remove(&segment) {
-            self.merge(segment, true);
-            true
-        } else {
-            false
-        }
+    pub fn to_physical(&self, addr: usize) -> Option<usize> {
+        // TODO: Implement this
+        None
     }
 
     fn merge(&mut self, segment: Segment, remove: bool) {

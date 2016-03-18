@@ -30,14 +30,22 @@ struct Block {
 }
 
 struct Manager {
+    hint: usize,
     free: *mut Block
 }
 
 impl Manager {
+    #[inline]
     const fn new() -> Manager {
         Manager {
+            hint: 0,
             free: ptr::null_mut()
         }
+    }
+
+    #[inline]
+    fn hint(&self) -> usize {
+        self.hint
     }
 
     unsafe fn register(&mut self, ptr: *mut u8, size: usize) -> Result<usize, MemoryError> {
@@ -63,6 +71,7 @@ impl Manager {
             trace!("{:?}", self.free.as_mut().unwrap().next);
             trace!("{:?}", self.free.as_mut().unwrap().last);
 
+            self.hint += size;
             return Ok(size);
         }
 
@@ -89,6 +98,7 @@ impl Manager {
                 last: ptr::null_mut()
             };
 
+            self.hint += size;
             return Ok(size);
         } else if end == self.free as *mut _ {
             // extend the first element backwards
@@ -107,6 +117,7 @@ impl Manager {
 
             self.free = new_block;
 
+            self.hint += size;
             return Ok(size);
         }
 
@@ -128,11 +139,13 @@ impl Manager {
                         last: block
                     };
 
+                    self.hint += size;
                     return Ok(size);
                 } else if ptr == block.end {
                     // extend the last block
                     block.end = end;
 
+                    self.hint += size;
                     return Ok(size);
                 } else {
                     error!("Unable to register block, likely overlapping");
@@ -157,17 +170,20 @@ impl Manager {
                     last: block
                 };
 
+                self.hint += size;
                 return Ok(size);
             } else if ptr == block.end && end == block.next as *mut _ {
                 // join the two elements together
                 block.end = next.end;
                 block.next = next.next;
 
+                self.hint += size;
                 return Ok(size);
             } else if ptr == block.end && end < block.next as *mut _ {
                 // extend block
                 block.end = end;
 
+                self.hint += size;
                 return Ok(size);
             } else if ptr > block.end && end == block.next as *mut _ {
                 // extend next
@@ -179,6 +195,7 @@ impl Manager {
                     last: block
                 };
 
+                self.hint += size;
                 return Ok(size);
             } else {
                 // advance
@@ -272,6 +289,7 @@ impl Manager {
             } else {
                 // done!
                 if forgotten_size > 0 {
+                    self.hint -= forgotten_size;
                     return Ok(forgotten_size);
                 } else {
                     return Err(MemoryError::NoPlace);
@@ -368,6 +386,7 @@ impl Manager {
         }
 
         // produce pointer
+        self.hint -= size;
         Ok(aligned_base)
     }
 
@@ -377,6 +396,7 @@ impl Manager {
         trace!("{}", registered_size);
 
         if registered_size == size {
+            self.hint += size;
             Ok(size)
         } else {
             Err(MemoryError::Overlap)
@@ -425,6 +445,7 @@ impl Manager {
 
                         trace!("{:?}, {:?}", new_end, new_block);
                         *(new_end as *mut Block).as_mut().unwrap() = new_block;
+                        self.hint -= size - old_size;
                         return Ok(());
                     } else {
                         // delete the block
@@ -436,6 +457,7 @@ impl Manager {
                             next.last = block_ref.last;
                         }
 
+                        self.hint -= size - old_size;
                         return Ok(());
                     }
                 } else {
@@ -577,6 +599,11 @@ impl Manager {
             Err(MemoryError::OutOfMemory)
         }
     }
+}
+
+#[inline]
+pub fn hint() -> usize {
+    MEMORY.lock().hint()
 }
 
 #[inline]

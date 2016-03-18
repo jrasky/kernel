@@ -109,7 +109,8 @@ unsafe extern "C" fn test_task() -> ! {
     let mut gate = cpu::task::Gate::new(vec![]);
 
     let task = cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_2,
-                                                      cpu::stack::Stack::create(0x10000)));
+                                                      cpu::stack::Stack::create(0x10000),
+                                                      paging::Region::new(0x400000, 0x200000)));
 
     gate.add_task(task);
 
@@ -186,6 +187,8 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // parse multiboot info
     unsafe { multiboot::parse_multiboot_tags(boot_info) };
 
+    // now out of reserve memory
+
     // set up cpu data structures and other settings
     // keep references around so we don't break things
     let (gdt, idt, syscall_stack) = unsafe {cpu::init::setup()};
@@ -199,10 +202,12 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
 
     // start some tasks
     cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task,
-                                           cpu::stack::Stack::create(0x10000)));
+                                           cpu::stack::Stack::create(0x10000),
+                                           paging::Region::new(0x400000, 0x200000)));
 
     cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_entry,
-                                           cpu::stack::Stack::create(0x10000)));
+                                           cpu::stack::Stack::create(0x10000),
+                                           paging::Region::new(0x400000, 0x200000)));
 
     loop {
         match cpu::task::run_next() {

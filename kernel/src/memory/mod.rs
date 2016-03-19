@@ -19,7 +19,7 @@ use std::ptr;
 #[cfg(not(test))]
 use core::fmt;
 #[cfg(test)]
-use core::fmt;
+use std::fmt;
 
 #[cfg(not(test))]
 use core::fmt::Display;

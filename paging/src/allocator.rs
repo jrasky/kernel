@@ -291,3 +291,12 @@ impl Allocator {
         }
     }
 }
+
+#[cfg(test)]
+#[test]
+fn test_allocator() {
+    let mut allocator = Allocator::new();
+
+    assert!(allocator.register(Region::new(0x200000, 0x200000)));
+    assert!(allocator.allocate(0x1000, 0x1000).is_some());
+}

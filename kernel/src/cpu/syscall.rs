@@ -33,6 +33,11 @@ unsafe fn _sysenter_landing(_: u64, _: u64, _: u64) -> ! {
 }
 
 #[cfg(test)]
+unsafe fn _syscall_landing(_: u64, _: u64, _: u64) -> ! {
+    unreachable!("syscall landing called");
+}
+
+#[cfg(test)]
 unsafe fn _sysenter_return(_: u64, result: u64) -> ! {
     panic!(result);
 }

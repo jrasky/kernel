@@ -26,7 +26,7 @@ dependencies = [
 [[package]]
 name = "nasm-rs"
 version = "0.0.4"
-source = "git+https://github.com/jrasky/nasm-rs#a7ee5055518ea1a55c2988ff910a1b7cf579764f"
+source = "git+https://github.com/jrasky/nasm-rs#eebff417fdda3b656cb18e8e4b55933060bac7a8"
 
 [[package]]
 name = "paging"

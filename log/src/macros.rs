@@ -1,18 +1,20 @@
 #[cfg(any(debug_assertions, feature = "release_trace_points"))]
+#[macro_export]
 macro_rules! point {
-    ($($arg:tt)+) => {
+    ($into:expr, $($arg:tt)+) => ({
         static LOCATION: $crate::Location = $crate::Location {
             module_path: module_path!(),
             file: file!(),
             line: line!()
         };
-        $crate::trace(&LOCATION, format_args!($($arg)+))
-    }
+        $into.push($crate::trace(&LOCATION, format_args!($($arg)+)));
+    });
 }
 
 #[cfg(not(any(debug_assertions, feature = "release_trace_points")))]
+#[macro_export]
 macro_rules! point {
-    ($($arg:tt)+) => ();
+    ($into:expr, $($arg:tt)+) => ();
 }
 
 #[cfg(any(all(feature = "log_any", debug_assertions), feature = "release_log_any"))]

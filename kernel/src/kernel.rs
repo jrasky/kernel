@@ -172,12 +172,15 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // enable memory
     memory::enable();
 
+    let mut traces = vec![];
+
     // set up logging
     log::set_output(Some(Box::new(
         logging::Writer::new(logging::Color::LightGray, logging::Color::Black))));
 
     // say hello
     info!("Hello!");
+    point!(traces, "set up logging");
 
     // read segments
     debug!("Number of segments: {}", _gen_segments_size);
@@ -187,11 +190,16 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // parse multiboot info
     unsafe { multiboot::parse_multiboot_tags(boot_info) };
 
+
+    point!(traces, "parsed multiboot info");
+
     // now out of reserve memory
 
     // set up cpu data structures and other settings
     // keep references around so we don't break things
     let (gdt, idt, syscall_stack) = unsafe {cpu::init::setup()};
+
+    point!(traces, "set up cpu structures");
 
     // explicity leak gdt and idt and the syscall stack and the kernel page map
     mem::forget(gdt);
@@ -208,6 +216,8 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_entry,
                                            cpu::stack::Stack::create(0x10000),
                                            paging::Region::new(0x400000, 0x200000)));
+
+    point!(traces, "created tasks");
 
     loop {
         match cpu::task::run_next() {
@@ -284,6 +294,11 @@ fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     };
 
     log::log(0, &loc, module_path!(), msg);
+
+    #[cfg(debug_assertions)]
+    {
+        critical!(target: "trace", "\n{}", log::get_trace());
+    }
 
     panic_halt();
 }

@@ -332,6 +332,8 @@ fn setup_memory(memory_regions: Vec<(usize, usize)>) {
 }
 
 pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
+    let mut traces = vec![];
+
     // read multiboot info
     let mut ptr: *const u32 = boot_info;
 
@@ -344,25 +346,30 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
     while ptr < end {
         match *ptr.as_ref().unwrap() {
             0 => {
-                trace!("End of tags");
+                point!(traces, "end of tags");
                 break;
             }
             1 => {
+                point!(traces, "command line tag");
                 parse_cmdline(ptr);
             }
             2 => {
+                point!(traces, "bootloader tag");
                 parse_bootloader(ptr);
             }
             6 => {
+                point!(traces, "memory tag");
                 let memory_regions = parse_memory(ptr);
 
                 setup_memory(memory_regions);
             }
             9 => {
+                point!(traces, "elf tag");
                 parse_elf(ptr);
             }
             _ => {
                 // unknown tags aren't a huge issue
+                point!(traces, "unknown tag");
                 trace!("Found multiboot info tag {}", *ptr.as_ref().unwrap());
             }
         }

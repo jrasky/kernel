@@ -332,7 +332,7 @@ fn setup_memory(memory_regions: Vec<(usize, usize)>) {
 }
 
 pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
-    let mut traces = vec![];
+    frame!(traces);
 
     // read multiboot info
     let mut ptr: *const u32 = boot_info;

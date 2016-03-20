@@ -19,7 +19,7 @@ mod logger;
 mod point;
 
 pub use logger::{Request, Location, Output};
-pub use point::{trace, get_trace};
+pub use point::{Frame, PointFrame, trace, write_trace};
 
 static LOGGER: RwLock<Logger> = RwLock::new(Logger::new());
 

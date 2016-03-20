@@ -4,6 +4,14 @@ use logger::Location;
 
 static MANAGER: Mutex<Option<Manager>> = Mutex::new(None);
 
+pub trait Frame {
+    fn add(&mut self, point: PointRef);
+}
+
+pub struct PointFrame {
+    traces: Vec<PointRef>
+}
+
 #[derive(Debug)]
 #[must_use]
 pub struct PointRef {
@@ -47,6 +55,21 @@ impl Display for Manager {
         }
 
         Ok(())
+    }
+}
+
+impl Frame for PointFrame {
+    #[inline]
+    fn add(&mut self, point: PointRef) {
+        self.traces.push(point);
+    }
+}
+
+impl PointFrame {
+    pub fn new() -> PointFrame {
+        PointFrame {
+            traces: vec![]
+        }
     }
 }
 
@@ -99,10 +122,10 @@ pub fn trace<T: Display>(location: &Location, message: T) -> PointRef {
     }
 }
 
-pub fn get_trace() -> String {
-    if let Some(ref mut manager) = *MANAGER.lock() {
-        format!("{}", manager)
+pub fn write_trace<T: Write>(into: &mut T) -> fmt::Result {
+    if let Some(ref manager) = *MANAGER.lock() {
+        write!(into, "{}", manager)
     } else {
-        "".into()
+        Err(fmt::Error)
     }
 }

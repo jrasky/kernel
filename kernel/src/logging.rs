@@ -193,6 +193,10 @@ impl log::Output for ReserveWriter {
     fn log(&mut self, level: usize, location: &log::Location, target: &Display, message: &Display) {
         if level <= 1 {
             let _ = writeln!(self, "{} {} at {}({}): {}", target, log::level_name(level), location.file, location.line, message);
+            // print a trace
+            let _ = log::write_trace(self);
+            // and then a newline
+            let _ = writeln!(self, "");
         } else {
             let _ = writeln!(self, "{} {}: {}", target, log::level_name(level), message);
         }

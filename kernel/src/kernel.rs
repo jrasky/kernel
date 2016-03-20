@@ -172,7 +172,8 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // enable memory
     memory::enable();
 
-    let mut traces = vec![];
+    // create our tracing frame
+    frame!(traces);
 
     // set up logging
     log::set_output(Some(Box::new(
@@ -294,11 +295,6 @@ fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     };
 
     log::log(0, &loc, module_path!(), msg);
-
-    #[cfg(debug_assertions)]
-    {
-        critical!(target: "trace", "\n{}", log::get_trace());
-    }
 
     panic_halt();
 }

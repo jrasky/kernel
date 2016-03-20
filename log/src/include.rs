@@ -1,7 +1,7 @@
 #[cfg(not(test))]
-pub use core::fmt::Display;
+pub use core::fmt::{Display, Write};
 #[cfg(test)]
-pub use std::fmt::Display;
+pub use std::fmt::{Display, Write};
 
 #[cfg(not(test))]
 pub use alloc::boxed::Box;

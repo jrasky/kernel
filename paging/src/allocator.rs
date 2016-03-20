@@ -1,4 +1,14 @@
 #[cfg(not(test))]
+pub use core::fmt::Debug;
+#[cfg(test)]
+pub use std::fmt::Debug;
+
+#[cfg(test)]
+pub use std::fmt;
+#[cfg(not(test))]
+pub use core::fmt;
+
+#[cfg(not(test))]
 use core::cmp::{PartialEq, Eq, Ord, PartialOrd, Ordering};
 
 #[cfg(test)]
@@ -10,7 +20,7 @@ use collections::Bound::{Excluded, Unbounded};
 use constants::*;
 use constants;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Region {
     base: usize,
     size: usize
@@ -20,6 +30,12 @@ pub struct Region {
 pub struct Allocator {
     free: BTreeSet<Region>,
     used: BTreeSet<Region>
+}
+
+impl Debug for Region {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "Region {{ base: 0x{:x}, size: 0x{:x} }}", self.base, self.size)
+    }
 }
 
 impl Region {
@@ -114,9 +130,9 @@ impl Allocator {
 
         let size = if let Some(ref next) = next_region {
             assert!(self.used.remove(next));
-            next.base() + next.size() - base
+            next.size() + (next.base() - base)
         } else {
-            region.base() + region.size() - base
+            region.size() + (region.base() - base)
         };
 
         assert!(self.used.insert(Region::new(base, size)));
@@ -125,6 +141,8 @@ impl Allocator {
     }
 
     pub fn register(&mut self, region: Region) -> bool {
+        trace!("{:?}", region);
+
         if self.used.contains(&region) {
             return false;
         }
@@ -134,6 +152,7 @@ impl Allocator {
 
         // try to connect segments together
         if let Some(last) = self.free.range(Unbounded, Excluded(&region)).next_back() {
+            trace!("{:?}", last);
             if region.after(&last) {
                 // combine with last segment
                 last_region = Some(last.clone());
@@ -141,6 +160,7 @@ impl Allocator {
         }
 
         if let Some(next) = self.free.range(Excluded(&region), Unbounded).next() {
+            trace!("{:?}", next);
             if region.before(&next) {
                 // combine with next segment
                 next_region = Some(next.clone());
@@ -155,10 +175,10 @@ impl Allocator {
         };
 
         let size = if let Some(ref next) = next_region {
-            assert!(self.free.remove(next));
-            next.base() + next.size() - base
+            assert!(self.used.remove(next));
+            next.size() + (next.base() - base)
         } else {
-            region.base() + region.size() - base
+            region.size() + (region.base() - base)
         };
 
         assert!(self.free.insert(Region::new(base, size)));
@@ -299,4 +319,12 @@ fn test_allocator() {
 
     assert!(allocator.register(Region::new(0x200000, 0x200000)));
     assert!(allocator.allocate(0x1000, 0x1000).is_some());
+}
+
+#[cfg(test)]
+#[test]
+fn test_allocator_limit() {
+    let mut allocator = Allocator::new();
+
+    assert!(allocator.register(Region::new(0xfffffff810000000, 0x7f0000000)));
 }

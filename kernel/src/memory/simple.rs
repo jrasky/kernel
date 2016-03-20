@@ -309,6 +309,7 @@ impl Manager {
 
         loop {
             if let Some(block_ref) = block.as_mut() {
+                trace!("{:?}", block_ref);
                 aligned_base = constants::align(block as usize, align) as *mut u8;
                 let end = (aligned_base as *mut u8).offset(size as isize) as *mut u8;
                 if aligned_base < block_ref.end &&
@@ -451,6 +452,9 @@ impl Manager {
                         // delete the block
                         if let Some(last) = block_ref.last.as_mut() {
                             last.next = block_ref.next;
+                        } else {
+                            // change free
+                            self.free = block_ref.next;
                         }
 
                         if let Some(next) = block_ref.next.as_mut() {
@@ -517,9 +521,10 @@ impl Manager {
         // keep data that might be clobbered by release
         let diff_size: usize = cmp::min(mem::size_of::<Block>(), size);
         let mut store: Block = mem::zeroed();
-        trace!("Copying");
-        ptr::copy(ptr as *mut u8, (&mut store as *mut _ as *mut u8)
-                  .offset(diff_size as isize), diff_size);
+        trace!("Copying: 0x{:x}", diff_size);
+        ptr::copy(ptr as *mut u8, (&mut store as *mut _ as *mut u8), diff_size);
+
+        trace!("0x{:x}", diff_size);
 
         if let Err(e) = self.release(ptr, old_size, align) {
             error!("Failed to free pointer on resize: {}", e);
@@ -527,15 +532,16 @@ impl Manager {
         }
 
         if let Ok(new_ptr) = self.allocate(size, align) {
-            trace!("{:?}, {:?}, {:?}", ptr, new_ptr, old_size);
+            trace!("{:?}, {:?}, 0x{:x}", ptr, new_ptr, old_size);
 
             // copy the data from the old pointer
             ptr::copy(ptr as *mut u8, new_ptr as *mut u8, old_size);
 
+            trace!("{:?}, 0x{:x}", (&mut store as *mut _ as *mut u8), diff_size);
+
             // some bytes at the beginning might have been clobbered
             // copy data that might have been clobbered
-            ptr::copy((&mut store as *mut _ as *mut u8)
-                      .offset(diff_size as isize), new_ptr as *mut u8, diff_size);
+            ptr::copy((&mut store as *mut _ as *mut u8), new_ptr as *mut u8, diff_size);
 
             // succeeded!
             Ok(new_ptr)

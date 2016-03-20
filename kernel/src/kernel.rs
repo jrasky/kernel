@@ -191,6 +191,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // parse multiboot info
     unsafe { multiboot::parse_multiboot_tags(boot_info) };
 
+    debug!("finished parsing multiboot info");
 
     point!(traces, "parsed multiboot info");
 

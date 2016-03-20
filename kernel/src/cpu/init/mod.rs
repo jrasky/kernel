@@ -48,6 +48,8 @@ unsafe extern "C" fn _pf_handler() {
 
 /// Unsafe because dropping gdt or idt leaks a reference
 pub unsafe fn setup() -> (gdt::Table, idt::Table, cpu::stack::Stack) {
+    trace!("Setting up cpu");
+
     // create a new GDT with a TSS
     let tss = tss::Segment::new([None, None, None, None, None, None, None],
                                 [None, None, None], 0);

@@ -564,9 +564,14 @@ impl Manager {
 impl ManagerInner {
     fn new() -> ManagerInner {
         // don't map things before the heap
+        let mut core = Task::create(PrivilegeLevel::CORE, _dummy_entry, unsafe { Stack::kernel() },
+                                    Region::new(HEAP_BEGIN, CORE_SIZE - (HEAP_BEGIN - CORE_BEGIN)));
+
+        // core is initially busy
+        core.set_busy(true);
+
         ManagerInner {
-            core: Task::create(PrivilegeLevel::CORE, _dummy_entry, unsafe { Stack::kernel() },
-                               Region::new(HEAP_BEGIN, CORE_SIZE - (HEAP_BEGIN - CORE_BEGIN))),
+            core: core,
             memory: Allocator::new(),
             tasks: VecDeque::new(),
             current: None
@@ -773,7 +778,7 @@ impl ManagerInner {
                            .as_mut()
                            .expect("Tried to switch to core, but there was no current task");
 
-        if task.is_busy() {
+        if !task.is_busy() {
             panic!("Tried to switch te core, but current task was not busy");
         }
 

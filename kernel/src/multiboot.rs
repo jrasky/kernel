@@ -52,6 +52,7 @@ struct ElfSymbolTag {
 }
 
 pub unsafe fn parse_elf(ptr: *const u32) {
+    trace!("Parsing elf tag");
     let info = (ptr as *const ElfSymbolTag).as_ref().unwrap();
 
     let sections =
@@ -185,6 +186,7 @@ unsafe fn parse_bootloader(ptr: *const u32) {
 }
 
 unsafe fn parse_memory(ptr: *const u32) -> Vec<(usize, usize)> {
+    frame!(traces);
     // memory map
     let entry_size = *ptr.offset(2).as_ref().unwrap();
     let mut entry_ptr = ptr.offset(4) as *const MemoryTag;
@@ -194,6 +196,8 @@ unsafe fn parse_memory(ptr: *const u32) -> Vec<(usize, usize)> {
     let image_end = &_image_end as *const _ as usize;
 
     let mut memory_regions = vec![];
+
+    point!(traces, "parsing memory");
 
     while entry_ptr < entry_end {
         let entry = entry_ptr.as_ref().unwrap();
@@ -293,21 +297,28 @@ fn build_test_external_task() {
 }
 
 fn setup_memory(memory_regions: Vec<(usize, usize)>) {
+    use log::Frame;
+    frame!(traces, "setting up memory");
     // create initial heap
     let initial_heap = build_initial_heap(memory_regions.as_ref());
 
+    point!(traces, "built initial heap");
+
     // can now use simple allocator
     memory::exit_reserved();
-    debug!("Out of reserve memory");
 
-    // register our initial heap
-    assert!(cpu::task::register(initial_heap));
+    point!(traces, "out of reserve memory");
+
     assert!(cpu::task::set_used(initial_heap));
+
+    point!(traces, "set initial heap used");
 
     assert!(cpu::task::current().map(
         paging::Segment::new(initial_heap.base(), HEAP_BEGIN, 0x200000,
                              // write, !user, !execute, !global
                              true, false, false, false)));
+
+    point!(traces, "mapped initial heap");
 
     // register the rest of physical memory
     for (mut base, mut size) in memory_regions {
@@ -320,19 +331,23 @@ fn setup_memory(memory_regions: Vec<(usize, usize)>) {
             }
         }
 
+        //point!(traces, "registering region at 0x{:x}, size 0x{:x}", base, size);
+
         assert!(cpu::task::register(paging::Region::new(base, size)));
     }
 
-    debug!("Done building into page tables");
+    point!(traces, "done registering physical memory");
 
     // build external task tables
     build_test_external_task();
+
+    point!(traces, "build external task tables");
 
     debug!("Done building external task tables");
 }
 
 pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
-    frame!(traces);
+    frame!(traces, "parsing multiboot tags");
 
     // read multiboot info
     let mut ptr: *const u32 = boot_info;
@@ -346,29 +361,36 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
     while ptr < end {
         match *ptr.as_ref().unwrap() {
             0 => {
+                trace!("end of tags");
                 point!(traces, "end of tags");
                 break;
             }
             1 => {
+                trace!("command line tag");
                 point!(traces, "command line tag");
                 parse_cmdline(ptr);
             }
             2 => {
+                trace!("bootloader tag");
                 point!(traces, "bootloader tag");
                 parse_bootloader(ptr);
             }
             6 => {
+                trace!("memory tag");
                 point!(traces, "memory tag");
                 let memory_regions = parse_memory(ptr);
 
                 setup_memory(memory_regions);
+                trace!("Done setting up memory");
             }
             9 => {
+                trace!("elf tag");
                 point!(traces, "elf tag");
                 parse_elf(ptr);
             }
             _ => {
                 // unknown tags aren't a huge issue
+                trace!("unknown tag");
                 point!(traces, "unknown tag");
                 trace!("Found multiboot info tag {}", *ptr.as_ref().unwrap());
             }

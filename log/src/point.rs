@@ -40,6 +40,13 @@ impl Drop for PointRef {
     }
 }
 
+impl Drop for PointFrame {
+    fn drop(&mut self) {
+        // drop in reverse order
+        while self.traces.pop().is_some() {}
+    }
+}
+
 impl Display for Point {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         write!(fmt, "{}", self.message)
@@ -71,6 +78,12 @@ impl PointFrame {
             traces: vec![]
         }
     }
+
+    pub fn new_add<T: Display>(location: &Location, message: T) -> PointFrame {
+        PointFrame {
+            traces: vec![trace(location, message)]
+        }
+    }
 }
 
 impl Manager {
@@ -97,11 +110,17 @@ impl Manager {
     }
 
     fn untrace(&mut self, id: usize) {
+        debug!("Untracing id {}", id);
+
         loop {
             if let Some(trace) = self.traces.pop() {
+                trace!("{:?}", trace);
                 if trace.id == id {
+                    trace!("Found matching");
                     break;
                 }
+            } else {
+                panic!("untraced non-containing ID: {}", id);
             }
         }
     }

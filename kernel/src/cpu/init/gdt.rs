@@ -97,7 +97,8 @@ impl Table {
         let top = gdt as u64;
         let mut gdt = gdt as *mut u64;
 
-        // first three entries are static
+        // first three entries are static, must match those set before jump to
+        // long mode, and requirements for syscall instruction
         let header: [u64; 3] = [
             0, // null
             (1 << 44) | (1 << 47) | (1 << 41) | (1 << 43) | (1 << 53), // code

@@ -16,7 +16,7 @@ struct Register {
 
 #[derive(Debug)]
 pub struct Descriptor {
-    target: u64,
+    target: unsafe extern "C" fn (),
     segment: u16,
     present: bool,
     stack: u8,
@@ -25,6 +25,10 @@ pub struct Descriptor {
 pub struct Table {
     buffer: RawVec<u8>,
     descriptors: Vec<Descriptor>,
+}
+
+unsafe extern "C" fn _dummy_target() {
+    unreachable!("dummy interrupt descriptor reached");
 }
 
 impl Drop for Table {
@@ -36,14 +40,14 @@ impl Drop for Table {
 impl Descriptor {
     pub const fn placeholder() -> Descriptor {
         Descriptor {
-            target: 0,
+            target: _dummy_target,
             segment: 0,
             present: false,
             stack: 0,
         }
     }
 
-    pub const fn new(target: u64, stack: u8) -> Descriptor {
+    pub const fn new(target: unsafe extern "C" fn (), stack: u8) -> Descriptor {
         Descriptor {
             target: target,
             segment: 1 << 3, // second segment, GDT, RPL 0
@@ -62,13 +66,13 @@ impl Descriptor {
         // this is because it's not very rustic to be reentrant, so avoid it
         // if possible
 
-        let lower = ((self.target & (0xffff << 16)) << 32) | (self.target & 0xffff) |
+        let lower = ((self.target as u64 & (0xffff << 16)) << 32) | (self.target as u64 & 0xffff) |
                     ((self.segment as u64) << 16) |
                     ((self.stack as u64) << 32) | (1 << 47) | (0x0e << 40); // present, interrupt gate
 
-        trace!("{:?}, {:?}", lower, self.target >> 32);
+        trace!("{:?}, {:?}", lower, self.target as u64 >> 32);
 
-        [lower, self.target >> 32]
+        [lower, self.target as u64 >> 32]
     }
 }
 
@@ -97,6 +101,34 @@ impl Table {
 
         trace!("aoe: {:?}", REGISTER);
 
+        #[cfg(not(test))]
+        asm!("lidt $0"
+             :: "i"(&REGISTER)
+             :: "intel");
+    }
+
+    pub unsafe fn early_install(descriptors: &[Descriptor], mut idt: *mut u64) {
+        let len = descriptors.len();
+        let top = idt as u64;
+
+        if len == 0 {
+            // do nothing
+            return;
+        }
+
+        // copy data
+        for desc in descriptors.iter() {
+            ptr::copy(desc.as_entry().as_ptr(), idt, 2);
+            idt = idt.offset(2);
+        }
+
+        static mut REGISTER: Register = Register { size: 0, base: 0 };
+
+        // save register info
+        REGISTER.size = (idt as u64 - top - 1) as u16;
+        REGISTER.base = top;
+
+        // install IDT
         #[cfg(not(test))]
         asm!("lidt $0"
              :: "i"(&REGISTER)

@@ -703,7 +703,6 @@ impl ManagerInner {
             panic!("Tried to switch tasks while not in core task");
         }
 
-
         if task.is_busy() {
             panic!("Tried to execute a busy task");
         }
@@ -714,12 +713,13 @@ impl ManagerInner {
         }
 
         unsafe {
-            // save our
+            // save our register state
             #[cfg(not(test))]
             asm!("fxsave $0"
                  : "=*m"(_fxsave_task.as_mut_ptr())
                  ::: "intel");
 
+            // load the task's register state
             #[cfg(not(test))]
             ptr::copy(_fxsave_task.as_ptr(),
                       self.core.fxsave_mut_ptr(),

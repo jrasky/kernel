@@ -76,7 +76,10 @@ pub use memory::{__rust_allocate,
 #[cfg(not(test))]
 pub use cpu::interrupt::{interrupt_breakpoint,
                          interrupt_general_protection_fault,
-                         interrupt_page_fault};
+                         interrupt_page_fault,
+                         early_interrupt_breakpoint,
+                         early_interrupt_general_protection_fault,
+                         early_interrupt_page_fault};
 
 #[cfg(not(test))]
 pub use cpu::syscall::{sysenter_handler,
@@ -168,6 +171,8 @@ unsafe extern "C" fn test_task_2() -> ! {
 #[no_mangle]
 pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // kernel main
+    // set up early data structures
+    unsafe {cpu::init::early_setup()};
 
     // enable memory
     memory::enable();

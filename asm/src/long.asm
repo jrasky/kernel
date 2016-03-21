@@ -24,12 +24,18 @@
     global _fxsave_task
     global _syscall_launch
     global _syscall_landing
+    global _bp_early_handler
+    global _gp_early_handler
+    global _pf_early_handler
 
     extern kernel_main
     extern _boot_info
     extern interrupt_breakpoint
     extern interrupt_general_protection_fault
     extern interrupt_page_fault
+    extern early_interrupt_breakpoint
+    extern early_interrupt_general_protection_fault
+    extern early_interrupt_page_fault
     extern sysenter_handler
     extern SYSCALL_STACK
 
@@ -235,7 +241,19 @@ _gp_handler:
 
 _pf_handler:
     jmp .with_error             ;has an error code
-    interrupt_handler interrupt_page_fault
+    interrupt_handler early_interrupt_page_fault
+
+_bp_early_handler:
+    interrupt_handler early_interrupt_breakpoint
+    
+_gp_early_handler:
+    jmp .with_error             ;has an error code
+    interrupt_handler early_interrupt_general_protection_fault
+
+_pf_early_handler:
+    jmp .with_error             ;has an error code
+    interrupt_handler early_interrupt_page_fault
+
 
 ;;; load context object
 _load_context:

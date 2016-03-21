@@ -13,6 +13,7 @@ pub trait Output {
 pub struct Logger {
     level: Option<usize>,
     output: Option<Box<Output>>,
+    lost: usize
 }
 
 pub struct Request {
@@ -34,6 +35,7 @@ impl Logger {
         Logger {
             level: None,
             output: None,
+            lost: 0,
         }
     }
 
@@ -42,6 +44,7 @@ impl Logger {
         Logger {
             level: Some(0),
             output: None,
+            lost: 0,
         }
     }
 
@@ -50,6 +53,7 @@ impl Logger {
         Logger {
             level: Some(1),
             output: None,
+            lost: 0,
         }
     }
 
@@ -66,6 +70,7 @@ impl Logger {
         Logger {
             level: Some(3),
             output: None,
+            lost: 0,
         }
     }
 
@@ -74,6 +79,7 @@ impl Logger {
         Logger {
             level: Some(4),
             output: None,
+            lost: 0,
         }
     }
 
@@ -82,6 +88,7 @@ impl Logger {
         Logger {
             level: Some(5),
             output: None,
+            lost: 0,
         }
     }
 
@@ -114,7 +121,22 @@ impl Logger {
 
         // otherwise log
         if let Some(ref mut output) = self.output {
+            if self.lost > 0 {
+                // log a warning about lost messages
+                let loc = Location {
+                    module_path: module_path!(),
+                    file: file!(),
+                    line: line!()
+                };
+
+                output.log(2, &loc, &module_path!(), &format_args!("Lost at least {} messages", self.lost));
+                self.lost = 0;
+            }
+            
+            // then log the message
             output.log(level, location, &target, &message);
+        } else {
+            self.lost += 1;
         }
     }
 }

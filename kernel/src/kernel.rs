@@ -113,9 +113,9 @@ unsafe extern "C" fn test_task() -> ! {
 
     let mut gate = cpu::task::Gate::new(vec![]);
 
-    let task = cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_2,
+    let task = cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task_2,
                                                       cpu::stack::Stack::create(0x10000),
-                                                      paging::Region::new(0x400000, 0x200000)));
+                                                      cpu::task::current()));
 
     gate.add_task(task);
 
@@ -213,13 +213,13 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     info!("Starting tasks");
 
     // start some tasks
-    cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task,
+    cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task,
                                            cpu::stack::Stack::create(0x10000),
-                                           paging::Region::new(0x400000, 0x200000)));
+                                           cpu::task::current()));
 
-    cpu::task::add(cpu::task::Task::create(cpu::task::PrivilegeLevel::CORE, test_task_entry,
+    cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task_entry,
                                            cpu::stack::Stack::create(0x10000),
-                                           paging::Region::new(0x400000, 0x200000)));
+                                           cpu::task::current()));
 
     point!(traces, "created tasks");
 

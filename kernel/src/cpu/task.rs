@@ -173,6 +173,11 @@ pub struct TaskRef {
     inner: Weak<UnsafeCell<TaskInner>>
 }
 
+enum TaskMemory {
+    Process(Layout),
+    Thread(TaskRef)
+}
+
 struct TaskInner {
     context: Context,
     #[allow(dead_code)]
@@ -181,7 +186,7 @@ struct TaskInner {
     level: PrivilegeLevel,
     #[allow(dead_code)]
     stack: Stack,
-    memory: Layout,
+    memory: TaskMemory,
     busy: u16,
     done: bool,
     blocked: bool
@@ -318,6 +323,18 @@ impl TaskRef {
     }
 
     #[inline]
+    fn root_ref(&self) -> TaskRef {
+        if let Some(inner) = self.get_inner() {
+            if let Some(parent) = inner.get_parent() {
+                return parent;
+            }
+        }
+
+        // else
+        self.clone()
+    }
+
+    #[inline]
     fn get_mut(&mut self) -> Option<&mut TaskInner> {
         unsafe {
             self.inner.upgrade().map(|inner| inner.get().as_mut().unwrap())
@@ -334,10 +351,33 @@ impl TaskRef {
 
 impl Task {
     #[inline]
-    pub fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
-                  stack: Stack, memory: Region) -> Task {
-        Task { 
+    pub fn process(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
+                   stack: Stack, memory: Region) -> Task {
+        let mut layout = Layout::new();
+        layout.register(memory);
+
+        Task::create(level, entry, stack, TaskMemory::Process(layout))
+    }
+
+    #[inline]
+    pub fn thread(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
+                  stack: Stack, parent: TaskRef) -> Task {
+        Task::create(level, entry, stack, TaskMemory::Thread(parent.root_ref()))
+    }
+
+    #[inline]
+    fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
+              stack: Stack, memory: TaskMemory) -> Task {
+        Task {
             inner: Arc::new(UnsafeCell::new(TaskInner::create(level, entry, stack, memory)))
+        }
+    }
+
+    fn root_ref(&self) -> TaskRef {
+        if let Some(parent) = unsafe {self.inner.get().as_ref().unwrap().get_parent()} {
+            parent
+        } else {
+            self.get_ref()
         }
     }
 
@@ -564,8 +604,8 @@ impl Manager {
 impl ManagerInner {
     fn new() -> ManagerInner {
         // don't map things before the heap
-        let mut core = Task::create(PrivilegeLevel::CORE, _dummy_entry, unsafe { Stack::kernel() },
-                                    Region::new(HEAP_BEGIN, CORE_SIZE - (HEAP_BEGIN - CORE_BEGIN)));
+        let mut core = Task::process(PrivilegeLevel::CORE, _dummy_entry, unsafe { Stack::kernel() },
+                                     Region::new(HEAP_BEGIN, CORE_SIZE - (HEAP_BEGIN - CORE_BEGIN)));
 
         // core is initially busy
         core.set_busy(true);
@@ -855,7 +895,7 @@ impl Context {
 
 impl TaskInner {
     fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
-              stack: Stack, memory: Region) -> TaskInner {
+              stack: Stack, memory: TaskMemory) -> TaskInner {
         // create a blank context
         let mut context = Context::empty();
 
@@ -886,17 +926,12 @@ impl TaskInner {
         context.regs.fs = 0x02 << 3;
         context.regs.gs = 0x02 << 3;
 
-        // create our layout
-        let mut layout = Layout::new();
-
-        layout.register(memory);
-
         TaskInner {
             context: context,
             entry: entry,
             level: level,
             stack: stack,
-            memory: layout,
+            memory: memory,
             busy: 0,
             done: false,
             blocked: false
@@ -904,8 +939,20 @@ impl TaskInner {
     }
 
     #[inline]
+    fn get_parent(&self) -> Option<TaskRef> {
+        if let TaskMemory::Thread(ref parent) = self.memory {
+            Some(parent.clone())
+        } else {
+            None
+        }
+    }
+
+    #[inline]
     fn to_physical(&self, addr: usize) -> Option<usize> {
-        self.memory.to_physical(addr)
+        match self.memory {
+            TaskMemory::Process(ref layout) => layout.to_physical(addr),
+            TaskMemory::Thread(ref parent) => parent.to_physical(addr)
+        }
     }
 
     #[inline]
@@ -930,17 +977,26 @@ impl TaskInner {
 
     #[inline]
     fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
-        self.memory.allocate(size, align)
+        match self.memory {
+            TaskMemory::Process(ref mut layout) => layout.allocate(size, align),
+            TaskMemory::Thread(ref mut parent) => parent.allocate(size, align)
+        }
     }
 
     #[inline]
     fn map(&mut self, segment: Segment) -> bool {
-        self.memory.insert(segment)
+        match self.memory {
+            TaskMemory::Process(ref mut layout) => layout.insert(segment),
+            TaskMemory::Thread(ref mut parent) => parent.map(segment)
+        }
     }
 
     #[inline]
     fn unmap(&mut self, segment: Segment) -> bool {
-        self.memory.remove(segment)
+        match self.memory {
+            TaskMemory::Process(ref mut layout) => layout.remove(segment),
+            TaskMemory::Thread(ref mut parent) => parent.unmap(segment)
+        }
     }
 
     #[inline]

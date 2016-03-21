@@ -119,7 +119,7 @@ impl Layout {
             if let Some(ref frame) = self.entries[idx] {
                 if *tables.offset(idx as isize).as_ref().unwrap() == 0 {
                     *tables.offset(idx as isize).as_mut().unwrap() =
-                        frame.build_table(&mut self.buffers);
+                        frame.build_table(&mut self.buffers, &|x| x);
                 } else {
                     let entry = *tables.offset(idx as isize).as_ref().unwrap();
                     frame.build_table_into(&mut self.buffers, (entry & PAGE_ADDR_MASK) as *mut _, additional);
@@ -130,25 +130,25 @@ impl Layout {
         }
     }
 
-    pub fn build_tables(&mut self) -> u64 {
-        let buffer: RawVec<u64> = unsafe {
-            // our buffer needs to be page-aligned
-            RawVec::from_raw_parts(heap::allocate(mem::size_of::<u64>() * 0x200, 0x1000) as *mut _, 0x200)
-        };
+    pub unsafe fn build_tables<F: Fn(u64) -> u64>(&mut self, translate: F) -> u64 {
+        // clear old buffers
+        self.buffers.clear();
+
+        let buffer: RawVec<u64> = RawVec::from_raw_parts(heap::allocate(mem::size_of::<u64>() * 0x200, 0x1000) as *mut _, 0x200);
 
         for idx in 0..0x200 {
             match self.entries[idx] {
                 None => {
-                    unsafe {*buffer.ptr().offset(idx as isize).as_mut().unwrap() = 0};
+                    *buffer.ptr().offset(idx as isize).as_mut().unwrap() = 0;
                 },
                 Some(ref frame) => {
-                    unsafe {*buffer.ptr().offset(idx as isize).as_mut().unwrap() =
-                        frame.build_table(&mut self.buffers)};
+                    *buffer.ptr().offset(idx as isize).as_mut().unwrap() =
+                        frame.build_table(&mut self.buffers, &translate);
                 }
             }
         }
 
-        let entry = buffer.ptr() as u64;
+        let entry = translate(buffer.ptr() as u64);
 
         self.buffers.push(buffer);
 

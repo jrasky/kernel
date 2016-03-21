@@ -84,6 +84,10 @@ pub fn raw_segment_size() -> usize {
     mem::size_of::<RawSegment>()
 }
 
+fn identity(x: u64) -> u64 {
+    x
+}
+
 unsafe fn get_pointer(place: *mut u64, idx: isize) -> Result<*mut u64, ()> {
     let entry = ptr::read(place.offset(idx));
 
@@ -482,7 +486,7 @@ impl Frame {
                     if *place.offset(idx as isize).as_ref().unwrap() == 0 {
                         // create a new frame buffer
                         *place.offset(idx as isize).as_mut().unwrap() =
-                            frame.build_table(buffers);
+                            frame.build_table(buffers, &|x| x);
                     } else {
                         // write into the existing one
                         let entry = *place.offset(idx as isize).as_ref().unwrap();
@@ -529,28 +533,26 @@ impl Frame {
         entry
     }
 
-    pub fn build_table(&self, buffers: &mut Vec<RawVec<u64>>) -> u64 {
-        let buffer: RawVec<u64> = unsafe {
-            // our buffer needs to be page-aligned
-            RawVec::from_raw_parts(heap::allocate(mem::size_of::<u64>() * 0x200, 0x1000) as *mut _, 0x200)
-        };
+    pub unsafe fn build_table<F>(&self, buffers: &mut Vec<RawVec<u64>>,
+                          translate: &F) -> u64 where F: Fn(u64) -> u64 {
+        let buffer: RawVec<u64> = RawVec::from_raw_parts(heap::allocate(mem::size_of::<u64>() * 0x200, 0x1000) as *mut _, 0x200);
 
         for idx in 0..0x200 {
             match self.entries[idx] {
                 FrameEntry::Empty => {
-                    unsafe {*buffer.ptr().offset(idx as isize).as_mut().unwrap() = 0};
+                    *buffer.ptr().offset(idx as isize).as_mut().unwrap() = 0;
                 },
                 FrameEntry::Page(ref page) => {
-                    unsafe {*buffer.ptr().offset(idx as isize).as_mut().unwrap() = page.get_entry()};
+                    *buffer.ptr().offset(idx as isize).as_mut().unwrap() = page.get_entry();
                 },
                 FrameEntry::Frame(ref frame) => {
-                    unsafe {*buffer.ptr().offset(idx as isize).as_mut().unwrap() =
-                        frame.build_table(buffers)};
+                    *buffer.ptr().offset(idx as isize).as_mut().unwrap() =
+                        frame.build_table(buffers, translate);
                 }
             }
         }
 
-        let entry = buffer.ptr() as u64 | 0x7;
+        let entry = translate(buffer.ptr() as u64) | 0x7;
 
         buffers.push(buffer);
 

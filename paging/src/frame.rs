@@ -217,6 +217,19 @@ impl Segment {
         }
     }
 
+    pub fn dummy(virtual_address: usize) -> Segment {
+        Segment {
+            physical_base: 0,
+            virtual_base: virtual_address & ((1 << CANONICAL_BITS) - 1),
+            allocate: false,
+            size: 0,
+            write: false,
+            user: false,
+            execute: false,
+            global: false
+        }
+    }
+
     pub fn physical_base(&self) -> usize {
         self.physical_base
     }

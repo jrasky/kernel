@@ -53,6 +53,8 @@ use alloc::boxed::Box;
 #[cfg(test)]
 use std::boxed::Box;
 
+use alloc::raw_vec::RawVec;
+
 use collections::{Vec, BTreeMap};
 
 use constants::*;
@@ -187,11 +189,6 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     // say hello
     info!("Hello!");
     point!(traces, "set up logging");
-
-    // read segments
-    debug!("Number of segments: {}", _gen_segments_size);
-
-    debug!("Highest paddr: 0x{:x}", _gen_max_paddr);
 
     // parse multiboot info
     unsafe { multiboot::parse_multiboot_tags(boot_info) };

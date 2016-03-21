@@ -31,7 +31,6 @@ pub struct Layout {
     buffers: Vec<RawVec<u64>>
 }
 
-
 impl Debug for Layout {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
         try!(write!(fmt, "Layout [ "));
@@ -194,8 +193,15 @@ impl Layout {
     }
 
     pub fn to_physical(&self, addr: usize) -> Option<usize> {
-        // TODO: Implement this
-        None
+        let dummy = Segment::dummy(addr);
+
+        if let Some(segment) = self.map.get(&dummy) {
+            // address has a mapping
+            Some((addr & ((1 << CANONICAL_BITS) - 1)) - segment.virtual_base() + segment.physical_base())
+        } else {
+            // no mapping
+            None
+        }
     }
 
     fn merge(&mut self, segment: Segment, remove: bool) {

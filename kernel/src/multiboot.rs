@@ -1,40 +1,9 @@
-use collections::{String, Vec};
+use include::*;
 
-#[cfg(not(test))]
-use core::slice;
-#[cfg(not(test))]
-use core::str;
-#[cfg(not(test))]
-use core::cmp;
-
-#[cfg(test)]
-use std::slice;
-#[cfg(test)]
-use std::str;
-#[cfg(test)]
-use std::cmp;
-
+use c;
 use cpu;
 
-use paging;
-
-use alloc::heap;
-
-use elfloader::elf;
-
-use constants::*;
-use log;
 use memory;
-
-extern "C" {
-    static _image_begin: u8;
-    static _image_end: u8;
-    static _kernel_top: u8;
-    static _gen_max_paddr: u64;
-    static _gen_segments_size: u64;
-    static _gen_page_tables: u64;
-    static _gen_segments: u8;
-}
 
 struct MemoryTag {
     base_addr: u64,
@@ -62,7 +31,7 @@ pub unsafe fn parse_elf(ptr: *const u32) {
     let mut sum: u64 = 0;
 
     for section in sections {
-        if section.addr >= (&_kernel_top as *const u8 as u64) 
+        if section.addr >= (&c::_kernel_top as *const u8 as u64) 
             && section.flags.0 & elf::SHF_ALLOC.0 == elf::SHF_ALLOC.0
         {
             // section is allocated
@@ -192,8 +161,8 @@ unsafe fn parse_memory(ptr: *const u32) -> Vec<(usize, usize)> {
     let mut entry_ptr = ptr.offset(4) as *const MemoryTag;
     let entry_end = (entry_ptr as usize + *ptr.offset(1) as usize) as *const _;
 
-    let image_begin = &_image_begin as *const _ as usize;
-    let image_end = &_image_end as *const _ as usize;
+    let image_begin = &c::_image_begin as *const _ as usize;
+    let image_end = &c::_image_end as *const _ as usize;
 
     let mut memory_regions = vec![];
 
@@ -207,7 +176,7 @@ unsafe fn parse_memory(ptr: *const u32) -> Vec<(usize, usize)> {
                       entry.base_addr,
                       entry.base_addr + entry.length);
 
-                if entry.base_addr + entry.length > _gen_max_paddr {
+                if entry.base_addr + entry.length > c::_gen_max_paddr {
                     memory_regions.push((entry.base_addr as usize,
                                         entry.length as usize));
                 }
@@ -241,9 +210,9 @@ fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
 
     // create a heap mapping
     for (mut base, mut size) in regions.iter().cloned() {
-        if base < _gen_max_paddr as usize {
-            size -= _gen_max_paddr as usize - base;
-            base = _gen_max_paddr as usize;
+        if base < c::_gen_max_paddr as usize {
+            size -= c::_gen_max_paddr as usize - base;
+            base = c::_gen_max_paddr as usize;
         }
 
         if size >= 0x200000 {
@@ -256,7 +225,7 @@ fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
     if let Some(region) = initial_heap {
         // stage2 inserts a 2MB segment immediately following max_paddr
         // if that's what we found, return now
-        if region.base() as u64 == _gen_max_paddr {
+        if region.base() as u64 == c::_gen_max_paddr {
             debug!("Found region matching optimistic heap");
         } else {
             // otherwise create the new mapping
@@ -265,7 +234,7 @@ fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
                                                true, false, false, false);
 
             unsafe {
-                assert!(segment.build_into(_gen_page_tables as *mut _),
+                assert!(segment.build_into(c::_gen_page_tables as *mut _),
                         "failed to build segment");
             }
         }
@@ -291,7 +260,7 @@ fn build_test_external_task() {
                                        true, true, true, false);
 
     unsafe {
-        assert!(segment.build_into(_gen_page_tables as *mut _),
+        assert!(segment.build_into(c::_gen_page_tables as *mut _),
                 "failed to build initial heap segment");
     }
 }
@@ -322,12 +291,12 @@ fn setup_memory(memory_regions: Vec<(usize, usize)>) {
 
     // register the rest of physical memory
     for (mut base, mut size) in memory_regions {
-        if base < _gen_max_paddr as usize + 0x200000 {
+        if base < c::_gen_max_paddr as usize + 0x200000 {
             if size < 0x200000 {
                 continue;
             } else {
-                size -= _gen_max_paddr as usize + 0x200000 - base;
-                base = _gen_max_paddr as usize + 0x200000;
+                size -= c::_gen_max_paddr as usize + 0x200000 - base;
+                base = c::_gen_max_paddr as usize + 0x200000;
             }
         }
 
@@ -346,15 +315,13 @@ fn setup_memory(memory_regions: Vec<(usize, usize)>) {
     debug!("Done building external task tables");
 }
 
-pub unsafe fn parse_multiboot_tags(boot_info: *const u32) {
+pub unsafe fn parse_multiboot_tags(boot_info: *const u32, boot_info_size: usize) {
     frame!(traces, "parsing multiboot tags");
 
     // read multiboot info
     let mut ptr: *const u32 = boot_info;
 
-    let total_size: u32 = *ptr.as_ref().unwrap();
-
-    let end: *const u32 = (ptr as usize + total_size as usize) as *const _;
+    let end: *const u32 = (ptr as usize + boot_info_size) as *const _;
 
     ptr = align(ptr.offset(2) as usize, 8) as *const _;
 

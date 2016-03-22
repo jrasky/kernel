@@ -3,6 +3,7 @@ extern crate elfloader;
 #[macro_use]
 extern crate log;
 extern crate paging;
+extern crate constants;
 
 use std::io::{Read, Write};
 use std::fmt::Display;
@@ -14,21 +15,7 @@ use std::cmp;
 use elfloader::ElfBinary;
 use elfloader::elf::{PF_X, PF_W, PF_R};
 
-pub const U64_BYTES: usize = 0x8;
-pub const HEAP_BEGIN: usize = 0xffffffff81000000;
-
-pub const PAGE_TABLES_OFFSET: usize = 0x180000;
-
-pub const STAGE1_ELF: &'static str = "target/stage1.elf";
-
-pub const RAW_OUTPUT: &'static str = "target/gen/page_tables.bin";
-pub const SEG_OUTPUT: &'static str = "target/gen/segments.bin";
-pub const ASM_OUTPUT: &'static str = "target/gen/page_tables.asm";
-
-#[inline]
-pub const fn align(n: usize, to: usize) -> usize {
-    (n + to - 1) & !(to - 1)
-}
+use constants::*;
 
 struct LogOutput;
 

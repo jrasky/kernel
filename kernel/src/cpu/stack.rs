@@ -1,15 +1,6 @@
-use alloc::heap;
+use include::*;
 
-#[cfg(not(test))]
-use core::ptr::Unique;
-#[cfg(test)]
-use std::ptr::Unique;
-
-use constants::*;
-
-extern "C" {
-    static _long_stack: u8;
-}
+use c;
 
 pub struct Stack {
     buffer: Unique<u8>,
@@ -38,7 +29,7 @@ impl Stack {
 
     pub unsafe fn kernel() -> Stack {
         Stack {
-            buffer: Unique::new(&_long_stack as *const _ as *mut _),
+            buffer: Unique::new(&c::_long_stack as *const _ as *mut _),
             size: STACK_SIZE,
             drop: false,
         }

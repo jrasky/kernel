@@ -1,12 +1,13 @@
+use include::*;
+
 #[cfg(test)]
 use std::panic;
 
+use c;
+
 use cpu::stack::Stack;
 
-use log;
 use cpu;
-
-use constants::*;
 
 // things that are clobbered by sysenter:
 // RIP, RSP, CS, SS
@@ -15,37 +16,8 @@ use constants::*;
 // branch, argument
 // r8, r9
 
-#[cfg(not(test))]
-extern "C" {
-    fn _sysenter_landing(rsp: u64, branch: u64, argument: u64) -> !;
-    fn _syscall_landing(rsp: u64, branch: u64, argument: u64) -> !;
-    fn _sysenter_return(rsp: u64, result: u64) -> !;
-    fn _syscall_launch(branch: u64, argument: u64) -> u64;
-    fn _sysenter_execute(rsp: u64, callback: extern "C" fn(u64) -> u64, argument: u64) -> !;
-}
-
 #[no_mangle]
 pub static mut SYSCALL_STACK: u64 = 0;
-
-#[cfg(test)]
-unsafe fn _sysenter_landing(_: u64, _: u64, _: u64) -> ! {
-    unreachable!("sysenter landing called");
-}
-
-#[cfg(test)]
-unsafe fn _syscall_landing(_: u64, _: u64, _: u64) -> ! {
-    unreachable!("syscall landing called");
-}
-
-#[cfg(test)]
-unsafe fn _sysenter_return(_: u64, result: u64) -> ! {
-    panic!(result);
-}
-
-#[cfg(test)]
-unsafe fn _sysenter_execute(_: u64, callback: extern "C" fn(u64) -> u64, argument: u64) -> ! {
-    panic!(callback(argument));
-}
 
 pub unsafe fn setup() -> Stack {
     // syscall handler doesn't need a huge stack
@@ -53,11 +25,11 @@ pub unsafe fn setup() -> Stack {
 
     // write MSRs
     cpu::write_msr(SYSENTER_CS_MSR, CORE_CS as u64);
-    cpu::write_msr(SYSENTER_EIP_MSR, _sysenter_landing as u64);
+    cpu::write_msr(SYSENTER_EIP_MSR, c::_sysenter_landing as u64);
     cpu::write_msr(SYSENTER_ESP_MSR, stack.get_ptr() as u64);
 
     cpu::write_msr(STAR_MSR, (CORE_CS as u64) << 32);
-    cpu::write_msr(LSTAR_MSR, _syscall_landing as u64);
+    cpu::write_msr(LSTAR_MSR, c::_syscall_landing as u64);
     SYSCALL_STACK = stack.get_ptr() as u64;
 
     // return stack
@@ -93,19 +65,19 @@ pub unsafe extern "C" fn sysenter_handler(rsp: u64, branch: u64, argument: u64) 
             match argument {
                 0 => {
                     // release
-                    _sysenter_execute(rsp, release_callback, argument);
+                    c::_sysenter_execute(rsp, release_callback, argument);
                 },
                 1 => {
                     // exit
-                    _sysenter_execute(rsp, exit_callback, argument);
+                    c::_sysenter_execute(rsp, exit_callback, argument);
                 },
                 2 => {
                     // wait
-                    _sysenter_execute(rsp, wait_callback, argument);
+                    c::_sysenter_execute(rsp, wait_callback, argument);
                 },
                 _ => {
                     error!("Unknown argument to branch 0: {}", argument);
-                    _sysenter_return(rsp, 0);
+                    c::_sysenter_return(rsp, 0);
                 }
             }
         },
@@ -116,11 +88,11 @@ pub unsafe extern "C" fn sysenter_handler(rsp: u64, branch: u64, argument: u64) 
             log::log(request.level, &request.location,
                      &request.target, &request.message);
             // done
-            _sysenter_return(rsp, 1)
+            c::_sysenter_return(rsp, 1)
         },
         _ => {
             error!("Unknown branch: {}", branch);
-            _sysenter_return(rsp, 0);
+            c::_sysenter_return(rsp, 0);
         }
     }
 }

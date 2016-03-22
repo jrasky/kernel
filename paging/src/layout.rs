@@ -1,27 +1,8 @@
-use collections::{BTreeSet, Vec};
-
-#[cfg(not(test))]
-use core::fmt::{Debug, Formatter};
-
-#[cfg(test)]
-use std::fmt::{Debug, Formatter};
-
-use alloc::raw_vec::RawVec;
-
-use alloc::heap;
-
-#[cfg(not(test))]
-use core::fmt;
-#[cfg(not(test))]
-use core::mem;
-
-#[cfg(test)]
-use std::fmt;
-#[cfg(test)]
-use std::mem;
+use include::*;
 
 use constants::*;
-use frame::{Frame, Segment, FrameSize};
+use segment::Segment;
+use frame::Frame;
 use allocator::{Allocator, Region};
 
 pub struct Layout {

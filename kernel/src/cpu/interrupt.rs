@@ -1,7 +1,4 @@
-#[cfg(not(test))]
-use core::ptr;
-#[cfg(test)]
-use std::ptr;
+use include::*;
 
 #[allow(dead_code)]
 // may be used more later

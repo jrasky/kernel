@@ -7,3 +7,4 @@ authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
 elfloader = "*"
 log = { path = "../log" }
 paging = { path = "../paging" }
+constants = { path = "../constants" }

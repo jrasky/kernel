@@ -14,6 +14,7 @@ elfloader = "*"
 log = { path = "../log" }
 paging = { path = "../paging" }
 user = { path = "../user" }
+constants = { path = "../constants" }
 
 [target]
 custom_unwind_resume = {}

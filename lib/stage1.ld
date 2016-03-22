@@ -19,6 +19,7 @@ SECTIONS {
 
     /* dummy _boot_info, which long.asm expects */
     _boot_info = 0;
+    _boot_info_size = 0;
 
     /* dummy _gen_segments_size and _gen_segments */
     _gen_segments_size = 0;

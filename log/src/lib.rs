@@ -2,11 +2,14 @@
 #![feature(alloc)]
 #![feature(collections)]
 #![cfg_attr(not(test), no_std)]
+#[cfg(not(test))]
+extern crate core as std;
 extern crate rlibc;
 #[macro_use]
 extern crate collections;
 extern crate spin;
 extern crate alloc;
+extern crate constants;
 
 use include::*;
 

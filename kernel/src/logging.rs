@@ -1,29 +1,6 @@
-#[cfg(not(test))]
-use core::fmt;
-#[cfg(test)]
-use std::fmt;
+use include::*;
 
-#[cfg(not(test))]
-use core::ptr::Unique;
-#[cfg(test)]
-use std::ptr::Unique;
-
-#[cfg(not(test))]
-use core::fmt::{Display, Write};
-#[cfg(test)]
-use std::fmt::{Display, Write};
-
-#[cfg(not(test))]
-use core::cell::UnsafeCell;
-#[cfg(test)]
-use std::cell::UnsafeCell;
-
-#[cfg(not(test))]
-use collections::{Vec, String};
-
-use log;
-
-use constants::*;
+use include::log;
 
 #[repr(u8)]
 #[derive(Clone, Copy)]

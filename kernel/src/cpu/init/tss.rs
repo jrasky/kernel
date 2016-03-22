@@ -1,15 +1,6 @@
-use collections::Vec;
-
-#[cfg(not(test))]
-use core::ptr;
-#[cfg(test)]
-use std::ptr;
-
-use alloc::raw_vec::RawVec;
+use include::*;
 
 use cpu::stack::Stack;
-
-use constants::*;
 
 pub struct Descriptor {
     base: u64,

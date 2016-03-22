@@ -17,6 +17,8 @@
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(test, feature(std_panic))]
 #![cfg_attr(test, feature(recover))]
+#[cfg(not(test))]
+extern crate core as std;
 extern crate rlibc;
 extern crate spin;
 extern crate alloc;
@@ -27,41 +29,15 @@ extern crate elfloader;
 extern crate log;
 extern crate paging;
 extern crate user;
+extern crate constants;
 
-#[cfg(not(test))]
-use core::fmt;
-#[cfg(not(test))]
-use core::mem;
-#[cfg(not(test))]
-use core::slice;
-#[cfg(not(test))]
-use core::cmp;
+use include::*;
+use c::*;
 
-#[cfg(not(test))]
-use core::sync::atomic::{Ordering, AtomicUsize};
-
-#[cfg(test)]
-use std::fmt;
-#[cfg(test)]
-use std::mem;
-
-#[cfg(test)]
-use std::sync::atomic::{Ordering, AtomicUsize};
-
-#[cfg(not(test))]
-use alloc::boxed::Box;
-#[cfg(test)]
-use std::boxed::Box;
-
-use alloc::raw_vec::RawVec;
-
-use collections::{Vec, BTreeMap};
-
-use constants::*;
-
+mod include;
+mod c;
 mod error;
 mod memory;
-mod constants;
 mod cpu;
 mod multiboot;
 mod logging;
@@ -87,17 +63,6 @@ pub use cpu::interrupt::{interrupt_breakpoint,
 pub use cpu::syscall::{sysenter_handler,
                        SYSCALL_STACK};
 
-extern "C" {
-    fn test_task_entry() -> !;
-
-    static _image_begin: u8;
-    static _image_end: u8;
-    static _kernel_top: u8;
-    static _gen_max_paddr: u64;
-    static _gen_segments_size: u64;
-    static _gen_page_tables: u64;
-    static _gen_segments: u8;
-}
 
 struct PanicInfo {
     msg: Option<fmt::Arguments<'static>>,
@@ -171,7 +136,7 @@ unsafe extern "C" fn test_task_2() -> ! {
 
 #[cfg(not(test))]
 #[no_mangle]
-pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
+pub extern "C" fn kernel_main(boot_info: *const u32, boot_info_size: usize) -> ! {
     // kernel main
     // set up early data structures
     unsafe {cpu::init::early_setup()};
@@ -191,7 +156,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32) -> ! {
     point!(traces, "set up logging");
 
     // parse multiboot info
-    unsafe { multiboot::parse_multiboot_tags(boot_info) };
+    unsafe { multiboot::parse_multiboot_tags(boot_info, boot_info_size) };
 
     debug!("finished parsing multiboot info");
 

@@ -1,9 +1,6 @@
 [package]
-name = "paging"
+name = "constants"
 version = "0.1.0"
 authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
 
 [dependencies]
-rlibc = "*"
-log = { path = "../log" }
-constants = { path = "../constants" }

@@ -1,41 +1,6 @@
-#[cfg(not(test))]
-use core::cell::UnsafeCell;
-#[cfg(not(test))]
-use core::sync::atomic::{AtomicBool, Ordering};
-
-#[cfg(test)]
-use std::cell::UnsafeCell;
-#[cfg(test)]
-use std::sync::atomic::{AtomicBool, Ordering};
-
-#[cfg(not(test))]
-use core::mem;
-#[cfg(not(test))]
-use core::ptr;
-#[cfg(not(test))]
-use core::slice;
-
-#[cfg(test)]
-use std::mem;
-#[cfg(test)]
-use std::ptr;
-#[cfg(test)]
-use std::slice;
-
-#[cfg(test)]
-use alloc::heap;
-#[cfg(test)]
-use std::u64;
-
-use constants::*;
+use include::*;
 
 use super::MemoryError;
-
-#[cfg(not(test))]
-extern "C" {
-    static _slab: u64;
-    static _slab_map: u8;
-}
 
 static RESERVE: Memory = Memory {
     inner: UnsafeCell::new(MemoryInner {

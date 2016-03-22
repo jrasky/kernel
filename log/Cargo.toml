@@ -25,3 +25,4 @@ release_log_trace = []
 [dependencies]
 rlibc = "*"
 spin = "*"
+constants = { path = "../constants" }

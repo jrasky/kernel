@@ -6,6 +6,7 @@ STAGE2_DIR = ./stage2
 LOG_DIR = ./log
 PAGING_DIR = ./paging
 USER_DIR = ./user
+CONST_DIR = ./constants
 
 GEN_DIR = $(TARGET_DIR)/gen
 ISO_DIR = $(TARGET_DIR)/iso
@@ -20,7 +21,7 @@ ASM_TARGET = $(ASM_DIR)/target
 
 LINK_COMMON = $(LIB_DIR)/headers.ld $(LIB_DIR)/high.ld
 
-COMMON_SOURCES = $(shell find $(LOG_DIR)/src -name '*.rs') $(shell find $(PAGING_DIR)/src -name '*.rs')
+COMMON_SOURCES = $(shell find $(LOG_DIR)/src -name '*.rs') $(shell find $(PAGING_DIR)/src -name '*.rs') $(shell find $(CONST_DIR)/src -name '*.rs')
 
 STAGE1_KERNEL = $(KERNEL_TARGET)/libkernel.a
 STAGE1_ASM = $(ASM_TARGET)/long.o

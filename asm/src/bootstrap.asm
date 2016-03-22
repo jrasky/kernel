@@ -15,6 +15,7 @@
     ;; global
     global _start
     global _boot_info
+    global _boot_info_size
     global _tss
 
     section .boot_rodata
@@ -31,6 +32,8 @@ gdt64:
     section .boot_bss nobits
 _boot_info:
     resq 1
+_boot_info_size:
+    resq 1
 _boot_stack_end:
     resb 0x500
 _boot_stack:    
@@ -46,6 +49,8 @@ _start:
 
     ;; save boot info
     mov dword [_boot_info], ebx
+    ;; read size now so we can map the region later
+    mov dword [_boot_info_size], dword (ebx)
 
     ;; perform tests
     call _test_multiboot

@@ -7,20 +7,23 @@
 #![feature(collections)]
 #![feature(alloc)]
 #![cfg_attr(not(test), no_std)]
+#[cfg(not(test))]
+extern crate core as std;
 extern crate rlibc;
 #[macro_use]
 extern crate collections;
 #[macro_use]
 extern crate log;
 extern crate alloc;
+extern crate constants;
 
 pub use layout::Layout;
-pub use frame::Segment;
+pub use segment::{Segment, raw_segment_size};
 pub use allocator::{Allocator, Region};
 pub use map::Map;
-pub use frame::raw_segment_size;
 
-mod constants;
+mod include;
+mod segment;
 mod frame;
 mod layout;
 mod page;

@@ -1,34 +1,7 @@
-#[cfg(not(test))]
-use core::prelude::v1::*;
-
-#[cfg(not(test))]
-use core::sync::atomic::{Ordering, AtomicBool};
-#[cfg(test)]
-use std::sync::atomic::{Ordering, AtomicBool};
-
-#[cfg(not(test))]
-use core::marker::Reflect;
-#[cfg(test)]
-use std::marker::Reflect;
-
-#[cfg(not(test))]
-use core::ptr;
-#[cfg(test)]
-use std::ptr;
-
-#[cfg(not(test))]
-use core::fmt;
-#[cfg(test)]
-use std::fmt;
-
-#[cfg(not(test))]
-use core::fmt::Display;
-#[cfg(test)]
-use std::fmt::Display;
+use include::*;
 
 use alloc;
 
-use constants::*;
 use error::Error;
 
 use cpu::task;

@@ -30,6 +30,7 @@
 
     extern kernel_main
     extern _boot_info
+    extern _boot_info_size
     extern interrupt_breakpoint
     extern interrupt_general_protection_fault
     extern interrupt_page_fault
@@ -64,6 +65,7 @@ _lstart:
 
     ;; boot_info argument
     mov rdi, qword [_boot_info]
+    mov rsi, qword [_boot_info_size]
 
     ;; align stack
     and rsp, -16

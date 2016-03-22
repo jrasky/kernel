@@ -1,30 +1,8 @@
-use collections::{VecDeque, Vec, BTreeMap};
-use collections::Bound::{Included, Unbounded};
-
-#[cfg(not(test))]
-use core::iter::{IntoIterator, Iterator};
-#[cfg(not(test))]
-use core::ptr;
-
-#[cfg(test)]
-use std::iter::{IntoIterator, Iterator};
-#[cfg(test)]
-use std::ptr;
-
-use alloc::boxed::Box;
-use alloc::arc::{Arc, Weak};
-
-#[cfg(not(test))]
-use core::cell::UnsafeCell;
-#[cfg(test)]
-use std::cell::UnsafeCell;
+use include::*;
 
 use paging::{Region, Allocator, Layout, Segment};
 
-use spin::Mutex;
-
 use cpu::stack::Stack;
-use constants::*;
 
 #[cfg(not(test))]
 extern "C" {
@@ -173,11 +151,6 @@ pub struct TaskRef {
     inner: Weak<UnsafeCell<TaskInner>>
 }
 
-enum TaskMemory {
-    Process(Layout),
-    Thread(TaskRef)
-}
-
 struct TaskInner {
     context: Context,
     #[allow(dead_code)]
@@ -186,7 +159,8 @@ struct TaskInner {
     level: PrivilegeLevel,
     #[allow(dead_code)]
     stack: Stack,
-    memory: TaskMemory,
+    memory: Arc<RefCell<Layout>>,
+    parent: Option<TaskRef>,
     busy: u16,
     done: bool,
     blocked: bool
@@ -323,6 +297,15 @@ impl TaskRef {
     }
 
     #[inline]
+    fn memory(&self) -> Option<Arc<RefCell<Layout>>> {
+        if let Some(inner) = self.get_inner() {
+            Some(inner.memory())
+        } else {
+            None
+        }
+    }
+
+    #[inline]
     fn root_ref(&self) -> TaskRef {
         if let Some(inner) = self.get_inner() {
             if let Some(parent) = inner.get_parent() {
@@ -356,20 +339,24 @@ impl Task {
         let mut layout = Layout::new();
         layout.register(memory);
 
-        Task::create(level, entry, stack, TaskMemory::Process(layout))
+        Task::create(level, entry, stack, Arc::new(RefCell::new(layout)), None)
     }
 
     #[inline]
     pub fn thread(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
                   stack: Stack, parent: TaskRef) -> Task {
-        Task::create(level, entry, stack, TaskMemory::Thread(parent.root_ref()))
+        if let Some(layout) = parent.memory() {
+            Task::create(level, entry, stack, layout, Some(parent))
+        } else {
+            panic!("Tried to create thread on dead task");
+        }
     }
 
     #[inline]
     fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
-              stack: Stack, memory: TaskMemory) -> Task {
+              stack: Stack, memory: Arc<RefCell<Layout>>, parent: Option<TaskRef>) -> Task {
         Task {
-            inner: Arc::new(UnsafeCell::new(TaskInner::create(level, entry, stack, memory)))
+            inner: Arc::new(UnsafeCell::new(TaskInner::create(level, entry, stack, memory, parent)))
         }
     }
 
@@ -386,6 +373,11 @@ impl Task {
         TaskRef {
             inner: Arc::downgrade(&self.inner)
         }
+    }
+
+    #[inline]
+    fn memory(&self) -> Arc<RefCell<Layout>> {
+        unsafe {self.inner.get().as_ref().unwrap().memory()}
     }
 
     #[inline]
@@ -895,7 +887,7 @@ impl Context {
 
 impl TaskInner {
     fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
-              stack: Stack, memory: TaskMemory) -> TaskInner {
+              stack: Stack, memory: Arc<RefCell<Layout>>, parent: Option<TaskRef>) -> TaskInner {
         // create a blank context
         let mut context = Context::empty();
 
@@ -932,6 +924,7 @@ impl TaskInner {
             level: level,
             stack: stack,
             memory: memory,
+            parent: parent,
             busy: 0,
             done: false,
             blocked: false
@@ -939,8 +932,13 @@ impl TaskInner {
     }
 
     #[inline]
+    fn memory(&self) -> Arc<RefCell<Layout>> {
+        self.memory.clone()
+    }
+
+    #[inline]
     fn get_parent(&self) -> Option<TaskRef> {
-        if let TaskMemory::Thread(ref parent) = self.memory {
+        if let Some(ref parent) = self.parent {
             Some(parent.clone())
         } else {
             None
@@ -949,10 +947,7 @@ impl TaskInner {
 
     #[inline]
     fn to_physical(&self, addr: usize) -> Option<usize> {
-        match self.memory {
-            TaskMemory::Process(ref layout) => layout.to_physical(addr),
-            TaskMemory::Thread(ref parent) => parent.to_physical(addr)
-        }
+        self.memory.borrow().to_physical(addr)
     }
 
     #[inline]
@@ -977,26 +972,17 @@ impl TaskInner {
 
     #[inline]
     fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
-        match self.memory {
-            TaskMemory::Process(ref mut layout) => layout.allocate(size, align),
-            TaskMemory::Thread(ref mut parent) => parent.allocate(size, align)
-        }
+        self.memory.borrow_mut().allocate(size, align)
     }
 
     #[inline]
     fn map(&mut self, segment: Segment) -> bool {
-        match self.memory {
-            TaskMemory::Process(ref mut layout) => layout.insert(segment),
-            TaskMemory::Thread(ref mut parent) => parent.map(segment)
-        }
+        self.memory.borrow_mut().insert(segment)
     }
 
     #[inline]
     fn unmap(&mut self, segment: Segment) -> bool {
-        match self.memory {
-            TaskMemory::Process(ref mut layout) => layout.remove(segment),
-            TaskMemory::Thread(ref mut parent) => parent.unmap(segment)
-        }
+        self.memory.borrow_mut().remove(segment)
     }
 
     #[inline]

@@ -1,11 +1,4 @@
-use collections::Vec;
-
-#[cfg(not(test))]
-use core::ptr;
-#[cfg(test)]
-use std::ptr;
-
-use alloc::raw_vec::RawVec;
+use include::*;
 
 #[repr(packed)]
 #[derive(Debug)]

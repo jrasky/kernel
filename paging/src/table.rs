@@ -1,12 +1,4 @@
-#[cfg(not(test))]
-use core::ptr;
-#[cfg(test)]
-use std::ptr;
-
-#[cfg(not(test))]
-use core::mem;
-#[cfg(test)]
-use std::mem;
+use include::*;
 
 use frame::FrameSize;
 

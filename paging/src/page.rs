@@ -1,16 +1,4 @@
-#[cfg(not(test))]
-use core::cmp::{PartialEq, Eq, Ord, PartialOrd, Ordering};
-
-#[cfg(test)]
-use std::cmp::{PartialEq, Eq, Ord, PartialOrd, Ordering};
-
-#[repr(usize)]
-#[derive(Debug, Clone, Copy)]
-pub enum PageSize {
-    Huge = 0x40000000, // 1 gigabyte
-    Big = 0x200000,    // 2 megabytes
-    Page = 0x1000      // 4 kilobytes
-}
+use include::*;
 
 /// Access settings for physical memory
 #[derive(Debug, Clone, PartialEq)]

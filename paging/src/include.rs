@@ -1,5 +1,6 @@
 pub use std::cmp::{PartialEq, Eq, Ord, PartialOrd, Ordering};
 pub use std::fmt::{Debug, Formatter};
+pub use std::ptr::{Unique, Shared};
 
 pub use collections::{Vec, BTreeMap, BTreeSet};
 pub use collections::Bound::{Included, Unbounded, Excluded};
@@ -16,7 +17,8 @@ pub use std::mem;
 pub use std::cmp;
 pub use std::ptr;
 
-use constants::*;
+pub use constants::*;
+pub use constants;
 
 #[repr(usize)]
 #[derive(Debug, Clone, Copy)]

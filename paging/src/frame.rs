@@ -1,6 +1,5 @@
 use include::*;
 
-use constants::*;
 use page::Page;
 use segment::Segment;
 

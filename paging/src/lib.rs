@@ -1,3 +1,5 @@
+#![feature(shared)]
+#![feature(unique)]
 #![feature(btree_range)]
 #![feature(collections_bound)]
 #![feature(heap_api)]

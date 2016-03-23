@@ -1,5 +1,6 @@
 use include::*;
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Level {
     PML4E,
     PDPTE,
@@ -13,7 +14,6 @@ pub struct Entry {
     entry: u64
 }
 
-#[derive(Debug, Clone)]
 #[repr(C, packed)]
 pub struct Table {
     entries: [Entry; 0x200]
@@ -27,6 +27,7 @@ pub struct Info {
     pub global: bool,
     pub write_through: bool,
     pub cache_disable: bool,
+    pub attribute_table: bool,
     pub protection_key: u8,
     pub level: Level,
     pub address: usize
@@ -35,8 +36,8 @@ pub struct Info {
 pub trait Base {
     fn to_physical(&self, address: usize) -> Option<usize>;
     fn to_virtual(&self, address: usize) -> Option<usize>;
-    fn allocate_table(&mut self) -> Unique<Table>;
-    fn release_table(&mut self, table: Unique<Table>);
+    unsafe fn allocate_table(&mut self) -> Unique<Table>;
+    unsafe fn release_table(&mut self, table: Unique<Table>);
 }
 
 impl Table {
@@ -53,35 +54,35 @@ impl Table {
 
 impl From<Info> for Entry {
     fn from(info: Info) -> Entry {
-        let mut entry = (self.protection_key as u64) << 59 | self.address as u64 | (1 << 0);
+        let mut entry = (info.protection_key as u64) << 59 | info.address as u64 | (1 << 0);
 
-        if self.execute_disable {
+        if !info.execute {
             entry |= 1 << 63;
         }
 
-        if self.global {
+        if info.global {
             entry |= 1 << 8;
         }
 
-        if (self.level == Level::PTE && self.attribute_table) || self.page {
+        if (info.level == Level::PTE && info.attribute_table) || info.page {
             entry |= 1 << 7;
-        } else if self.attribute_table {
+        } else if info.attribute_table {
             entry |= 1 << 12;
         }
 
-        if self.cache_disable {
+        if info.cache_disable {
             entry |= 1 << 4;
         }
 
-        if self.write_through {
+        if info.write_through {
             entry |= 1 << 3;
         }
 
-        if self.user {
+        if info.user {
             entry |= 1 << 2;
         }
 
-        if self.write {
+        if info.write {
             entry |= 1 << 1;
         }
 
@@ -94,9 +95,9 @@ impl From<Info> for Entry {
 impl Entry {
     pub fn address(&self, level: Level) -> usize {
         if self.is_page(level) {
-            canonicalize((self.entry as usize) & PAGE_ADDR_MASK & !(1 << 12))
+            canonicalize((self.entry & PAGE_ADDR_MASK & !(1 << 12)) as usize)
         } else {
-            canonicalize((self.entry as usize) & PAGE_ADDR_MASK)
+            canonicalize((self.entry & PAGE_ADDR_MASK) as usize)
         }
     }
 
@@ -163,6 +164,8 @@ impl Entry {
     pub fn protection_key(&self, level: Level) -> u8 {
         if self.is_page(level) {
             (self.entry >> 59) as u8
+        } else {
+            0
         }
     }
 }

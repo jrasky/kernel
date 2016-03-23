@@ -33,14 +33,3 @@ pub enum PageSize {
     Big = 0x200000,    // 2 megabytes
     Page = 0x1000      // 4 kilobytes
 }
-
-pub unsafe fn get_pointer(place: *mut u64, idx: isize) -> Result<*mut u64, ()> {
-    let entry = ptr::read(place.offset(idx));
-
-    if entry & 1 == 0 || entry & (1 << 7) == 1 << 7 {
-        // could not find table
-        return Err(());
-    }
-
-    Ok(canonicalize((entry & PAGE_ADDR_MASK) as usize) as *mut _)
-}

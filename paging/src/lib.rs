@@ -23,6 +23,7 @@ pub use allocator::{Allocator, Region};
 pub use map::Map;
 
 mod include;
+mod table;
 mod segment;
 mod frame;
 mod layout;

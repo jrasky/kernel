@@ -50,7 +50,7 @@ impl Page {
             entry |= 1 << 8;
         }
 
-        if self.size != PageSize::Page || self.attribute_table {
+        if self.size == PageSize::Page && self.attribute_table {
             entry |= 1 << 7;
         } else if self.attribute_table {
             entry |= 1 << 12;

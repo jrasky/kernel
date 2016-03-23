@@ -2,50 +2,236 @@ use include::*;
 
 use constants::*;
 use segment::Segment;
-use frame::Frame;
+use frame::FrameSize;
 use allocator::{Allocator, Region};
+use table::{Info, Table};
 
+#[derive(Debug)]
 pub struct Layout {
-    entries: Vec<Option<Frame>>,
     map: BTreeSet<Segment>,
     free: Allocator,
-    buffers: Vec<RawVec<u64>>
+    base: Option<Box<Base>>,
+    tables: Vec<Unique<Table>>,
+    entry: Option<Unique<Table>>
 }
 
-impl Debug for Layout {
-    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
-        try!(write!(fmt, "Layout [ "));
-        let mut first = true;
-        for entry in self.entries.iter() {
-            if let &Some(ref entry) = entry {
-                if first {
-                    try!(write!(fmt, "{:?}", entry));
-                    first = false;
-                } else {
-                    try!(write!(fmt, " {:?}", entry));
-                }
-            }
-        }
-        try!(write!(fmt, "]"));
-
-        // done
-        Ok(())
+impl Drop for Layout {
+    fn drop(&mut self) -> {
+        self.clear();
     }
 }
 
 impl Layout {
-    pub fn new() -> Layout {
-        let mut entries = Vec::with_capacity(0x200);
-
-        for _ in 0..0x200 {
-            entries.push(None);
-        }
-
+    pub fn new(base: Option<Box<Base>>) -> Layout {
         Layout {
-            entries: entries,
             map: BTreeSet::new(),
             free: Allocator::new(),
-            buffers: vec![]
+            base: base,
+            tables: vec![],
+            root: None
+        }
+    }
+
+    fn clear(&mut self) {
+        for table in self.tables.drain() {
+            self.release_table(table);
+        }
+        
+        if let Some(table) = self.root.take() {
+            self.release_table(table);
+        }
+    }
+
+    fn allocate_table(&mut self) -> Unique<Table> {
+        if let Some(ref mut base) = self.base {
+            base.allocate_table()
+        } else {
+            Unique::new(heap::allocate(mem::size_of::<Table>, 0x1000))
+        }
+    }
+
+    fn release_table(&mut self, table: Unique<Table>) {
+        if let Some(ref mut base) = self.base {
+            base.release_table(table)
+        } else {
+            heap::deallocate(*table, mem::size_of::<Table>, 0x1000)
+        }
+    }
+
+    fn translate_physical(&self, address: usize) -> Option<usize> {
+        if let Some(ref base) = self.base {
+            base.to_physical(address)
+        } else {
+            self.to_physical(base)
+        }
+    }
+
+    fn translate_virtual(&self, address: usize) -> Option<usize> {
+        if let Some(ref base) = self.base {
+            base.to_virtual(address)
+        } else {
+            self.to_virtual(address)
+        }
+    }
+
+    fn get_or_create(&mut self, table: &mut Table, idx: usize) -> Unique<Table> {
+        let entry = table.read(idx);
+        if entry.present() {
+            Unique::new(
+                self.translate_virtual(entry.address())
+                    .expect("Failed to translate physical address to table address")
+                    as *mut Table)
+        } else {
+            let table = self.allocate_table();
+            self.tables.push(table);
+            table
+        }
+    }
+
+    fn build_page_at(&mut self, table: &mut Table, base: usize, size: FrameSize,
+                     idx: usize, vbase: usize, segment: &Segment) {
+        let subframe_base = base + (idx * size.get_pagesize() as usize);
+
+        let info = Info {
+            page: true,
+            write: segment.write(),
+            execute: segment.execute(),
+            user: segment.user(),
+            global: segment.global(),
+            write_through: false,
+            cache_disable: false,
+            attribute_table: false,
+            protection_key: 0,
+            level: match size.get_pagesize() {
+                PageSize::Huge => Level::PDPTE,
+                PageSize::Big => Level::PDE,
+                PageSize::Page => Level::PTE
+            },
+            address: segment.get_physical_subframe(subframe_base)
+        };
+
+        let result = table.write(info.into(), idx);
+
+        debug_assert!(!result.present(), "Overwrote a present entry");
+    }
+
+    fn build_edge(&mut self, table: &mut Table, base: usize, size: FrameSize,
+                             idx: usize, vbase: usize, segment: &Segment) -> bool {
+        trace!("0x{:x}, 0x{:x}", idx, vbase);
+
+        if let Some(next) = size.get_next() {
+            let subframe_base = base + (idx * size.get_pagesize() as usize);
+            trace!("c 0x{:x}, 0x{:x}", subframe_base, vbase);
+            if !is_aligned(segment.get_physical_subframe(subframe_base), size.get_pagesize() as usize) ||
+                (vbase >= subframe_base && vbase - subframe_base >= next.get_pagesize() as usize) ||
+                subframe_base - vbase >= next.get_pagesize() as usize
+            {
+                // build a new table here
+                let mut new_table = self.get_or_create(table, idx);
+
+                let info = Info {
+                    page: false,
+                    write: true,
+                    execute: true,
+                    user: true,
+                    global: false,
+                    write_through: false,
+                    cache_disable: false,
+                    attribute_table: false,
+                    protection_key: 0,
+                    level: match size {
+                        FrameSize::Giant => Level::PML4E,
+                        FrameSize::Huge => Level::PDPTE,
+                        FrameSize::Big => Level::PDE
+                    },
+                    address: self.translate_physical(*new_table as usize)
+                        .expect("Failed to translate table address to physical address")
+                };
+
+                let result = new_table.write(info.into(), idx);
+
+                debug_assert!(!result.present(), "Overwrote a present entry");
+
+                self.build_part(new_table.get_mut(), subframe_base, next, segment);
+
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn build_part(&mut self, table: &mut Table, base: usize, size: FrameSize, segment: &Segment) {
+        trace!("0x{:x}, 0x{:x}, {:?}", table, base, size);
+
+        let min_idx = if base > segment.virtual_base() {
+            0
+        } else {
+            align_back(segment.virtual_base() - base, size.get_pagesize() as usize) >> size.get_pagesize().get_shift()
+        };
+
+        let max_idx = cmp::min((align(segment.virtual_base() + segment.size() - base, size.get_pagesize() as usize)
+                                >> size.get_pagesize().get_shift()), 0x200);
+
+        trace!("0x{:x}, 0x{:x}", min_idx, max_idx);
+
+        if max_idx == 0 || min_idx >= 0x200 {
+            // cannot place segment here
+            panic!("build_part called with incorret parameters");
+        }
+
+        if !self.build_edge(table, base, size, min_idx, segment.virtual_base(), segment) {
+            self.build_page_at(table, base, size, min_idx, segment);
+        }
+
+        trace!("a 0x{:x}, 0x{:x}, {:?}", table, base, size);
+        trace!("0x{:x}, 0x{:x}", min_idx, max_idx);
+
+        if max_idx > min_idx + 1 {
+            if !self.build_edge(table, base, size, max_idx - 1,
+                                align_back(segment.virtual_base() + segment.size() as usize, size.get_pagesize() as usize), segment) {
+                self.build_page_at(table, base, size, max_idx - 1, segment);
+            }
+        }
+
+        trace!("b 0x{:x}, 0x{:x}, {:?}", table as usize, base, size);
+
+        for idx in min_idx + 1..max_idx - 1 {
+            if !self.build_edge(table, base, size, idx, base + (idx * size.get_pagesize() as usize), segment) {
+                self.build_page_at(table, base, size, idx, segment)
+            }
+        }
+    }
+
+    pub fn build(&mut self) {
+        self.clear();
+
+        let mut root = self.allocate_table();
+
+        for segment in self.map.iter() {
+            let min_idx = align_back(segment.virtual_base(), FrameSize::Giant as usize)
+                >> FrameSize::Giant.get_shift();
+            let max_idx = align(segment.virtual_base() + segment.size(), FrameSize::Giant as usize)
+                >> FrameSize::Giant.get_shift();
+
+            for idx in min_idx..max_idx {
+                self.build_part(self.get_or_create(&mut root, idx), idx * FrameSize::Giant as usize,
+                                FrameSize::Giant, segment);
+            }
+        }
+
+        self.root = Some(root);
+    }
+
+    pub fn get_entry(&mut self) -> u64 {
+        if self.root.is_none() {
+            self.build();
+        }
+
+        if let Some(ref root) = self.root {
+            *root as u64
+        } else {
+            panic!("No root after building");
         }
     }
 
@@ -61,7 +247,14 @@ impl Layout {
 
     #[inline]
     pub fn forget(&mut self, region: Region) -> bool {
-        self.free.forget(region)
+        let dummy = Segment::dummy_range(region.base(), region.size());
+
+        // only forget a region if no segments are mapped in it
+        if !self.map.contains_key(&dummy) {
+            self.free.forget(region)
+        } else {
+            false
+        }
     }
     
     pub fn insert(&mut self, segment: Segment) -> bool {
@@ -71,15 +264,8 @@ impl Layout {
             self.free.set_used(region);
 
             trace!("Inserting segment {:?}", &segment);
-            self.merge(segment, false);
             true
         } else {
-            if let Some(old_segment) = self.map.get(&segment) {
-                if !old_segment.same_settings(&segment) {
-                        warn!("Failed to insert overlapping segment: {:?}, overlapped by {:?}",
-                              segment, old_segment);
-                    }
-            }
             false
         }
     }
@@ -88,89 +274,10 @@ impl Layout {
         let region = Region::new(segment.virtual_base(), segment.size());
 
         if self.free.release(region) && self.map.remove(&segment) {
-            self.merge(segment, true);
             true
         } else {
             false
         }
-    }
-
-    pub unsafe fn build_tables_into(&mut self, tables: *mut u64, additional: bool) {
-        for idx in 0..0x200 {
-            if let Some(ref frame) = self.entries[idx] {
-                if *tables.offset(idx as isize).as_ref().unwrap() == 0 {
-                    *tables.offset(idx as isize).as_mut().unwrap() =
-                        frame.build_table(&mut self.buffers, &|x| x);
-                } else {
-                    let entry = *tables.offset(idx as isize).as_ref().unwrap();
-                    frame.build_table_into(&mut self.buffers, (entry & PAGE_ADDR_MASK) as *mut _, additional);
-                }
-            } else if !additional {
-                *tables.offset(idx as isize).as_mut().unwrap() = 0;
-            }
-        }
-    }
-
-    pub unsafe fn build_tables<F: Fn(u64) -> u64>(&mut self, translate: F) -> u64 {
-        // clear old buffers
-        self.buffers.clear();
-
-        let buffer: RawVec<u64> = RawVec::from_raw_parts(heap::allocate(mem::size_of::<u64>() * 0x200, 0x1000) as *mut _, 0x200);
-
-        for idx in 0..0x200 {
-            match self.entries[idx] {
-                None => {
-                    *buffer.ptr().offset(idx as isize).as_mut().unwrap() = 0;
-                },
-                Some(ref frame) => {
-                    *buffer.ptr().offset(idx as isize).as_mut().unwrap() =
-                        frame.build_table(&mut self.buffers, &translate);
-                }
-            }
-        }
-
-        let entry = translate(buffer.ptr() as u64);
-
-        self.buffers.push(buffer);
-
-        trace!("Layout entry: 0x{:x}", entry);
-
-        entry
-    }
-
-    pub fn build_tables_relative(&self, base: usize) -> (u64, Vec<u64>) {
-        let mut buffer = vec![];
-
-        let mut inner_buffer: Vec<u64> = vec![];
-
-        for idx in 0..0x200 {
-            match self.entries[idx] {
-                None => {
-                    inner_buffer.push(0);
-                },
-                Some(ref frame) => {
-                    inner_buffer.push(frame.build_table_relative(base, &mut buffer));
-                }
-            }
-        }
-
-        trace!("Inner buffer length: {}", buffer.len());
-
-        // align our position in our buffer
-        for _ in buffer.len()..align(buffer.len(), 0x200) {
-            buffer.push(0);
-        }
-
-        trace!("Inner buffer length after alignment: {}", buffer.len());
-
-        // get our position
-        let entry = (buffer.len() * U64_BYTES + base) as u64;
-
-        // copy our buffer in
-        buffer.extend(inner_buffer);
-
-        // produce our position and the constructed buffer
-        (entry, buffer)
     }
 
     pub fn to_physical(&self, addr: usize) -> Option<usize> {
@@ -185,29 +292,15 @@ impl Layout {
         }
     }
 
-    fn merge(&mut self, segment: Segment, remove: bool) {
-        let (min_idx, max_idx) = segment.get_indicies(FrameSize::Giant);
-
-        trace!("{:?}, {:?}", min_idx, max_idx);
-
-        for idx in min_idx..max_idx {
-            let mut new_frame = None;
-            if let Some(ref mut entry) = self.entries[idx] {
-                trace!("Merging with existing section");
-                entry.merge(segment.clone(), remove);
-            } else {
-                trace!("Creating new section");
-                let mut frame = Frame::new(FrameSize::Giant, idx << FrameSize::Giant.get_shift());
-                frame.merge(segment.clone(), remove);
-                new_frame = Some(frame);
-            }
-
-            if new_frame.is_some() {
-                self.entries[idx] = new_frame;
+    pub fn to_virtual(&self, addr: usize) -> Option<usize> {
+        // naive implementation
+        for segment in self.map.iter() {
+            if segment.physical_base() <= addr && addr <= segment.physical_base() + segment.size() {
+                return Some(addr - segment.physical_base() + segment.virtual_base());
             }
         }
 
-        trace!("{:?}", self);
+        None
     }
 }
 

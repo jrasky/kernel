@@ -29,6 +29,17 @@ pub fn raw_segment_size() -> usize {
     mem::size_of::<RawSegment>()
 }
 
+unsafe fn get_pointer(place: *mut u64, idx: isize) -> Result<*mut u64, ()> {
+    let entry = ptr::read(place.offset(idx));
+
+    if entry & 1 == 0 || entry & (1 << 7) == 1 << 7 {
+        // could not find table
+        return Err(());
+    }
+
+    Ok(canonicalize((entry & PAGE_ADDR_MASK) as usize) as *mut _)
+}
+
 // Overlap concerns virtual address only
 // Segments can overlap on physical addresses and that's fine
 impl Ord for Segment {
@@ -78,17 +89,21 @@ impl Segment {
         }
     }
 
-    pub fn dummy(virtual_address: usize) -> Segment {
+    pub fn dummy_range(virtual_address: usize, size: usize) -> Segment {
         Segment {
             physical_base: 0,
             virtual_base: virtual_address & ((1 << CANONICAL_BITS) - 1),
             allocate: false,
-            size: 0,
+            size: size,
             write: false,
             user: false,
             execute: false,
             global: false
         }
+    }
+
+    pub fn dummy(virtual_address: usize) -> Segment {
+        Segment::dummy_range(virtual_address, 0)
     }
 
     pub fn physical_base(&self) -> usize {
@@ -177,7 +192,7 @@ impl Segment {
     }
 
     #[inline]
-    fn get_physical_subframe(&self, subframe_base: usize) -> usize {
+    pub fn get_physical_subframe(&self, subframe_base: usize) -> usize {
         if self.virtual_base > subframe_base {
             self.physical_base + self.virtual_base - subframe_base
         } else {

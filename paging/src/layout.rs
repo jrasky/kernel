@@ -35,14 +35,11 @@ impl Base for RelativeBuilder {
         let physical_address = self.base + offset;
 
         // create a new table
-        let mut table = Box::new(Table::new());
+        let table = Box::new(Table::new());
 
         // get the virtual address
-        let virtual_address;
-        unsafe {
-            virtual_address = Box::into_raw(table);
-            table = Box::from_raw(virtual_address);
-        }
+        let virtual_address = Box::into_raw(table);
+        let table = Box::from_raw(virtual_address);
 
         // update both mappings
         self.to_physical.insert(virtual_address as usize, physical_address);
@@ -126,6 +123,8 @@ impl Layout {
                 address: builder.to_physical(*new_table as usize)
                     .expect("Failed to translate table address to physical address")
             };
+            #[cfg(test)]
+            println!("New table {:?}, 0x{:x}, 0x{:x}", level, idx, info.address);
             table.write(info.into(), idx);
             new_table
         }
@@ -153,6 +152,9 @@ impl Layout {
             address: segment.get_physical_subframe(subframe_base)
         };
 
+        #[cfg(test)]
+        println!("Built page {:?}, 0x{:x}, 0x{:x}", info.level, idx, segment.get_physical_subframe(subframe_base));
+
         let result = table.write(info.into(), idx);
 
         debug_assert!(!result.present(), "Overwrote a present entry: 0x{:x}", result.address(Level::PTE));
@@ -170,7 +172,7 @@ impl Layout {
                 subframe_base - vbase >= next.get_pagesize() as usize
             {
                 // build a new table here
-                let new_table = unsafe {self.get_or_create(builder, table, idx, match size {
+                let new_table = unsafe {self.get_or_create(builder, table, idx, match next {
                         FrameSize::Giant => Level::PML4E,
                         FrameSize::Huge => Level::PDPTE,
                         FrameSize::Big => Level::PDE
@@ -358,7 +360,55 @@ fn test_layout() {
         panic!("Did not find giant frame");
     }
 }
+*/
+#[cfg(test)]
+#[test]
+fn test_layout() {
+    let mut layout = Layout::new();
+    layout.insert(Segment::new(0x200000, 0x200000, 0x4000, false, false, false, false));
 
+    let (addr, mut buffer) = layout.build_relative(0x180000);
+    let ptr = buffer.as_mut_ptr();
+    let len = buffer.len();
+    let cap = buffer.capacity();
+
+    assert!(cap % 8 == 0, "buffer length was not a multiple of eight");
+
+    // forget the buffer now
+    mem::forget(buffer);
+
+    // construct an object
+    let tables: Vec<u64> = unsafe {Vec::from_raw_parts(ptr as *mut u64, len / 8, cap / 8)};
+    let head_idx = (addr - 0x180000) / 0x8;
+
+    // 511th entry
+    let next_entry = tables[head_idx as usize + 0];
+    assert!(next_entry & 0x1 == 0x1, "No 0th entry");
+    let next_addr = next_entry & (((1 << 41) - 1) << 12);
+    let next_idx = (next_addr - 0x180000) / 0x8;
+    
+    // 510th entry
+    let next_entry = tables[next_idx as usize + 0];
+    assert!(next_entry & 0x1 == 0x1, "No 0th entry");
+    assert!(next_entry & 0x80 == 0, "510th entry was a frame");
+    let next_addr = next_entry & (((1 << 41) - 1) << 12);
+    let next_idx = (next_addr - 0x180000) / 0x8;
+
+    // 3rd entry
+    let next_entry = tables[next_idx as usize + 1];
+    assert!(next_entry & 0x1 == 0x1, "No 1st entry");
+    assert!(next_entry & 0x80 == 0, "3rd entry was a frame");
+    let next_addr = next_entry & (((1 << 41) - 1) << 12);
+    let next_idx = (next_addr - 0x180000) / 0x8;
+
+    // 4th
+    let next_entry = tables[next_idx as usize + 0];
+    assert!(next_entry & 0x1 == 0x1, "No 0th entry");
+    let frame_addr = next_entry & (((1 << 41) - 1) << 12);
+    assert!(frame_addr == 0x200000, "Frame was not at the right address: 0x{:x}", frame_addr);
+}
+
+/*
 #[cfg(test)]
 #[test]
 fn test_layout_high() {

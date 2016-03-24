@@ -28,8 +28,6 @@ pub use map::Map;
 mod include;
 mod table;
 mod segment;
-mod frame;
 mod layout;
-mod page;
 mod allocator;
 mod map;

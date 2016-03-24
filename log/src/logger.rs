@@ -92,6 +92,10 @@ impl Logger {
         }
     }
 
+    pub fn has_output(&self) -> bool {
+        self.output.is_some()
+    }
+
     pub fn set_output(&mut self, output: Option<Box<Output>>) {
         self.output = output;
     }

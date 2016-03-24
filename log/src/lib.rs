@@ -80,8 +80,12 @@ fn suppress<T>(callback: T) -> bool where T: FnOnce(&mut Logger) {
     }
 }
 
+pub fn has_output() -> bool {
+    LOGGER.read().has_output()
+}
+
 pub fn set_output(output: Option<Box<Output>>) {
-    suppress(|logger| logger.set_output(output));
+   suppress(|logger| logger.set_output(output));
 }
 
 pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V, message: T) {

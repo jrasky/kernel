@@ -15,6 +15,8 @@
 #![feature(asm)]
 #![feature(heap_api)]
 #![cfg_attr(not(test), no_std)]
+#![cfg_attr(not(test), no_start)]
+#![cfg_attr(not(test), no_main)]
 #![cfg_attr(test, feature(std_panic))]
 #![cfg_attr(test, feature(recover))]
 #[cfg(not(test))]

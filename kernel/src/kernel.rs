@@ -1,3 +1,4 @@
+#![feature(shared)]
 #![feature(btree_range)]
 #![feature(collections_bound)]
 #![feature(reflect_marker)]

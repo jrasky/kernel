@@ -23,6 +23,7 @@ extern crate constants;
 pub use layout::Layout;
 pub use segment::{Segment, raw_segment_size};
 pub use allocator::{Allocator, Region};
+pub use table::{Entry, Table, Base};
 pub use map::Map;
 
 mod include;

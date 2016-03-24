@@ -1,6 +1,6 @@
 use include::*;
 
-use paging::{Region, Allocator, Layout, Segment};
+use paging::{Region, Allocator, Layout, Segment, Table, Base};
 
 use cpu::stack::Stack;
 
@@ -83,11 +83,8 @@ pub enum RunNextResult {
 #[repr(u8)]
 pub enum PrivilegeLevel {
     CORE = 0, // privileged instructions
-    #[allow(dead_code)]
     DRIVER = 1, // identity page mapping, i/o
-    #[allow(dead_code)]
     EXECUTIVE = 2, // program supervisor
-    #[allow(dead_code)]
     USER = 3, // isolated
 }
 
@@ -153,17 +150,20 @@ pub struct TaskRef {
 
 struct TaskInner {
     context: Context,
-    #[allow(dead_code)]
     entry: unsafe extern "C" fn() -> !,
-    #[allow(dead_code)]
     level: PrivilegeLevel,
-    #[allow(dead_code)]
     stack: Stack,
     memory: Arc<RefCell<Layout>>,
+    tables: Arc<RefCell<DirectBuilder>>,
     parent: Option<TaskRef>,
     busy: u16,
     done: bool,
     blocked: bool
+}
+
+struct DirectBuilder {
+    tables: Vec<Shared<Table>>,
+    to_virtual: BTreeMap<usize, usize>
 }
 
 #[derive(Clone)]
@@ -178,6 +178,41 @@ struct GateInner {
 impl Drop for ManagerInner {
     fn drop(&mut self) {
         panic!("Tried to drop task manager");
+    }
+}
+
+impl Base for DirectBuilder {
+    fn to_physical(&self, address: usize) -> Option<usize> {
+        to_physical(address)
+    }
+
+    fn to_virtual(&self, address: usize) -> Option<usize> {
+        self.to_virtual.get(&address).map(|addr| *addr)
+    }
+
+    unsafe fn new_table(&mut self) -> Shared<Table> {
+        let table: Shared<Table> = Shared::new(heap::allocate(mem::size_of::<Table>(), 0x1000) as *mut Table);
+        self.tables.push(table);
+        let physical = self.to_physical(*table as usize).expect("No physical mapping for table");
+        self.to_virtual.insert(physical, *table as usize);
+        table
+    }
+
+    fn clear(&mut self) {
+        self.to_virtual.clear();
+
+        for table in self.tables.drain(..) {
+            unsafe {heap::deallocate(*table as *mut _, mem::size_of::<Table>(), 0x1000)};
+        }
+    }
+}
+
+impl DirectBuilder {
+    fn new() -> DirectBuilder {
+        DirectBuilder {
+            tables: vec![],
+            to_virtual: BTreeMap::new()
+        }
     }
 }
 
@@ -306,6 +341,15 @@ impl TaskRef {
     }
 
     #[inline]
+    fn tables(&self) -> Option<Arc<RefCell<DirectBuilder>>> {
+        if let Some(inner) = self.get_inner() {
+            Some(inner.tables())
+        } else {
+            None
+        }
+    }
+
+    #[inline]
     fn root_ref(&self) -> TaskRef {
         if let Some(inner) = self.get_inner() {
             if let Some(parent) = inner.get_parent() {
@@ -339,24 +383,28 @@ impl Task {
         let mut layout = Layout::new();
         layout.register(memory);
 
-        Task::create(level, entry, stack, Arc::new(RefCell::new(layout)), None)
+        Task::create(level, entry, stack, Arc::new(RefCell::new(layout)),
+                     Arc::new(RefCell::new(DirectBuilder::new())), None)
     }
 
     #[inline]
     pub fn thread(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
                   stack: Stack, parent: TaskRef) -> Task {
         if let Some(layout) = parent.memory() {
-            Task::create(level, entry, stack, layout, Some(parent))
-        } else {
-            panic!("Tried to create thread on dead task");
+            if let Some(tables) = parent.tables() {
+                return Task::create(level, entry, stack, layout, tables, Some(parent));
+            }
         }
+
+        panic!("Tried to create thread on dead task");
     }
 
     #[inline]
-    fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
-              stack: Stack, memory: Arc<RefCell<Layout>>, parent: Option<TaskRef>) -> Task {
+    fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !, stack: Stack,
+              memory: Arc<RefCell<Layout>>, tables: Arc<RefCell<DirectBuilder>>,
+              parent: Option<TaskRef>) -> Task {
         Task {
-            inner: Arc::new(UnsafeCell::new(TaskInner::create(level, entry, stack, memory, parent)))
+            inner: Arc::new(UnsafeCell::new(TaskInner::create(level, entry, stack, memory, tables, parent)))
         }
     }
 
@@ -378,6 +426,11 @@ impl Task {
     #[inline]
     fn memory(&self) -> Arc<RefCell<Layout>> {
         unsafe {self.inner.get().as_ref().unwrap().memory()}
+    }
+
+    #[inline]
+    fn tables(&self) -> Arc<RefCell<DirectBuilder>> {
+        unsafe {self.inner.get().as_ref().unwrap().tables()}
     }
 
     #[inline]
@@ -886,8 +939,9 @@ impl Context {
 }
 
 impl TaskInner {
-    fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !,
-              stack: Stack, memory: Arc<RefCell<Layout>>, parent: Option<TaskRef>) -> TaskInner {
+    fn create(level: PrivilegeLevel, entry: unsafe extern "C" fn() -> !, stack: Stack,
+              memory: Arc<RefCell<Layout>>, tables: Arc<RefCell<DirectBuilder>>,
+              parent: Option<TaskRef>) -> TaskInner {
         // create a blank context
         let mut context = Context::empty();
 
@@ -924,6 +978,7 @@ impl TaskInner {
             level: level,
             stack: stack,
             memory: memory,
+            tables: tables,
             parent: parent,
             busy: 0,
             done: false,
@@ -934,6 +989,11 @@ impl TaskInner {
     #[inline]
     fn memory(&self) -> Arc<RefCell<Layout>> {
         self.memory.clone()
+    }
+
+    #[inline]
+    fn tables(&self) -> Arc<RefCell<DirectBuilder>> {
+        self.tables.clone()
     }
 
     #[inline]

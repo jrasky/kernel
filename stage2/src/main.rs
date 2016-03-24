@@ -9,7 +9,6 @@ use std::io::{Read, Write};
 use std::fmt::Display;
 use std::fs::File;
 
-use std::slice;
 use std::cmp;
 
 use elfloader::ElfBinary;
@@ -98,7 +97,7 @@ fn main() {
 
     debug!("Creating tables");
 
-    let (address, tables) = layout.build_tables_relative(PAGE_TABLES_OFFSET);
+    let (address, tables) = layout.build_relative(PAGE_TABLES_OFFSET);
 
     trace!("Giant table address: 0x{:x}", address);
 
@@ -112,11 +111,9 @@ fn main() {
 
     debug!("Writing output");
 
-    let bytes: &[u8] = unsafe {slice::from_raw_parts(tables.as_ptr() as *const _, tables.len() * U64_BYTES)};
-
     let mut raw_output = File::create(RAW_OUTPUT).expect("Failed to open raw output file");
 
-    raw_output.write_all(bytes).expect("Failed to write bytes to output");
+    raw_output.write_all(tables.as_slice()).expect("Failed to write bytes to output");
 
     let mut seg_output = File::create(SEG_OUTPUT).expect("Failed to open seg output file");
 

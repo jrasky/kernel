@@ -1,7 +1,5 @@
 use include::*;
 
-use include::log;
-
 #[repr(u8)]
 #[derive(Clone, Copy)]
 #[allow(dead_code)] // for completeness

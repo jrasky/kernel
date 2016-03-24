@@ -1,6 +1,6 @@
 pub use std::marker::Reflect;
 pub use std::fmt::{Debug, Display, Write};
-pub use std::ptr::Unique;
+pub use std::ptr::{Unique, Shared};
 pub use std::sync::atomic::{Ordering, AtomicUsize, AtomicBool};
 pub use std::cell::{UnsafeCell, RefCell};
 pub use std::iter::{IntoIterator, Iterator};

@@ -20,6 +20,26 @@ struct ElfSymbolTag {
     shndx: u32,
 }
 
+struct StaticBuilder;
+
+impl paging::Base for StaticBuilder {
+    fn to_physical(&self, address: usize) -> Option<usize> {
+        Some(address)
+    }
+
+    fn to_virtual(&self, address: usize) -> Option<usize> {
+        Some(address)
+    }
+    
+    unsafe fn new_table(&mut self) -> Shared<paging::Table> {
+        panic!("Static builder tried to create a table");
+    }
+
+    fn clear(&mut self) {
+        // do nothing
+    }
+}
+
 pub unsafe fn parse_elf(ptr: *const u32) {
     trace!("Parsing elf tag");
     let info = (ptr as *const ElfSymbolTag).as_ref().unwrap();
@@ -233,9 +253,11 @@ fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
             let segment = paging::Segment::new(region.base(), HEAP_BEGIN, region.size(),
                                                true, false, false, false);
 
+            let mut layout = paging::Layout::new();
+            layout.insert(segment);
+
             unsafe {
-                assert!(segment.build_into(c::_gen_page_tables as *mut _),
-                        "failed to build segment");
+                layout.build_at(&mut StaticBuilder, Shared::new(c::_gen_page_tables as *mut _));
             }
         }
 
@@ -259,9 +281,11 @@ fn build_test_external_task() {
     let segment = paging::Segment::new(0x400000, 0x400000, 0x400000,
                                        true, true, true, false);
 
+    let mut layout = paging::Layout::new();
+    layout.insert(segment);
+
     unsafe {
-        assert!(segment.build_into(c::_gen_page_tables as *mut _),
-                "failed to build initial heap segment");
+        layout.build_at(&mut StaticBuilder, Shared::new(c::_gen_page_tables as *mut _));
     }
 }
 

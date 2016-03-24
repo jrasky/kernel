@@ -234,8 +234,17 @@ impl Layout {
     }
 
     pub fn build(&mut self, builder: &mut Base) -> usize {
-        let root = unsafe {builder.new_table()};
+        unsafe {
+            let root = builder.new_table();
 
+            self.build_at(builder, root);
+
+            builder.to_physical(*root as usize)
+                .expect("Root table had no physical mapping")
+        }
+    }
+
+    pub unsafe fn build_at(&mut self, builder: &mut Base, root: Shared<Table>) {
         let segments: Vec<Segment> = self.map.iter().cloned().collect();
 
         for segment in segments {
@@ -245,15 +254,10 @@ impl Layout {
                 >> FrameSize::Giant.get_shift();
 
             for idx in min_idx..max_idx {
-                unsafe {
-                    let table = self.get_or_create(builder, root.as_mut().unwrap(), idx, Level::PML4E);
-                    self.build_part(builder, table.as_mut().unwrap(), idx * FrameSize::Giant as usize, FrameSize::Giant, &segment);
-                }
+                let table = self.get_or_create(builder, root.as_mut().unwrap(), idx, Level::PML4E);
+                self.build_part(builder, table.as_mut().unwrap(), idx * FrameSize::Giant as usize, FrameSize::Giant, &segment);
             }
         }
-
-        builder.to_physical(*root as usize)
-            .expect("Root table had no physical mapping")
     }
 
     pub fn build_relative(&mut self, base: usize) -> (usize, Vec<u8>) {

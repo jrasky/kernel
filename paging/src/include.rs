@@ -18,7 +18,6 @@ pub use std::cmp;
 pub use std::ptr;
 
 pub use constants::*;
-pub use constants;
 
 #[repr(usize)]
 #[derive(Debug, Clone, Copy)]

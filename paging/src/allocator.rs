@@ -1,5 +1,7 @@
 use include::*;
 
+use constants;
+
 #[derive(Clone, Copy)]
 pub struct Region {
     base: usize,

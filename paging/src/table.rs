@@ -36,11 +36,27 @@ pub struct Info {
 pub trait Base {
     fn to_physical(&self, address: usize) -> Option<usize>;
     fn to_virtual(&self, address: usize) -> Option<usize>;
-    unsafe fn allocate_table(&mut self) -> Unique<Table>;
-    unsafe fn release_table(&mut self, table: Unique<Table>);
+    unsafe fn new_table(&mut self) -> Shared<Table>;
+    fn clear(&mut self);
+}
+
+impl Clone for Table {
+    fn clone(&self) -> Table {
+        let mut new = Table::new();
+        unsafe {
+            ptr::copy(self.entries.as_ptr(), new.entries.as_mut_ptr(), 0x200);
+        }
+        new
+    }
 }
 
 impl Table {
+    pub fn new() -> Table {
+        Table {
+            entries: [Entry { entry: 0 }; 0x200]
+        }
+    }
+
     pub fn write(&mut self, entry: Entry, idx: usize) -> Entry {
         let old = self.entries[idx];
         self.entries[idx] = entry;

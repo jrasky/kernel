@@ -1,3 +1,4 @@
+#![feature(stmt_expr_attributes)]
 #![feature(shared)]
 #![feature(unique)]
 #![feature(btree_range)]

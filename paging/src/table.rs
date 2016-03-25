@@ -80,10 +80,18 @@ impl From<Info> for Entry {
             entry |= 1 << 8;
         }
 
-        if (info.level == Level::PTE && info.attribute_table) || info.page {
-            entry |= 1 << 7;
-        } else if info.attribute_table {
-            entry |= 1 << 12;
+        if info.level == Level::PTE {
+            if info.attribute_table {
+                entry |= 1 << 7;
+            }
+        } else {
+            if info.page {
+                entry |= 1 << 7;
+            }
+
+            if info.attribute_table {
+                entry |= 1 << 12;
+            }
         }
 
         if info.cache_disable {

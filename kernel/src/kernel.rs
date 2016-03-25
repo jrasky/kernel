@@ -185,9 +185,9 @@ pub extern "C" fn kernel_main(boot_info: *const u32, boot_info_size: usize) -> !
                                            cpu::stack::Stack::create(0x10000),
                                            cpu::task::current()));
 
-    cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task_entry,
-                                           cpu::stack::Stack::create(0x10000),
-                                           cpu::task::current()));
+    //cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task_entry,
+    //                                       cpu::stack::Stack::create(0x10000),
+    //                                       cpu::task::current()));
 
     point!(traces, "created tasks");
 

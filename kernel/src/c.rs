@@ -1,5 +1,5 @@
 extern "C" {
-    pub fn test_task_entry() -> !;
+    //pub fn test_task_entry() -> !;
 
     pub static _image_begin: u8;
     pub static _image_end: u8;

@@ -219,7 +219,7 @@ impl Layout {
 
         if max_idx > min_idx + 1 {
             if !self.build_edge(builder, table, base, size, max_idx - 1,
-                                align_back(segment.virtual_base() + segment.size() as usize, size.get_pagesize() as usize), segment) {
+                                align_back(segment.virtual_base() + segment.size() as usize - 1, size.get_pagesize() as usize), segment) {
                 self.build_page_at(table, base, size, max_idx - 1, segment);
             }
         }
@@ -248,6 +248,8 @@ impl Layout {
         let segments: Vec<Segment> = self.map.iter().cloned().collect();
 
         for segment in segments {
+            trace!("Building segment {:?}", segment);
+
             let min_idx = align_back(segment.virtual_base(), FrameSize::Giant as usize)
                 >> FrameSize::Giant.get_shift();
             let max_idx = align(segment.virtual_base() + segment.size(), FrameSize::Giant as usize)
@@ -517,4 +519,63 @@ mod tests {
         assert!(frame_addr == 0x23f000, "Frame was not at the right address: 0x{:x}", frame_addr);
     }
 
+    #[test]
+    fn test_walk_data_again() {
+        before();
+
+        let mut layout = Layout::new();
+
+        layout.insert(Segment::new(0, 0, 0x200000,
+                                   false, false, true, false));
+        layout.insert(Segment::new(0x200000, 0xffff80200000, 0x34ddf,
+                                   false, false, true, false));
+        layout.insert(Segment::new(0x235000, 0xffff80400000, 0x4fac,
+                                   false, false, false, false));
+        layout.insert(Segment::new(0x23b000, 0xffff80600000, 0x4a00,
+                                   true, false, false, false));
+        layout.insert(Segment::new(0x23f000, 0xffff80800000, 0x17648,
+                                   true, false, false, false));
+        layout.insert(Segment::new(0x400000, 0x400000, 0x400000,
+                                       true, true, true, false));
+
+        let (addr, mut buffer) = layout.build_relative(0x180000);
+        let ptr = buffer.as_mut_ptr();
+        let len = buffer.len();
+        let cap = buffer.capacity();
+
+        assert!(cap % 8 == 0, "buffer length was not a multiple of eight");
+
+        // forget the buffer now
+        mem::forget(buffer);
+
+        // construct an object
+        let tables: Vec<u64> = unsafe {Vec::from_raw_parts(ptr as *mut u64, len / 8, cap / 8)};
+        let head_idx = (addr - 0x180000) / 0x8;
+
+        // 511th entry
+        let next_entry = tables[head_idx as usize + 511];
+        assert!(next_entry & 0x1 == 0x1, "No 511th entry");
+        let next_addr = next_entry & (((1 << 41) - 1) << 12);
+        let next_idx = (next_addr - 0x180000) / 0x8;
+        
+        // 510th entry
+        let next_entry = tables[next_idx as usize + 510];
+        assert!(next_entry & 0x1 == 0x1, "No 510th entry");
+        assert!(next_entry & 0x80 == 0, "510th entry was a frame");
+        let next_addr = next_entry & (((1 << 41) - 1) << 12);
+        let next_idx = (next_addr - 0x180000) / 0x8;
+
+        // 3rd entry
+        let next_entry = tables[next_idx as usize + 3];
+        assert!(next_entry & 0x1 == 0x1, "No 3rd entry");
+        assert!(next_entry & 0x80 == 0, "3rd entry was a frame");
+        let next_addr = next_entry & (((1 << 41) - 1) << 12);
+        let next_idx = (next_addr - 0x180000) / 0x8;
+
+        // 4th
+        let next_entry = tables[next_idx as usize + 4];
+        assert!(next_entry & 0x1 == 0x1, "No 4th entry");
+        let frame_addr = next_entry & (((1 << 41) - 1) << 12);
+        assert!(frame_addr == 0x23f000, "Frame was not at the right address: 0x{:x}", frame_addr);
+    }
 }

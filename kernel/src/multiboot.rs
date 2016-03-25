@@ -275,20 +275,6 @@ fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
     }
 }
 
-fn build_test_external_task() {
-    // identity-map the external task we have
-
-    let segment = paging::Segment::new(0x400000, 0x400000, 0x400000,
-                                       true, true, true, false);
-
-    let mut layout = paging::Layout::new();
-    layout.insert(segment);
-
-    unsafe {
-        layout.build_at(&mut StaticBuilder, Shared::new(c::_gen_page_tables as *mut _));
-    }
-}
-
 fn setup_memory(memory_regions: Vec<(usize, usize)>) {
     use log::Frame;
     frame!(traces, "setting up memory");
@@ -324,19 +310,12 @@ fn setup_memory(memory_regions: Vec<(usize, usize)>) {
             }
         }
 
-        //point!(traces, "registering region at 0x{:x}, size 0x{:x}", base, size);
+        trace!("registering region at 0x{:x}, size 0x{:x}", base, size);
 
         assert!(cpu::task::register(paging::Region::new(base, size)));
     }
 
     point!(traces, "done registering physical memory");
-
-    // build external task tables
-    build_test_external_task();
-
-    point!(traces, "build external task tables");
-
-    debug!("Done building external task tables");
 }
 
 pub unsafe fn parse_multiboot_tags(boot_info: *const u32, boot_info_size: usize) {

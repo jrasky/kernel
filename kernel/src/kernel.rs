@@ -159,6 +159,8 @@ unsafe extern "C" fn serial_handler() -> ! {
         if let Some(c) = std::char::from_u32(next_char) {
             info!("Got character: {:?}", c);
             next_char = 0;
+        } else {
+            next_char <<= 0x8;
         }
     }
 }

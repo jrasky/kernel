@@ -16,7 +16,7 @@ pub unsafe fn read_msr(id: u32) -> u64 {
 
 #[cfg(not(test))]
 pub unsafe fn write_msr(id: u32, value: u64) {
-    asm!("wrmsr" :: "{eax}"(value), "{edx}"(value >> 32), "{ecx}"(id) ::: "intel");
+    asm!("wrmsr" :: "{eax}"(value), "{edx}"(value >> 32), "{ecx}"(id) :: "intel");
 }
 
 #[cfg(test)]
@@ -27,4 +27,16 @@ pub unsafe fn read_msr(_: u32) -> u64 {
 #[cfg(test)]
 pub unsafe fn write_msr(_: u32, _: u64) {
     // nothing
+}
+
+pub unsafe fn read_port_byte(port: u16) -> u8 {
+    let byte: u8;
+
+    asm!("in al, dx" : "={al}"(byte) : "{dx}"(port) :: "intel");
+
+    byte
+}
+
+pub unsafe fn write_port_byte(port: u16, byte: u8) {
+    asm!("out dx, al" :: "{al}"(byte), "{dx}"(port) :: "intel");
 }

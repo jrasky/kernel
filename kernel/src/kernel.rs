@@ -136,6 +136,32 @@ unsafe extern "C" fn test_task_2() -> ! {
     user::exit();
 }
 
+#[cfg(not(test))]
+unsafe extern "C" fn serial_handler() -> ! {
+    // initialize the serial line
+    cpu::write_port_byte(COM1 + 1, 0x00); // disable all interrupts
+    cpu::write_port_byte(COM1 + 3, 0x80); // enable DLAB
+    cpu::write_port_byte(COM1 + 0, 0x03); // set divisor to 3 (38400 baud)
+    cpu::write_port_byte(COM1 + 1, 0x00); // high byte
+    cpu::write_port_byte(COM1 + 3, 0x03); // 8 bits, no parity, one stop bit
+    cpu::write_port_byte(COM1 + 2, 0xc7); // Enable FIFO, clear them, with 14-byte threshold
+    cpu::write_port_byte(COM1 + 4, 0x0b); // IRQ enable, RTS/DSR set
+
+    let mut next_char: u32 = 0;
+
+    loop {
+        while cpu::read_port_byte(COM1 + 5) & 0x1 == 0 {
+            user::release();
+        }
+
+        next_char |= cpu::read_port_byte(COM1) as u32;
+
+        if let Some(c) = std::char::from_u32(next_char) {
+            info!("Got character: {:?}", c);
+            next_char = 0;
+        }
+    }
+}
 
 #[cfg(not(test))]
 #[no_mangle]
@@ -181,7 +207,11 @@ pub extern "C" fn kernel_main(boot_info: *const u32, boot_info_size: usize) -> !
     info!("Starting tasks");
 
     // start some tasks
-    cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task,
+    //cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task,
+    //                                       cpu::stack::Stack::create(0x10000),
+    //                                       cpu::task::current()));
+
+    cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, serial_handler,
                                            cpu::stack::Stack::create(0x10000),
                                            cpu::task::current()));
 

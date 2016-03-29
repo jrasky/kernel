@@ -30,6 +30,8 @@ static EARLY_IDT: [idt::Descriptor; 15] = [
 
 static mut EARLY_IDT_BUFFER: [u64; 2 * 15 * U64_BYTES] = [0; 2 * 15 * U64_BYTES];
 
+static SETUP_DONE: AtomicBool = AtomicBool::new(false);
+
 #[cfg(test)]
 unsafe extern "C" fn _bp_handler() {
     unreachable!("Breakpoint handler reached");
@@ -64,6 +66,10 @@ pub unsafe fn early_setup() {
     // no logging or memory at this point
 
     idt::Table::early_install(&EARLY_IDT, EARLY_IDT_BUFFER.as_mut_ptr());
+}
+
+pub fn setup_done() -> bool {
+    SETUP_DONE.load(Ordering::Relaxed)
 }
 
 /// Unsafe because dropping gdt or idt leaks a reference
@@ -115,6 +121,8 @@ pub unsafe fn setup() -> (gdt::Table, idt::Table, cpu::stack::Stack) {
     let syscall_stack = cpu::syscall::setup();
 
     debug!("Set up syscalls");
+
+    SETUP_DONE.store(true, Ordering::Relaxed);
 
     (gdt, idt, syscall_stack)
 }

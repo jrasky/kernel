@@ -183,8 +183,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32, boot_info_size: usize) -> !
     frame!(traces);
 
     // set up logging
-    log::set_output(Some(Box::new(
-        logging::Logger::new(serial::Writer::new()))));
+    log::set_output(Some(Box::new(logging::Logger::new(serial::Writer::new()))));
 
     // say hello
     info!("Hello!");

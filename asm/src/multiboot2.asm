@@ -30,23 +30,10 @@ multiboot2_header_top:
 
 ;; Info request tag
     dw 1, 0
-    dd 16                     ; size
+    dd 20                     ; size
     dd 8                      ; framebuffer info
     dd 9                      ; elf info
     dd 0                      ; end info requests
-
-    align GNUALIGN
-
-;; Address tag
-    dw 2, 0                 ; type, flags
-    dd 24                    ; size
-    dd multiboot2_header_top ; header address
-    extern _boot_top
-    dd _boot_top           ; start of kernel .text
-    extern _boot_data
-    dd _boot_data                ; end of kernel .text
-    extern _boot_end
-    dd _boot_end            ; end of uninitialized data, including stack
 
     align GNUALIGN
 
@@ -62,6 +49,15 @@ multiboot2_header_top:
     dw 4, 0
     dd 12
     dd 3
+
+    align GNUALIGN
+
+;; Framebuffer tag
+    dw 5, 0
+    dd 20
+    dd 0
+    dd 0
+    dd 0
 
     align GNUALIGN
 

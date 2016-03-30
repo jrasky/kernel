@@ -46,7 +46,10 @@ ISO_KERNEL = $(ISO_DIR)/boot/kernel.elf
 
 ASFLAGS = -f elf64
 LDFLAGS = --gc-sections -n
-GRUB_RESCUE_FLAGS = -d /usr/lib/grub/i386-pc/
+GRUB_RESCUE_FLAGS = -d /usr/lib/grub/x86_64-efi/
+
+VM = qemu-system-x86_64
+VM_FLAGS = -enable-kvm -net none -m 1024 -drive file=/usr/share/ovmf/ovmf_x64.bin,format=raw,if=pflash,readonly -k en-us -serial stdio
 
 CD = cd
 CARGO = cargo
@@ -60,6 +63,9 @@ CP = cp
 build: directories $(KERNEL)
 
 image: directories $(GRUB_IMAGE)
+
+run: image
+	$(VM) $(VM_FLAGS) -cdrom $(GRUB_IMAGE)
 
 $(ISO_GRUB_CFG): $(GRUB_CFG)
 	$(CP) $< $@
@@ -101,4 +107,4 @@ clean:
 
 directories: $(TARGET_DIR) $(ASM_TARGET) $(GEN_DIR) $(ISO_DIR) $(ISO_DIR)/boot $(ISO_DIR)/boot/grub
 
-.PHONY: build image clean directories
+.PHONY: build image run clean directories

@@ -88,6 +88,14 @@ pub fn set_output(output: Option<Box<Output>>) {
    suppress(|logger| logger.set_output(output));
 }
 
+pub fn set_reserve(output: Option<&'static Fn(&Display)>) {
+    suppress(|logger| logger.set_reserve(output));
+}
+
+pub fn reserve_log<T: Display>(message: T) {
+    suppress(|logger| logger.reserve_log(message));
+}
+
 pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V, message: T) {
     if suppress(|logger| logger.log(level, location, &target, &message)) && level == 0 {
         panic!("Suppressed {} {} at {}({}): {}", target, level_name(level), location.file, location.line, message);

@@ -1,3 +1,5 @@
+#![feature(unicode)]
+#![feature(decode_utf16)]
 #![feature(shared)]
 #![feature(btree_range)]
 #![feature(collections_bound)]
@@ -33,6 +35,7 @@ extern crate log;
 extern crate paging;
 extern crate user;
 extern crate constants;
+extern crate rustc_unicode;
 
 use include::*;
 use c::*;
@@ -44,6 +47,7 @@ mod memory;
 mod cpu;
 mod multiboot;
 mod logging;
+mod serial;
 
 // pub use since they're exported
 #[cfg(not(test))]
@@ -138,14 +142,6 @@ unsafe extern "C" fn test_task_2() -> ! {
 
 #[cfg(not(test))]
 unsafe extern "C" fn serial_handler() -> ! {
-    // initialize the serial line
-    cpu::write_port_byte(COM1 + 1, 0x00); // disable all interrupts
-    cpu::write_port_byte(COM1 + 3, 0x80); // enable DLAB
-    cpu::write_port_byte(COM1 + 0, 0x03); // set divisor to 3 (38400 baud)
-    cpu::write_port_byte(COM1 + 1, 0x00); // high byte
-    cpu::write_port_byte(COM1 + 3, 0x03); // 8 bits, no parity, one stop bit
-    cpu::write_port_byte(COM1 + 2, 0xc7); // Enable FIFO, clear them, with 14-byte threshold
-    cpu::write_port_byte(COM1 + 4, 0x0b); // IRQ enable, RTS/DSR set
 
     let mut next_char: u32 = 0;
 
@@ -169,6 +165,14 @@ unsafe extern "C" fn serial_handler() -> ! {
 #[no_mangle]
 pub extern "C" fn kernel_main(boot_info: *const u32, boot_info_size: usize) -> ! {
     // kernel main
+
+    // set up the serial line
+    serial::setup_serial();
+
+    // set the reserve logger
+    static reserve: &'static Fn(&Display) = &serial::reserve_log;
+    log::set_reserve(Some(reserve));
+
     // set up early data structures
     unsafe {cpu::init::early_setup()};
 
@@ -179,8 +183,7 @@ pub extern "C" fn kernel_main(boot_info: *const u32, boot_info_size: usize) -> !
     frame!(traces);
 
     // set up logging
-    log::set_output(Some(Box::new(
-        logging::Writer::new(logging::Color::LightGray, logging::Color::Black))));
+    log::set_output(Some(Box::new(logging::Logger::new(serial::Writer::new()))));
 
     // say hello
     info!("Hello!");
@@ -309,7 +312,7 @@ fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, l
     // disable memory
     memory::disable();
 
-    logging::reserve_log(
+    log::reserve_log(
         format_args!("Double panic at {}({}): {}\nWhile processing panic at {}({}): {}",
                      file, line, msg,
                      original.file, original.line,
@@ -325,7 +328,7 @@ fn triple_panic(file: &'static str, line: u32) -> ! {
     // disable memory
     memory::disable();
 
-    logging::reserve_log(format_args!("Triple panic at {}({})", file, line));
+    log::reserve_log(format_args!("Triple panic at {}({})", file, line));
 
     panic_halt();
 }

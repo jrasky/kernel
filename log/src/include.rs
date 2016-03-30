@@ -1,5 +1,7 @@
 pub use core::fmt::{Display, Write};
 
+pub use core::ops::Fn;
+
 pub use alloc::boxed::Box;
 
 pub use core::sync::atomic::{AtomicUsize, AtomicBool, Ordering};

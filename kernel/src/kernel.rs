@@ -169,6 +169,10 @@ pub extern "C" fn kernel_main(boot_info: *const u32, boot_info_size: usize) -> !
     // set up the serial line
     serial::setup_serial();
 
+    // set the reserve logger
+    static reserve: &'static Fn(&Display) = &serial::reserve_log;
+    log::set_reserve(Some(reserve));
+
     // set up early data structures
     unsafe {cpu::init::early_setup()};
 
@@ -309,7 +313,7 @@ fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, l
     // disable memory
     memory::disable();
 
-    serial::reserve_log(
+    log::reserve_log(
         format_args!("Double panic at {}({}): {}\nWhile processing panic at {}({}): {}",
                      file, line, msg,
                      original.file, original.line,
@@ -325,7 +329,7 @@ fn triple_panic(file: &'static str, line: u32) -> ! {
     // disable memory
     memory::disable();
 
-    serial::reserve_log(format_args!("Triple panic at {}({})", file, line));
+    log::reserve_log(format_args!("Triple panic at {}({})", file, line));
 
     panic_halt();
 }

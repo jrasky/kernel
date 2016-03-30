@@ -153,7 +153,7 @@ impl Writer {
 }
 
 #[cfg(not(test))]
-pub fn reserve_log<T: Display>(message: T) {
+pub fn reserve_log(message: &Display) {
     static mut WRITER: Writer = Writer::new(Color::LightGray, Color::Black);
 
     unsafe {

@@ -130,4 +130,3 @@ impl<T: Write> Logger<T> {
         }
     }
 }
-

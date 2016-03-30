@@ -80,10 +80,10 @@ impl Writer {
 }
 
 #[cfg(not(test))]
-pub fn reserve_log<T: Display>(message: T) {
+pub fn reserve_log(message: &Display) {
     static mut WRITER: Writer = Writer::new();
 
     unsafe {
-        let _ = writeln!(WRITER, "\n{}", message);
+        let _ = writeln!(WRITER, "{}", message);
     }
 }

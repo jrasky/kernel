@@ -329,12 +329,12 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32, boot_info_size: usize)
     let need_initial;
 
     if end as u64 > c::_gen_max_paddr {
-        if end as u64 > c::_gen_max_paddr + OPTIMISTIC_HEAP as u64 {
+        if end as usize - align_back(boot_info as usize, 0x200000) > OPTIMISTIC_HEAP {
             panic!("Multiboot info over two megabytes");
         }
 
         // remap multiboot info over our optimistic heap
-        let segment = paging::Segment::new(align_back(boot_info as usize, 0x1000),
+        let segment = paging::Segment::new(align_back(boot_info as usize, 0x200000),
                                            HEAP_BEGIN, OPTIMISTIC_HEAP,
                                            false, false, false, false);
         let mut layout = paging::Layout::new();

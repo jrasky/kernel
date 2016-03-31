@@ -13,3 +13,5 @@ pub use std::str;
 pub use std::ptr;
 
 pub use constants::*;
+
+pub use log_abi::Location;

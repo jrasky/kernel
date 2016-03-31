@@ -74,6 +74,7 @@ name = "serial"
 version = "0.1.0"
 dependencies = [
  "constants 0.1.0",
+ "log_abi 0.1.0",
 ]
 
 [[package]]

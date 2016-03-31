@@ -23,31 +23,6 @@ mod include;
 mod logger;
 mod point;
 
-pub use log_abi::Location;
+pub use log_abi::{Location, level_name, to_level};
 pub use logger::{Output, Request, has_output, set_output, set_reserve, reserve_log, log, set_level};
 pub use point::{Frame, PointFrame, trace, write_trace};
-
-pub fn level_name(level: usize) -> &'static str {
-    match level {
-        0 => "CRITICAL",
-        1 => "ERROR",
-        2 => "WARN",
-        3 => "INFO",
-        4 => "DEBUG",
-        5 => "TRACE",
-        _ => "",
-    }
-}
-
-pub fn to_level(name: &str) -> Result<Option<usize>, ()> {
-    match name {
-        "any" | "ANY" => Ok(None),
-        "critical" | "CRITICAL" => Ok(Some(0)),
-        "error" | "ERROR" => Ok(Some(1)),
-        "warn" | "WARN" => Ok(Some(2)),
-        "info" | "INFO" => Ok(Some(3)),
-        "debug" | "DEBUG" => Ok(Some(4)),
-        "trace" | "TRACE" => Ok(Some(5)),
-        _ => Err(())
-    }
-}

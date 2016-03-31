@@ -25,7 +25,7 @@ pub trait Output {
 pub struct Logger {
     level: Option<usize>,
     output: Option<Box<Output>>,
-    reserve: Option<&'static Fn(&Display)>,
+    reserve: Option<&'static Fn(&Location, &Display, &Display)>,
     lost: usize
 }
 
@@ -118,18 +118,24 @@ impl Logger {
         }
     }
 
-    pub fn set_reserve(&mut self, output: Option<&'static Fn(&Display)>) {
+    pub fn set_reserve(&mut self, output: Option<&'static Fn(&Location, &Display, &Display)>) {
         self.reserve = output;
     }
 
-    pub fn reserve_log(&mut self, message: &Display) {
+    pub fn reserve_log(&mut self, location: &Location, target: &Display, message: &Display) {
         if let Some(ref output) = self.reserve {
             if self.lost > 0 {
-                output(&format_args!("Lost at least {} messages", self.lost));
+                static LOCATION: Location = Location {
+                    module_path: module_path!(),
+                    file: file!(),
+                    line: line!()
+                };
+
+                output(&LOCATION, &module_path!(), &format_args!("Lost at least {} messages", self.lost));
                 self.lost = 0;
             }
 
-            output(message)
+            output(location, target, message)
         } else {
             self.lost += 1;
         }
@@ -161,7 +167,7 @@ impl Logger {
             // then log the message
             output.log(level, location, target, message);
         } else {
-            self.reserve_log(message);
+            self.reserve_log(location, target, message);
         }
     }
 }
@@ -196,23 +202,28 @@ pub fn has_output() -> bool {
     LOGGER.read().has_output()
 }
 
-pub fn set_output(output: Option<Box<Output>>) {
-    suppress(|logger| logger.set_output(output));
+fn set_callback() {
     static REF: &'static Fn(usize, &Location, &Display, &Display) = &log;
     log_abi::set_callback(REF);
 }
 
-pub fn set_reserve(output: Option<&'static Fn(&Display)>) {
-    suppress(|logger| logger.set_reserve(output));
+pub fn set_output(output: Option<Box<Output>>) {
+    suppress(|logger| logger.set_output(output));
+    set_callback();
 }
 
-pub fn reserve_log(message: &Display) {
-    suppress(|logger| logger.reserve_log(message));
+pub fn set_reserve(output: Option<&'static Fn(&Location, &Display, &Display)>) {
+    suppress(|logger| logger.set_reserve(output));
+    set_callback();
+}
+
+pub fn reserve_log(location: &Location, target: &Display, message: &Display) {
+    suppress(|logger| logger.reserve_log(location, target, message));
 }
 
 pub fn log(level: usize, location: &Location, target: &Display, message: &Display) {
     if suppress(|logger| logger.log(level, location, &target, &message)) && level == 0 {
-        panic!("Suppressed {} {} at {}({}): {}", target, super::level_name(level), location.file, location.line, message);
+        panic!("Suppressed {} {} at {}({}): {}", target, log_abi::level_name(level), location.file, location.line, message);
     }
 }
 

@@ -8,6 +8,7 @@
 extern crate core as std;
 extern crate rustc_unicode;
 extern crate constants;
+extern crate log_abi;
 
 mod include;
 
@@ -90,10 +91,10 @@ impl Writer {
 }
 
 #[cfg(not(test))]
-pub fn reserve_log(message: &Display) {
+pub fn reserve_log(location: &Location, target: &Display, message: &Display) {
     static mut WRITER: Writer = Writer::new();
 
     unsafe {
-        let _ = writeln!(WRITER, "{}", message);
+        let _ = writeln!(WRITER, "{} RESERVE at {}({}): {}", target, location.file, location.line, message);
     }
 }

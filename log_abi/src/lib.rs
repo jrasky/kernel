@@ -20,6 +20,31 @@ pub struct Location {
     pub line: u32,
 }
 
+pub fn level_name(level: usize) -> &'static str {
+    match level {
+        0 => "CRITICAL",
+        1 => "ERROR",
+        2 => "WARN",
+        3 => "INFO",
+        4 => "DEBUG",
+        5 => "TRACE",
+        _ => "",
+    }
+}
+
+pub fn to_level(name: &str) -> Result<Option<usize>, ()> {
+    match name {
+        "any" | "ANY" => Ok(None),
+        "critical" | "CRITICAL" => Ok(Some(0)),
+        "error" | "ERROR" => Ok(Some(1)),
+        "warn" | "WARN" => Ok(Some(2)),
+        "info" | "INFO" => Ok(Some(3)),
+        "debug" | "DEBUG" => Ok(Some(4)),
+        "trace" | "TRACE" => Ok(Some(5)),
+        _ => Err(())
+    }
+}
+
 pub fn set_callback(func: &'static Fn(usize, &Location, &Display, &Display)) {
     unsafe {
         let trait_obj: TraitObject = mem::transmute(func);
@@ -55,6 +80,8 @@ pub fn log(level: usize, location: &Location, target: &Display, message: &Displa
             }
 
             callback(level, location, target, message);
+        } else {
+            LOST.fetch_add(1, Ordering::Relaxed);
         }
     }
 }

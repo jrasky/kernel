@@ -5,3 +5,4 @@ authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
 
 [dependencies]
 constants = { path = "../constants" }
+log_abi = { path = "../log_abi" }

@@ -151,8 +151,8 @@ pub extern "C" fn kernel_main(boot_info: *const u32, boot_info_size: usize) -> !
     serial::setup_serial();
 
     // set the reserve logger
-    static reserve: &'static Fn(&Display) = &serial::reserve_log;
-    log::set_reserve(Some(reserve));
+    static RESERVE: &'static Fn(&Display) = &serial::reserve_log;
+    log::set_reserve(Some(RESERVE));
 
     // set up early data structures
     unsafe {cpu::init::early_setup()};

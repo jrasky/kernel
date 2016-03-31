@@ -1,0 +1,10 @@
+* General tasks
+** TODO the great lock overhaul
+   - reorganize locking structures to be consistent, so we can keep track of
+     them in one place
+** TODO taskify logging
+   - write a new logger that runs in a separate task, so logging can happen away
+     from the execution of the threads themselves
+** TODO PCIe support
+** TODO EHCI/XHCI support
+** TODO USB support

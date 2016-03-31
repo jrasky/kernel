@@ -30,10 +30,13 @@ pub const COM1: u16 = 0x3f8;
 pub const U64_BYTES: usize = 0x8;
 pub const FXSAVE_SIZE: usize = 0x200;
 
+#[cfg(target_pointer_width = "64")]
 pub const CORE_BEGIN: usize = 0xffffffff80000000;
 pub const CORE_SIZE: usize = 0x80000000;
+#[cfg(target_pointer_width = "64")]
 pub const HEAP_BEGIN: usize = 0xffffffff81000000;
 pub const IDENTITY_END: usize = 0x200000;
+pub const OPTIMISTIC_HEAP: usize = 0x200000;
 
 pub const TASK_BEGIN: usize = 0x400000;
 pub const TASK_SIZE: usize = 0x7fc00000;
@@ -69,7 +72,14 @@ pub fn on_boundary(base: usize, end: usize, align_to: usize) -> bool {
     align(base, align_to) <= align_back(end, align_to)
 }
 
+#[cfg(target_pointer_width = "64")]
 #[inline]
 pub fn canonicalize(addr: usize) -> usize {
     addr | (0usize.wrapping_sub((addr >> (CANONICAL_BITS - 1)) & 1) << CANONICAL_BITS)
+}
+
+#[cfg(target_pointer_width = "32")]
+#[inline]
+pub const fn canonicalize(addr: usize) -> usize {
+    addr
 }

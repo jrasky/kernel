@@ -9,6 +9,7 @@
 
     ;; externs
     extern _gen_load_page_tables
+    extern _gen_max_paddr
     extern BOOT_INFO_ADDR
     extern _lboot
 
@@ -49,7 +50,6 @@ _start:
 
     ;; save boot info
     mov dword [_boot_info], ebx
-    ;; read size now so we can map the region later
     mov ecx, dword [ebx]
     mov dword [_boot_info_size], ecx
 

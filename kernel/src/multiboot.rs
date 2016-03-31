@@ -224,7 +224,7 @@ unsafe fn parse_memory(ptr: *const u32) -> Vec<(usize, usize)> {
     memory_regions
 }
 
-fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
+fn build_initial_heap(regions: &[(usize, usize)], need_initial: bool) -> paging::Region {
     // try to create an initial heap
     let mut initial_heap = None;
 
@@ -245,7 +245,7 @@ fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
     if let Some(region) = initial_heap {
         // stage2 inserts a 2MB segment immediately following max_paddr
         // if that's what we found, return now
-        if region.base() as u64 == c::_gen_max_paddr {
+        if region.base() as u64 == c::_gen_max_paddr && !need_initial {
             debug!("Found region matching optimistic heap");
         } else {
             // otherwise create the new mapping
@@ -275,11 +275,11 @@ fn build_initial_heap(regions: &[(usize, usize)]) -> paging::Region {
     }
 }
 
-fn setup_memory(memory_regions: Vec<(usize, usize)>) {
+fn setup_memory(memory_regions: Vec<(usize, usize)>, need_initial: bool) {
     use log::Frame;
     frame!(traces, "setting up memory");
     // create initial heap
-    let initial_heap = build_initial_heap(memory_regions.as_ref());
+    let initial_heap = build_initial_heap(memory_regions.as_ref(), need_initial);
 
     point!(traces, "built initial heap");
 
@@ -326,6 +326,33 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32, boot_info_size: usize)
 
     let end: *const u32 = (ptr as usize + boot_info_size) as *const _;
 
+    let need_initial;
+
+    if end as u64 > c::_gen_max_paddr {
+        if end as u64 > c::_gen_max_paddr + OPTIMISTIC_HEAP as u64 {
+            panic!("Multiboot info over two megabytes");
+        }
+
+        // remap multiboot info over our optimistic heap
+        let segment = paging::Segment::new(align_back(boot_info as usize, 0x1000),
+                                           HEAP_BEGIN, OPTIMISTIC_HEAP,
+                                           false, false, false, false);
+        let mut layout = paging::Layout::new();
+        layout.insert(segment);
+
+        unsafe {
+            layout.build_at(&mut StaticBuilder, Shared::new(c::_gen_page_tables as *mut _));
+        }
+
+        ptr = (HEAP_BEGIN + boot_info as usize - align_back(boot_info as usize, 0x1000)) as *const _;
+
+        need_initial = true;
+    } else {
+        need_initial = false;
+    }
+
+    let end: *const u32 = (ptr as usize + ptr::read(ptr) as usize) as *const _;
+
     trace!("{:?}, 0x{:x}", boot_info, boot_info_size);
 
     ptr = align(ptr.offset(2) as usize, 8) as *const _;
@@ -352,7 +379,7 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32, boot_info_size: usize)
                 point!(traces, "memory tag");
                 let memory_regions = parse_memory(ptr);
 
-                setup_memory(memory_regions);
+                setup_memory(memory_regions, need_initial);
                 trace!("Done setting up memory");
             }
             9 => {

@@ -1,6 +1,6 @@
 use include::*;
 
-use logger::Location;
+use log_abi::Location;
 
 static MANAGER: Mutex<Option<Manager>> = Mutex::new(None);
 

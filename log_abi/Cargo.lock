@@ -1,18 +1,4 @@
 [root]
-name = "log"
-version = "0.1.0"
-dependencies = [
- "constants 0.1.0",
- "log_abi 0.1.0",
- "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "spin 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "constants"
-version = "0.1.0"
-
-[[package]]
 name = "log_abi"
 version = "0.1.0"
 dependencies = [
@@ -20,6 +6,10 @@ dependencies = [
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "spin 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
+
+[[package]]
+name = "constants"
+version = "0.1.0"
 
 [[package]]
 name = "rlibc"

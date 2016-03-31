@@ -326,6 +326,8 @@ pub unsafe fn parse_multiboot_tags(boot_info: *const u32, boot_info_size: usize)
 
     let end: *const u32 = (ptr as usize + boot_info_size) as *const _;
 
+    trace!("{:?}, 0x{:x}", boot_info, boot_info_size);
+
     ptr = align(ptr.offset(2) as usize, 8) as *const _;
 
     while ptr < end {

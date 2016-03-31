@@ -35,7 +35,8 @@ extern crate log;
 extern crate paging;
 extern crate user;
 extern crate constants;
-extern crate rustc_unicode;
+extern crate serial;
+extern crate memory;
 
 use include::*;
 use c::*;
@@ -43,19 +44,9 @@ use c::*;
 mod include;
 mod c;
 mod error;
-mod memory;
 mod cpu;
 mod multiboot;
 mod logging;
-mod serial;
-
-// pub use since they're exported
-#[cfg(not(test))]
-pub use memory::{__rust_allocate,
-                 __rust_deallocate,
-                 __rust_reallocate,
-                 __rust_reallocate_inplace,
-                 __rust_usable_size};
 
 // pub use since we want to export
 #[cfg(not(test))]
@@ -146,18 +137,8 @@ unsafe extern "C" fn serial_handler() -> ! {
     let mut next_char: u32 = 0;
 
     loop {
-        while cpu::read_port_byte(COM1 + 5) & 0x1 == 0 {
-            user::release();
-        }
-
-        next_char |= cpu::read_port_byte(COM1) as u32;
-
-        if let Some(c) = std::char::from_u32(next_char) {
-            info!("Got character: {:?}", c);
-            next_char = 0;
-        } else {
-            next_char <<= 0x8;
-        }
+        info!("Got character: {:?}", serial::read());
+        user::release();
     }
 }
 
@@ -300,7 +281,7 @@ fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
         line: line
     };
 
-    log::log(0, &loc, module_path!(), msg);
+    log::log(0, &loc, &module_path!(), &msg);
 
     panic_halt();
 }
@@ -313,10 +294,10 @@ fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, l
     memory::disable();
 
     log::reserve_log(
-        format_args!("Double panic at {}({}): {}\nWhile processing panic at {}({}): {}",
-                     file, line, msg,
-                     original.file, original.line,
-                     original.msg.unwrap_or(format_args!("No message"))));
+        &format_args!("Double panic at {}({}): {}\nWhile processing panic at {}({}): {}",
+                      file, line, msg,
+                      original.file, original.line,
+                      original.msg.unwrap_or(format_args!("No message"))));
 
     panic_halt();
 }
@@ -328,7 +309,7 @@ fn triple_panic(file: &'static str, line: u32) -> ! {
     // disable memory
     memory::disable();
 
-    log::reserve_log(format_args!("Triple panic at {}({})", file, line));
+    log::reserve_log(&format_args!("Triple panic at {}({})", file, line));
 
     panic_halt();
 }

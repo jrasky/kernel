@@ -1,3 +1,5 @@
+#![feature(macro_reexport)]
+#![allow(improper_ctypes)]
 #![feature(stmt_expr_attributes)]
 #![feature(const_fn)]
 #![feature(alloc)]
@@ -9,12 +11,11 @@ extern crate rlibc;
 #[macro_use]
 extern crate collections;
 extern crate spin;
-extern crate alloc;
 extern crate constants;
-
-use include::*;
-
-use logger::Logger;
+extern crate alloc;
+#[macro_reexport(trace, debug, info, warn, error, critical)]
+#[macro_use]
+extern crate log_abi;
 
 #[macro_use]
 mod macros;
@@ -22,10 +23,9 @@ mod include;
 mod logger;
 mod point;
 
-pub use logger::{Request, Location, Output};
+pub use log_abi::Location;
+pub use logger::{Output, Request, has_output, set_output, set_reserve, reserve_log, log, set_level};
 pub use point::{Frame, PointFrame, trace, write_trace};
-
-static LOGGER: RwLock<Logger> = RwLock::new(Logger::new());
 
 pub fn level_name(level: usize) -> &'static str {
     match level {
@@ -50,58 +50,4 @@ pub fn to_level(name: &str) -> Result<Option<usize>, ()> {
         "trace" | "TRACE" => Ok(Some(5)),
         _ => Err(())
     }
-}
-
-// TODO: set up different locks for these different operations
-
-fn suppress<T>(callback: T) -> bool where T: FnOnce(&mut Logger) {
-    static SUPPRESSED: AtomicUsize = AtomicUsize::new(0);
-    static SUPPRESSED_INFO: AtomicBool = AtomicBool::new(false);
-
-    if let Some(mut logger) = LOGGER.try_write() {
-        callback(&mut logger);
-
-        let count = SUPPRESSED.swap(0, Ordering::Relaxed);
-        if count > 0 {
-            if !SUPPRESSED_INFO.load(Ordering::Relaxed) {
-                SUPPRESSED_INFO.store(true, Ordering::Relaxed);
-                mem::drop(logger);
-                warn!("At least {} log entries suppressed", count);
-            } else {
-                SUPPRESSED_INFO.store(false, Ordering::Relaxed);
-            }
-        }
-
-        false
-    } else {
-        SUPPRESSED.fetch_add(1, Ordering::Relaxed);
-
-        true
-    }
-}
-
-pub fn has_output() -> bool {
-    LOGGER.read().has_output()
-}
-
-pub fn set_output(output: Option<Box<Output>>) {
-   suppress(|logger| logger.set_output(output));
-}
-
-pub fn set_reserve(output: Option<&'static Fn(&Display)>) {
-    suppress(|logger| logger.set_reserve(output));
-}
-
-pub fn reserve_log<T: Display>(message: T) {
-    suppress(|logger| logger.reserve_log(message));
-}
-
-pub fn log<T: Display, V: Display>(level: usize, location: &Location, target: V, message: T) {
-    if suppress(|logger| logger.log(level, location, &target, &message)) && level == 0 {
-        panic!("Suppressed {} {} at {}({}): {}", target, level_name(level), location.file, location.line, message);
-    }
-}
-
-pub fn set_level(level: Option<usize>, filter: Option<&str>) {
-    suppress(|logger| logger.set_level(level, filter));
 }

@@ -1,5 +1,7 @@
 use include::*;
 
+use constants;
+
 use super::MemoryError;
 
 static MEMORY: Mutex<Manager> = Mutex::new(Manager::new());

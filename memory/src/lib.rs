@@ -1,10 +1,22 @@
+#![feature(unique)]
+#![feature(shared)]
+#![feature(reflect_marker)]
+#![feature(ptr_as_ref)]
+#![feature(const_fn)]
+#![feature(allocator)]
+#![allocator]
+#![no_std]
+extern crate core as std;
+#[macro_use]
+extern crate log_abi;
+extern crate constants;
+extern crate spin;
+
+mod include;
+
 use include::*;
 
-use alloc;
-
-use error::Error;
-
-use cpu::task;
+use constants::error::Error;
 
 // Reserve memory
 mod reserve;
@@ -45,7 +57,7 @@ impl Display for MemoryError {
 
 impl Error for MemoryError {
     fn description(&self) -> &str {
-        use memory::MemoryError::*;
+        use ::MemoryError::*;
         match self {
             &OutOfMemory => "Out of memory",
             &OutOfSpace => "In-place realloc ran out of space",
@@ -70,9 +82,6 @@ impl Manager {
     }
 
     fn enable(&self) {
-        // set oom handler
-        alloc::oom::set_oom_handler(oom);
-
         self.enabled.store(true, Ordering::Relaxed);
     }
 
@@ -113,11 +122,7 @@ impl Manager {
 
                 if simple::hint() < size && TRY_GROW.swap(false, Ordering::Acquire) {
                     // allocate another 2MB page to the simple heap
-                    if let Some(region) = task::allocate(0x200000, 0x200000) {
-                        unimplemented!();
-                        //let segment = paging::Segment::new(region.base(), )
-                    }
-                    TRY_GROW.store(true, Ordering::Release);
+                    unimplemented!();
                 }
 
                 simple::allocate(size, align)
@@ -266,13 +271,6 @@ pub fn granularity(size: usize, align: usize) -> usize {
 #[inline]
 pub fn hint() -> usize {
     MEMORY.hint()
-}
-
-fn oom() -> ! {
-    // disable memory
-    disable();
-
-    panic!("Out of memory");
 }
 
 #[cfg(not(test))]

@@ -63,7 +63,7 @@ impl Descriptor {
                     ((self.segment as u64) << 16) |
                     ((self.stack as u64) << 32) | (1 << 47) | (0x0e << 40); // present, interrupt gate
 
-        trace!("{:?}, {:?}", lower, self.target as u64 >> 32);
+        trace!("0x{:x}, 0x{:x}", lower, self.target as u64 >> 32);
 
         [lower, self.target as u64 >> 32]
     }

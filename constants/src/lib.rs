@@ -1,5 +1,12 @@
-#![no_std]
+#![feature(reflect_marker)]
+#![feature(asm)]
 #![feature(const_fn)]
+#![no_std]
+extern crate core as std;
+
+pub mod util;
+pub mod error;
+
 pub const RESERVE_SLAB_SIZE: usize = 0x1000; // four pages
 pub const RESERVE_MAGIC: u64 = 15297541685404970074;
 pub const VGA_BUFFER_WIDTH: usize = 80;
@@ -26,6 +33,7 @@ pub const FXSAVE_SIZE: usize = 0x200;
 pub const CORE_BEGIN: usize = 0xffffffff80000000;
 pub const CORE_SIZE: usize = 0x80000000;
 pub const HEAP_BEGIN: usize = 0xffffffff81000000;
+pub const IDENTITY_END: usize = 0x200000;
 
 pub const TASK_BEGIN: usize = 0x400000;
 pub const TASK_SIZE: usize = 0x7fc00000;

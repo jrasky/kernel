@@ -1,26 +1,17 @@
 [root]
-name = "kernel"
-version = "0.0.0"
+name = "bootstrap"
+version = "0.1.0"
 dependencies = [
  "constants 0.1.0",
- "elfloader 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.1.0",
  "memory 0.1.0",
- "paging 0.1.0",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serial 0.1.0",
- "spin 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "user 0.1.0",
 ]
 
 [[package]]
 name = "constants"
 version = "0.1.0"
-
-[[package]]
-name = "elfloader"
-version = "0.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "log"
@@ -51,20 +42,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nasm-rs"
-version = "0.0.4"
-source = "git+https://github.com/jrasky/nasm-rs#eebff417fdda3b656cb18e8e4b55933060bac7a8"
-
-[[package]]
-name = "paging"
-version = "0.1.0"
-dependencies = [
- "constants 0.1.0",
- "log 0.1.0",
- "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "rlibc"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -80,12 +57,4 @@ dependencies = [
 name = "spin"
 version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "user"
-version = "0.1.0"
-dependencies = [
- "log 0.1.0",
- "nasm-rs 0.0.4 (git+https://github.com/jrasky/nasm-rs)",
-]
 

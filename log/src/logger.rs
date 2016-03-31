@@ -1,5 +1,17 @@
 use include::*;
 
+use log_abi::Location;
+use log_abi;
+
+static LOGGER: RwLock<Logger> = RwLock::new(Logger::new());
+
+pub struct Request {
+    pub level: usize,
+    pub location: Location,
+    pub target: String,
+    pub message: String,
+}
+
 pub trait Output {
     fn log(&mut self, level: usize, location: &Location, target: &Display, message: &Display);
 
@@ -15,19 +27,6 @@ pub struct Logger {
     output: Option<Box<Output>>,
     reserve: Option<&'static Fn(&Display)>,
     lost: usize
-}
-
-pub struct Request {
-    pub level: usize,
-    pub location: Location,
-    pub target: String,
-    pub message: String,
-}
-
-pub struct Location {
-    pub module_path: &'static str,
-    pub file: &'static str,
-    pub line: u32,
 }
 
 impl Logger {
@@ -123,24 +122,20 @@ impl Logger {
         self.reserve = output;
     }
 
-    pub fn reserve_log<T: Display>(&mut self, message: T) {
+    pub fn reserve_log(&mut self, message: &Display) {
         if let Some(ref output) = self.reserve {
             if self.lost > 0 {
                 output(&format_args!("Lost at least {} messages", self.lost));
                 self.lost = 0;
             }
 
-            output(&message)
+            output(message)
         } else {
             self.lost += 1;
         }
     }
 
-    pub fn log<T: Display, V: Display>(&mut self,
-                                   level: usize,
-                                   location: &Location,
-                                   target: V,
-                                   message: T) {
+    pub fn log(&mut self, level: usize, location: &Location, target: &Display, message: &Display) {
         // only one logger right now
         if let Some(log_level) = self.level {
             if level > log_level {
@@ -164,9 +159,63 @@ impl Logger {
             }
             
             // then log the message
-            output.log(level, location, &target, &message);
+            output.log(level, location, target, message);
         } else {
             self.reserve_log(message);
         }
     }
+}
+
+fn suppress<T>(callback: T) -> bool where T: FnOnce(&mut Logger) {
+    static SUPPRESSED: AtomicUsize = AtomicUsize::new(0);
+    static SUPPRESSED_INFO: AtomicBool = AtomicBool::new(false);
+
+    if let Some(mut logger) = LOGGER.try_write() {
+        callback(&mut logger);
+
+        let count = SUPPRESSED.swap(0, Ordering::Relaxed);
+        if count > 0 {
+            if !SUPPRESSED_INFO.load(Ordering::Relaxed) {
+                SUPPRESSED_INFO.store(true, Ordering::Relaxed);
+                mem::drop(logger);
+                warn!("At least {} log entries suppressed", count);
+            } else {
+                SUPPRESSED_INFO.store(false, Ordering::Relaxed);
+            }
+        }
+
+        false
+    } else {
+        SUPPRESSED.fetch_add(1, Ordering::Relaxed);
+
+        true
+    }
+}
+
+pub fn has_output() -> bool {
+    LOGGER.read().has_output()
+}
+
+pub fn set_output(output: Option<Box<Output>>) {
+    suppress(|logger| logger.set_output(output));
+    static REF: &'static Fn(usize, &Location, &Display, &Display) = &log;
+    log_abi::set_callback(REF);
+}
+
+pub fn set_reserve(output: Option<&'static Fn(&Display)>) {
+    suppress(|logger| logger.set_reserve(output));
+}
+
+pub fn reserve_log(message: &Display) {
+    suppress(|logger| logger.reserve_log(message));
+}
+
+pub fn log(level: usize, location: &Location, target: &Display, message: &Display) {
+    if suppress(|logger| logger.log(level, location, &target, &message)) && level == 0 {
+        panic!("Suppressed {} {} at {}({}): {}", target, super::level_name(level), location.file, location.line, message);
+    }
+}
+
+pub fn set_level(level: Option<usize>, filter: Option<&str>) {
+    suppress(|logger| logger.set_level(level, filter));
 }

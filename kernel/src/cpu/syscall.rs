@@ -24,12 +24,12 @@ pub unsafe fn setup() -> Stack {
     let stack = Stack::create(0xf000);
 
     // write MSRs
-    cpu::write_msr(SYSENTER_CS_MSR, CORE_CS as u64);
-    cpu::write_msr(SYSENTER_EIP_MSR, c::_sysenter_landing as u64);
-    cpu::write_msr(SYSENTER_ESP_MSR, stack.get_ptr() as u64);
+    util::write_msr(SYSENTER_CS_MSR, CORE_CS as u64);
+    util::write_msr(SYSENTER_EIP_MSR, c::_sysenter_landing as u64);
+    util::write_msr(SYSENTER_ESP_MSR, stack.get_ptr() as u64);
 
-    cpu::write_msr(STAR_MSR, (CORE_CS as u64) << 32);
-    cpu::write_msr(LSTAR_MSR, c::_syscall_landing as u64);
+    util::write_msr(STAR_MSR, (CORE_CS as u64) << 32);
+    util::write_msr(LSTAR_MSR, c::_syscall_landing as u64);
     SYSCALL_STACK = stack.get_ptr() as u64;
 
     // return stack

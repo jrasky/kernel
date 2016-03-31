@@ -50,7 +50,8 @@ _start:
     ;; save boot info
     mov dword [_boot_info], ebx
     ;; read size now so we can map the region later
-    mov dword [_boot_info_size], dword (ebx)
+    mov ecx, dword [ebx]
+    mov dword [_boot_info_size], ecx
 
     ;; perform tests
     call _test_multiboot

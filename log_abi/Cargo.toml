@@ -1,0 +1,28 @@
+[package]
+name = "log_abi"
+version = "0.1.0"
+authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
+
+[dependencies]
+rlibc = "*"
+spin = "*"
+constants = { path = "../constants" }
+
+[features]
+default = ["log_any", "release_log_info"]
+
+log_any = []
+log_critical = []
+log_error = []
+log_warn = []
+log_info = []
+log_debug = []
+log_trace = []
+
+release_log_any = []
+release_log_critical = []
+release_log_error = []
+release_log_warn = []
+release_log_info = []
+release_log_debug = []
+release_log_trace = []

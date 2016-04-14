@@ -4,6 +4,7 @@ version = "0.0.0"
 dependencies = [
  "constants 0.1.0",
  "elfloader 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "kernel_std 0.1.0",
  "log 0.1.0",
  "memory 0.1.0",
  "paging 0.1.0",
@@ -21,6 +22,15 @@ version = "0.1.0"
 name = "elfloader"
 version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "kernel_std"
+version = "0.1.0"
+dependencies = [
+ "log 0.1.0",
+ "memory 0.1.0",
+ "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "log"

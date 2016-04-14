@@ -17,6 +17,7 @@ user = { path = "../user" }
 constants = { path = "../constants" }
 serial = { path = "../serial" }
 memory = { path = "../memory" }
+kernel_std = { path = "../kernel_std" }
 
 [target]
 custom_unwind_resume = {}

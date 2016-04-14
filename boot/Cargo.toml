@@ -1,0 +1,13 @@
+[package]
+name = "boot"
+version = "0.1.0"
+authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+rlibc = "*"
+log = { path = "../log" }
+kernel_std = { path = "../kernel_std" }
+serial = { path = "../serial" }

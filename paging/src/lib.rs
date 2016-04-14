@@ -4,8 +4,6 @@
 #![feature(btree_range)]
 #![feature(collections_bound)]
 #![feature(heap_api)]
-#![feature(ptr_as_ref)]
-#![feature(set_recovery)]
 #![feature(const_fn)]
 #![feature(collections)]
 #![feature(alloc)]

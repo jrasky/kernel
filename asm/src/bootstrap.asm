@@ -71,7 +71,7 @@ _start:
     mov es, ax                  ; extra selector
 
     ;; far jump to long mode
-    jmp gdt64.code:_lboot
+    jmp gdt64.code:_lboot       
 
     ;; hang
 _hang:  

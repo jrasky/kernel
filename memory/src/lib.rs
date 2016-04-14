@@ -1,7 +1,6 @@
 #![feature(unique)]
 #![feature(shared)]
 #![feature(reflect_marker)]
-#![feature(ptr_as_ref)]
 #![feature(const_fn)]
 #![feature(allocator)]
 #![allocator]

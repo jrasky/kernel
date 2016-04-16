@@ -6,3 +6,4 @@ target
 gen
 */target
 /.tramp_history
+*.tramp_history

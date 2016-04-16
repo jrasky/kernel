@@ -142,13 +142,7 @@ unsafe extern "C" fn serial_handler() -> ! {
 #[no_mangle]
 pub extern "C" fn kernel_main(boot_info: *const u32, boot_info_size: usize) -> ! {
     // kernel main
-
-    // set up the serial line
-    serial::setup_serial();
-
-    // set the reserve logger
-    static RESERVE: &'static Fn(&log::Location, &Display, &Display) = &serial::reserve_log;
-    log::set_reserve(Some(RESERVE));
+    kernel_std::early_setup();
 
     // set up early data structures
     unsafe {cpu::init::early_setup()};

@@ -1,25 +1,31 @@
 #![feature(asm)]
 #![no_std]
 extern crate core as std;
+extern crate alloc;
 extern crate kernel_std;
 extern crate rlibc;
 #[macro_use]
 extern crate log;
 extern crate serial;
 extern crate constants;
+extern crate paging;
 
 use std::fmt::Display;
 
+use std::mem;
+
 use constants::*;
+
+use alloc::heap;
+
+use kernel_std::cpu;
+
+mod boot_c;
 
 #[no_mangle]
 pub extern "C" fn bootstrap(magic: u32, boot_info: *const u32) -> ! {
-    // set up the serial line
-    serial::setup_serial();
-
-    // set up the reserve logger
-    static RESERVE: &'static Fn(&log::Location, &Display, &Display) = &serial::reserve_log;
-    log::set_reserve(Some(RESERVE));
+    // early setup
+    kernel_std::early_setup();
 
     debug!("reached bootstrap");
 
@@ -27,6 +33,8 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const u32) -> ! {
     if magic != MULTIBOOT2_MAGIC {
         panic!("Incorrect magic for multiboot: 0x{:x}", magic);
     }
+
+    let boot_info;
 
     unsafe {
         // test for cpu features
@@ -36,6 +44,15 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const u32) -> ! {
 
         // set up SSE
         enable_sse();
+
+        // create boot info
+        let boot_info_value = boot_c::create_boot_info(boot_info);
+        boot_info = heap::allocate(mem::size_of::<BootInfo>(), U64_BYTES);
+        ptr::write(boot_info, boot_info_value);
+
+        // create a starting gdt
+        let gdt = cpu::gdt::Table::new(vec![]);
+        gdt.install();
     };
 
     unreachable!("bootstrap tried to return");

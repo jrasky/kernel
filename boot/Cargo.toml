@@ -2,6 +2,8 @@
 name = "boot"
 version = "0.1.0"
 authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
+links = "boot_c"
+build = "build.rs"
 
 [lib]
 crate-type = ["staticlib"]
@@ -11,3 +13,7 @@ rlibc = "*"
 log = { path = "../log" }
 kernel_std = { path = "../kernel_std" }
 serial = { path = "../serial" }
+constants = { path = "../constants" }
+
+[build-dependencies]
+gcc = "*"

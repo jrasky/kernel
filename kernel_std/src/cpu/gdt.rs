@@ -56,12 +56,25 @@ impl Table {
         // load the new global descriptor table,
         // and reload the segments
         #[cfg(not(test))]
-        asm!(concat!(
-            "lgdt $0;",
-            "call _reload_segments;")
+        asm!("lgdt $0;"
              :: "i"(&REGISTER)
              : "{ax}"
              : "intel");
+
+        // only reload segments if we're already in long mode
+        #[cfg(not(test))]
+        #[cfg(target_pointer_width = "64")]
+        asm!(concat!(
+            "push 0x08;",
+            "push .target;",
+            "o64 retf",
+            ".target:",
+            "mov ax, 0x10",
+            "mov ds, ax",
+            "mov es, ax",
+            "mov fs, ax",
+            "mov gs, ax",
+            "mov ss, ax") ::: "{ax}" : "intel");
 
         // no change in code or data selector from setup in bootstrap
         // so no far jump to reload selector

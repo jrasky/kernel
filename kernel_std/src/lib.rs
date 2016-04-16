@@ -8,16 +8,36 @@ extern crate rlibc;
 #[macro_use]
 extern crate log;
 extern crate memory;
+extern crate serial;
+extern crate alloc;
 
 use std::sync::atomic::{Ordering, AtomicUsize};
 
 use std::fmt;
 use std::mem;
 
+pub mod cpu;
+
+pub struct BootInfo {
+    command_line_size: u64,
+    command_line: u64,
+    memory_map_size: u64,
+    memory_map: u64
+}
+
 struct PanicInfo {
     msg: Option<fmt::Arguments<'static>>,
     file: &'static str,
     line: u32
+}
+
+pub fn early_setup() {
+    // set up the serial line
+    serial::setup_serial();
+
+    // set up the reserve logger
+    static RESERVE: &'static Fn(&log::Location, &Display, &Display) = &serial::reserve_log;
+    log::set_reserve(Some(RESERVE));
 }
 
 #[cfg(not(test))]

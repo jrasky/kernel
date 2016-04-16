@@ -9,7 +9,7 @@ _boot_stack_end:
     resb 0xf000
 _boot_stack:
 
-    section .next exec
+    section .text exec
 
 _start:
     ;; grub entry point
@@ -17,101 +17,19 @@ _start:
     ;; set up stack
     mov esp, _boot_stack
 
-    ;; save eax
+    ;; push arguments
+    push ebx
     push eax
     
-    ;; set up serial
-    call _setup_serial
-
-    ;; restore eax
-    pop eax
-
-    ;; perform tests
-    call _test_multiboot
-    call _test_cpuid
-    call _test_long_mode
-
-    ;; call bootstrap code
+    ;; call bootstrap
     call bootstrap
 
-    ;; should not return
-    mov al, "B"
-    jmp _error
+    ;; hang if bootstrap returns
 
-;;; outputs 'Error: ' and the error code, then hangs
-_error:
-    push ax
-    push "E"
-    call _write_byte
-    push "r"
-    call _write_byte
-    push "r"
-    call _write_byte
-    push "o"
-    call _write_byte
-    push "r"
-    call _write_byte
-    push ":"
-    call _write_byte
-    push " "
-    call _write_byte
-    ;; next byte is the error code
-    call _write_byte
-    ;; hang
 _hang:
     cli
     hlt
     jmp _hang
-
-_setup_serial:
-    ;; disable all interrupts
-    mov dx, COM1 + 1
-    mov al, 0x00
-    out dx, al
-
-    ;; enable DLAB
-    mov dx, COM1 + 3
-    mov al, 0x80
-    out dx, al
-
-    ;; set divisor to 3 (38400 baud)
-    mov dx, COM1 + 0
-    mov al, 0x03
-    out dx, al
-
-    ;; high byte
-    mov dx, COM1 + 1
-    mov al, 0x00
-    out dx, al
-
-    ;; 8 bits, no parity, one stop bit
-    mov dx, COM1 + 3
-    mov al, 0x03
-    out dx, al
-
-    ;; Enable FIFO, clear them, with 14-byte threshold
-    mov dx, COM1 + 2
-    mov al, 0xc7
-    out dx, al
-
-    ;; IRQ enable, RTS/DSR set
-    mov dx, COM1 + 4
-    mov al, 0x0b
-    out dx, al
-
-    ret
-
-_write_byte:
-    xor ax, ax
-    mov dx, COM1 + 5
-.read:
-    in al, dx
-    and al, 0x20
-    jz .read
-    pop ax
-    mov dx, COM1
-    out dx, al
-    ret
 
 _test_multiboot:
     cmp eax, 0x36D76289

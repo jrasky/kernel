@@ -10,7 +10,7 @@ pub unsafe fn read_msr(id: u32) -> u64 {
 
 #[cfg(not(test))]
 pub unsafe fn write_msr(id: u32, value: u64) {
-    asm!("wrmsr" :: "{eax}"((value % (::core::usize::MAX as u64)) as usize), "{edx}"((value >> 32) as usize), "{ecx}"(id) :: "intel");
+    asm!("wrmsr" :: "{eax}"((value % (::core::u32::MAX as u64)) as u32), "{edx}"((value >> 32) as usize), "{ecx}"(id) :: "intel");
 }
 
 #[cfg(test)]

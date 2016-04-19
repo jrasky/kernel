@@ -18,16 +18,42 @@ struct boot_info {
   const char *command_line;
   size_t memory_map_size;
   const multiboot_memory_map_t *memory_map;
+  const struct module *modules;
 };
 
+struct module {
+  uint64_t start;
+  uint64_t len;
+  const char *cmdline;
+}
+
 extern void *__rust_allocate(size_t size, size_t align);
+extern void *__rust_reallocate(void *ptr, size_t old_size, size_t size, size_t align);
 extern void boot_c_panic(const char *message) __attribute__((noreturn));
 
-struct boot_info *parse_multiboot_info(struct multiboot_tag_fixed *info) {
+uint64_t find_heap(const struct multiboot_tag_mmap *mmap) {
+  for (multiboot_memory_map_t *entry = mmap->entries;
+       (size_t)entry < (size_t)mmap + (size_t)mmap->size;
+       entry++) {
+    if (entry->addr >= 0x100000 && && entry->len >= 0x200000 &&
+        entry->type == MULTIBOOT_MEMORY_AVAILABLE) {
+      return entry->addr;
+    }
+  }
+  
+  return 0;
+}
+
+struct boot_info *parse_multiboot_info(const struct multiboot_tag_fixed *info) {
   struct boot_info *kernel_info = __rust_allocate(sizeof(struct boot_info), sizeof(size_t));
+  size_t modules_size = 0;
+  size_t modules_cap = 0;
 
   if (kernel_info == NULL)
     boot_c_panic("Failed to allocate kernel boot info");
+
+  // zero-initialize area
+  memset(kernel_info, 0, sizeof(struct boot_info));
 
   struct multiboot_header_tag tag = info->tags;
 
@@ -52,7 +78,34 @@ struct boot_info *parse_multiboot_info(struct multiboot_tag_fixed *info) {
         boot_c_panic("Unknown boot entry version");
 
       kernel_info->memory_map_size = mmap->size - sizeof(struct multiboot_tag_mmap);
-      kernel_info->memory_map = __rust_allocate(size, sizeof(uint64_t));
+      kernel_info->memory_map = mmap->entries;
+      break;
+    case MULTIBOOT_TAG_TYPE_MODULE:
+      // module
+      struct multiboot_tag_module *module_tag = (struct multiboot_tag_module *)tag;
+
+      if (modules_cap == 0) {
+        modules_cap = 4;
+        kernel_info->modules = __rust_allocate(modules_cap * sizeof(struct module), sizeof(uint64_t));
+
+        if (modules == NULL)
+          boot_c_panic("Failed to allocate modules");
+      } else if (modules_size == modules_cap) {
+        struct module *old_modules = modules;
+
+        kernel_info->modules =
+          __rust_reallocate(modules, modules_cap * sizeof(struct module),
+                            modules_cap * 2 * sizeof(struct module), sizeof(uint64_t));
+
+        if (modules == old_modules)
+          boot_c_panic("Failed to reallocate modules");
+      }
+
+      kernel_info->modules[modules_size].start = module_tag->mod_start;
+      kernel_info->modules[modules_size].len = module_tag->mod_end - module_tag->mod_start;
+      kernel_info->modules[modules_size].cmdline = module_tag->cmdline;
+
+      modules_size++;
       break;
     default:
       // do nothing
@@ -61,7 +114,7 @@ struct boot_info *parse_multiboot_info(struct multiboot_tag_fixed *info) {
 
     // advance tag
     size_t next = (size_t)tag + tag->size;
-    tag = (struct multiboot_header_tag *)ALIGN(tag, MULTIBOOT_TAG_ALIGN);
+    tag = (struct multiboot_header_tag *)ALIGN(next, MULTIBOOT_TAG_ALIGN);
   }
 
  done:

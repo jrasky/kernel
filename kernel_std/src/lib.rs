@@ -22,7 +22,8 @@ pub struct BootInfo {
     command_line_size: u64,
     command_line: u64,
     memory_map_size: u64,
-    memory_map: u64
+    memory_map: u64,
+    initial_heap: u64
 }
 
 struct PanicInfo {

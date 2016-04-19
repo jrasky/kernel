@@ -23,7 +23,7 @@ use kernel_std::cpu;
 mod boot_c;
 
 #[no_mangle]
-pub extern "C" fn bootstrap(magic: u32, boot_info: *const u32) -> ! {
+pub extern "C" fn bootstrap(magic: u32, boot_info: *const ()) -> ! {
     // early setup
     kernel_std::early_setup();
 
@@ -34,7 +34,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const u32) -> ! {
         panic!("Incorrect magic for multiboot: 0x{:x}", magic);
     }
 
-    let boot_info;
+    let boot_c_info;
 
     unsafe {
         // test for cpu features
@@ -46,9 +46,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const u32) -> ! {
         enable_sse();
 
         // create boot info
-        let boot_info_value = boot_c::create_boot_info(boot_info);
-        boot_info = heap::allocate(mem::size_of::<BootInfo>(), U64_BYTES);
-        ptr::write(boot_info, boot_info_value);
+        boot_c_info = boot_c::create_boot_info(boot_info);
 
         // create a starting gdt
         let gdt = cpu::gdt::Table::new(vec![]);

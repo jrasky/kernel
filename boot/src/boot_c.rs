@@ -1,6 +1,7 @@
 pub use c::boot_c_panic;
 
 use std::ptr;
+use std::mem;
 
 use alloc::heap;
 
@@ -14,23 +15,24 @@ mod c {
     use std::str;
 
     #[repr(C)]
-    pub struct memory_map_entry {
-        addr: u64,
-        len: u64,
-        ty: u32,
-        reserved: u32
-    }
-
-    #[repr(C)]
     pub struct boot_info {
         command_line_size: usize,
         command_line: *const u8,
         memory_map_size: usize,
-        memory_map: *const memory_map_entry
+        memory_map: *const (),
+        modules: *const module
+    }
+
+    #[repr(C)]
+    pub struct module {
+        start: u64,
+        len: u64,
+        cmdline: *const u8
     }
 
     extern "C" {
-        fn parse_multiboot_info(info: *const u32) -> *const boot_info;
+        fn parse_multiboot_info(info: *const ()) -> *const boot_info;
+        fn find_heap(mmap: *const ()) -> u64;
     }
 
     #[inline(never)]
@@ -56,12 +58,32 @@ mod c {
     }
 }
 
-pub unsafe fn create_boot_info(multiboot_info: *const u32) -> BootInfo {
+pub struct BootCInfo {
+    command_line_size: usize,
+    command_line: *const u8,
+    memory_map_size: usize,
+    memory_map: *const (),
+    initial_heap: u64
+}
+
+pub unsafe fn create_boot_info(multiboot_info: *const ()) -> BootCInfo {
     let info = c::parse_multiboot_info(multiboot_info);
+
+    if info.memory_map.is_null() {
+        panic!("Did not get memory map in boot info");
+    }
+
+    let heap = c::find_heap(info.memory_map);
+
+    if heap == 0 {
+        panic!("Could not place initial heap");
+    }
 
     let command_line;
 
-    if info.command_line as usize + info.command_line_size > OPTIMISTIC_HEAP {
+    if info.command_line.is_null() {
+        command_line = ptr::null();
+    } else if info.command_line as usize + info.command_line_size > OPTIMISTIC_HEAP {
         command_line = heap::allocate(info.command_line_size, 1);
         ptr::copy(info.command_line, command_line, info.command_line_size);
     } else {
@@ -78,11 +100,15 @@ pub unsafe fn create_boot_info(multiboot_info: *const u32) -> BootInfo {
         memory_map = info.memory_map;
     }
 
-    BootInfo {
-        command_line_size: info.command_line_size as u64,
-        command_line: command_line as u64,
-        memory_map_size: info.memory_map_size as u64,
-        memory_map: memory_map as u64
+    // free boot_info struct
+    heap::deallocate(info, mem::size_of::<c::boot_info>(), mem::size_of::<usize>());
+
+    BootCInfo {
+        command_line_size: info.command_line_size,
+        command_line: command_line,
+        memory_map_size: info.memory_map_size,
+        memory_map: memory_map,
+        initial_heap: heap
     }
 }
 

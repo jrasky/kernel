@@ -58,34 +58,30 @@ pub const ASM_OUTPUT: &'static str = "target/gen/page_tables.asm";
 pub const CANONICAL_BITS: usize = 48;
 pub const PAGE_ADDR_MASK: u64 = ((1 << CANONICAL_BITS) - 1) & !((1 << 12) - 1);
 
+#[allow(non_camel_case_types)]
+pub enum c_void {}
+
 #[inline]
-pub const fn align(n: usize, to: usize) -> usize {
+pub const fn align(n: u64, to: u64) -> u64 {
     (n + to - 1) & !(to - 1)
 }
 
 #[inline]
-pub const fn align_back(n: usize, to: usize) -> usize {
+pub const fn align_back(n: u64, to: u64) -> u64 {
     n & !(to - 1)
 }
 
 #[inline]
-pub const fn is_aligned(n: usize, to: usize) -> bool {
+pub const fn is_aligned(n: u64, to: u64) -> bool {
     n & (to - 1) == 0
 }
 
 #[inline]
-pub fn on_boundary(base: usize, end: usize, align_to: usize) -> bool {
+pub fn on_boundary(base: u64, end: u64, align_to: u64) -> bool {
     align(base, align_to) <= align_back(end, align_to)
 }
 
-#[cfg(target_pointer_width = "64")]
 #[inline]
-pub fn canonicalize(addr: usize) -> usize {
-    addr | (0usize.wrapping_sub((addr >> (CANONICAL_BITS - 1)) & 1) << CANONICAL_BITS)
-}
-
-#[cfg(target_pointer_width = "32")]
-#[inline]
-pub const fn canonicalize(addr: usize) -> usize {
-    addr
+pub fn canonicalize(addr: u64) -> u64 {
+    addr | (0u64.wrapping_sub((addr >> (CANONICAL_BITS - 1)) & 1) << CANONICAL_BITS)
 }

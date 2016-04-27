@@ -30,12 +30,12 @@ pub struct Info {
     pub attribute_table: bool,
     pub protection_key: u8,
     pub level: Level,
-    pub address: usize
+    pub address: u64
 }
 
 pub trait Base {
-    fn to_physical(&self, address: usize) -> Option<usize>;
-    fn to_virtual(&self, address: usize) -> Option<usize>;
+    fn to_physical(&self, address: u64) -> Option<u64>;
+    fn to_virtual(&self, address: u64) -> Option<u64>;
     unsafe fn new_table(&mut self) -> Shared<Table>;
     fn clear(&mut self);
 }
@@ -117,11 +117,11 @@ impl From<Info> for Entry {
 }
 
 impl Entry {
-    pub fn address(&self, level: Level) -> usize {
+    pub fn address(&self, level: Level) -> u64 {
         if self.is_page(level) {
-            canonicalize((self.entry & PAGE_ADDR_MASK & !(1 << 12)) as usize)
+            canonicalize((self.entry & PAGE_ADDR_MASK & !(1 << 12)) as u64)
         } else {
-            canonicalize((self.entry & PAGE_ADDR_MASK) as usize)
+            canonicalize((self.entry & PAGE_ADDR_MASK) as u64)
         }
     }
 

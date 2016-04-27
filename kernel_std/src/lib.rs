@@ -1,3 +1,10 @@
+#![feature(alloc)]
+#![feature(collections)]
+#![feature(unique)]
+#![feature(heap_api)]
+#![feature(reflect_marker)]
+#![feature(shared)]
+#![feature(stmt_expr_attributes)]
 #![feature(lang_items)]
 #![feature(const_fn)]
 #![feature(asm)]
@@ -5,26 +12,20 @@
 #![no_std]
 extern crate core as std;
 extern crate rlibc;
+extern crate constants;
 #[macro_use]
 extern crate log;
 extern crate memory;
 extern crate serial;
 extern crate alloc;
+#[macro_use]
+extern crate collections;
 
-use std::sync::atomic::{Ordering, AtomicUsize};
-
-use std::fmt;
-use std::mem;
+use include::*;
 
 pub mod cpu;
 
-pub struct BootInfo {
-    command_line_size: u64,
-    command_line: u64,
-    memory_map_size: u64,
-    memory_map: u64,
-    initial_heap: u64
-}
+mod include;
 
 struct PanicInfo {
     msg: Option<fmt::Arguments<'static>>,

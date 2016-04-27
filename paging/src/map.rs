@@ -27,12 +27,12 @@ impl Map {
         self.entries.remove(from).is_some()
     }
 
-    pub fn translate(&self, addr: usize) -> Option<usize> {
+    pub fn translate(&self, addr: u64) -> Option<u64> {
         // create a dummy region
         let dummy = Region::new(addr, 0);
 
         if let Some((from, to)) = self.entries.range(Included(&dummy), Included(&dummy)).next() {
-            Some((to.base() as isize + (addr as isize - from.base() as isize)) as usize)
+            Some((to.base() as i64 + (addr as i64 - from.base() as i64)) as u64)
         } else {
             None
         }

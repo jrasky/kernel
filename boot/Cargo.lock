@@ -2,8 +2,11 @@
 name = "boot"
 version = "0.1.0"
 dependencies = [
+ "constants 0.1.0",
+ "gcc 0.3.27 (registry+https://github.com/rust-lang/crates.io-index)",
  "kernel_std 0.1.0",
  "log 0.1.0",
+ "paging 0.1.0",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serial 0.1.0",
 ]
@@ -13,12 +16,19 @@ name = "constants"
 version = "0.1.0"
 
 [[package]]
+name = "gcc"
+version = "0.3.27"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
 name = "kernel_std"
 version = "0.1.0"
 dependencies = [
+ "constants 0.1.0",
  "log 0.1.0",
  "memory 0.1.0",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serial 0.1.0",
 ]
 
 [[package]]
@@ -47,6 +57,15 @@ dependencies = [
  "constants 0.1.0",
  "log_abi 0.1.0",
  "spin 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "paging"
+version = "0.1.0"
+dependencies = [
+ "constants 0.1.0",
+ "log 0.1.0",
+ "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

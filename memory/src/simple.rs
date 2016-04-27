@@ -295,7 +295,7 @@ impl Manager {
         loop {
             if let Some(block_ref) = block.as_mut() {
                 trace!("{:?}", block_ref);
-                aligned_base = constants::align(block as usize, align) as *mut u8;
+                aligned_base = constants::align(block as u64, align as u64) as *mut u8;
                 let end = (aligned_base as *mut u8).offset(size as isize) as *mut u8;
                 if aligned_base < block_ref.end &&
                     block_ref.end as usize - aligned_base as usize >= size

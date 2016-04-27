@@ -3,9 +3,9 @@ use include::*;
 /// Uniform linear address transformation
 #[derive(Debug, Clone)]
 pub struct Segment {
-    physical_base: usize,
-    virtual_base: usize,
-    size: usize,
+    physical_base: u64,
+    virtual_base: u64,
+    size: u64,
     allocate: bool,
     write: bool,
     user: bool,
@@ -16,9 +16,9 @@ pub struct Segment {
 #[repr(packed)]
 #[derive(Debug, Clone, Copy)]
 struct RawSegment {
-    physical_base: usize,
-    virtual_base: usize,
-    size: usize,
+    physical_base: u64,
+    virtual_base: u64,
+    size: u64,
     flags: u8
 }
 
@@ -31,10 +31,10 @@ pub fn raw_segment_size() -> usize {
 impl Ord for Segment {
     fn cmp(&self, other: &Segment) -> Ordering {
         // aligned overlap check, since the page table is page-aligned
-        if align(self.virtual_base + self.size, PageSize::Page as usize)
-            <= align_back(other.virtual_base, PageSize::Page as usize) ||
-            align_back(self.virtual_base, PageSize::Page as usize)
-            >= align(other.virtual_base + other.size, PageSize::Page as usize) {
+        if align(self.virtual_base + self.size, PageSize::Page as u64)
+            <= align_back(other.virtual_base, PageSize::Page as u64) ||
+            align_back(self.virtual_base, PageSize::Page as u64)
+            >= align(other.virtual_base + other.size, PageSize::Page as u64) {
                 self.physical_base.cmp(&other.virtual_base)
             } else {
                 Ordering::Equal
@@ -58,7 +58,7 @@ impl Eq for Segment {}
 
 
 impl Segment {
-    pub fn new(physical_base: usize, virtual_base: usize, size: usize,
+    pub fn new(physical_base: u64, virtual_base: u64, size: u64,
                write: bool, user: bool, execute: bool, global: bool) -> Segment {
         debug_assert!(is_aligned(physical_base, 0x1000), "Physical base was not page-aligned");
         debug_assert!(is_aligned(virtual_base, 0x1000), "Virtual base was not aligned");
@@ -75,7 +75,7 @@ impl Segment {
         }
     }
 
-    pub fn dummy_range(virtual_address: usize, size: usize) -> Segment {
+    pub fn dummy_range(virtual_address: u64, size: u64) -> Segment {
         Segment {
             physical_base: 0,
             virtual_base: virtual_address & ((1 << CANONICAL_BITS) - 1),
@@ -88,19 +88,19 @@ impl Segment {
         }
     }
 
-    pub fn dummy(virtual_address: usize) -> Segment {
+    pub fn dummy(virtual_address: u64) -> Segment {
         Segment::dummy_range(virtual_address, 0)
     }
 
-    pub fn physical_base(&self) -> usize {
+    pub fn physical_base(&self) -> u64 {
         self.physical_base
     }
 
-    pub fn virtual_base(&self) -> usize {
+    pub fn virtual_base(&self) -> u64 {
         self.virtual_base
     }
 
-    pub fn size(&self) -> usize {
+    pub fn size(&self) -> u64 {
         self.size
     }
 
@@ -178,7 +178,7 @@ impl Segment {
     }
 
     #[inline]
-    pub fn get_physical_subframe(&self, subframe_base: usize) -> usize {
+    pub fn get_physical_subframe(&self, subframe_base: u64) -> u64 {
         if self.virtual_base > subframe_base {
             self.physical_base + self.virtual_base - subframe_base
         } else {

@@ -1,6 +1,5 @@
 #include <stddef.h>
 #include <stdint.h>
-#include <string.h>
 
 #include "multiboot2.h"
 
@@ -31,23 +30,23 @@ struct boot_info {
   const char *command_line;
   size_t memory_map_capacity;
   size_t memory_map_size;
-  const struct memory_region memory_map;
+  struct memory_region *memory_map;
   size_t modules_capacity;
   size_t modules_size;
-  const struct module *modules;
+  struct module *modules;
 };
 
 extern void *__rust_allocate(size_t size, size_t align);
 extern void *__rust_reallocate(void *ptr, size_t old_size, size_t size, size_t align);
 
-char *error_message = "";
+const char *error_message = "";
 
 static inline int error(const char *message) {
   error_message = message;
   return -1;
 }
 
-static int32_t parse_memory_map(const struct multiboot_tap_mmap *mmap, struct boot_info *kernel_info) {
+static int32_t parse_memory_map(const struct multiboot_tag_mmap *mmap, struct boot_info *kernel_info) {
   // sanity check
   if (mmap->entry_version != 0)
     return error("Unknown boot entry version");
@@ -55,9 +54,9 @@ static int32_t parse_memory_map(const struct multiboot_tap_mmap *mmap, struct bo
   if (kernel_info->memory_map != NULL)
     return error("More than one memory map entry");
 
-  struct multiboot_mmap_entry *end = (size_t)mmap + (size_t)mmap->size;
+  const struct multiboot_mmap_entry *end = (const struct multiboot_mmap_entry *)((size_t)mmap + (size_t)mmap->size);
 
-  for (struct multiboot_mmap_entry *entry = mmap->entries; entry < end; entry++) {
+  for (const struct multiboot_mmap_entry *entry = mmap->entries; entry < end; entry++) {
     if (kernel_info->memory_map_capacity == 0) {
       kernel_info->memory_map =
         __rust_allocate(4 * sizeof(struct memory_region),
@@ -120,7 +119,9 @@ static int32_t parse_module(const struct multiboot_tag_module *tag, struct boot_
 }
 
 int32_t parse_multiboot_info(const struct multiboot_tag_fixed *info, struct boot_info *kernel_info) {
-  struct multiboot_header_tag tag = info->tags;
+  const struct multiboot_header_tag *tag = info->tags;
+
+  struct multiboot_tag_string *cmdline;
 
   while ((size_t)tag < (size_t)info + (size_t)info->total_size) {
     switch (tag->type) {
@@ -129,7 +130,7 @@ int32_t parse_multiboot_info(const struct multiboot_tag_fixed *info, struct boot
       goto done;
     case MULTIBOOT_TAG_TYPE_CMDLINE:
       // command line
-      struct multiboot_tag_string *cmdline = (struct multiboot_tag_string *)tag;
+      cmdline = (struct multiboot_tag_string *)tag;
       // multiboot_tag_string ends with a zero-size char array, so its size is just the header fields
       kernel_info->command_line_size = cmdline->size - sizeof(struct multiboot_tag_string);
       kernel_info->command_line = cmdline->string;
@@ -137,7 +138,7 @@ int32_t parse_multiboot_info(const struct multiboot_tag_fixed *info, struct boot
     case MULTIBOOT_TAG_TYPE_MMAP:
       // memory map
       if (parse_memory_map((struct multiboot_tag_mmap *)tag, kernel_info) != 0) {
-        return -1
+        return -1;
       }
 
       break;

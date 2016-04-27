@@ -18,4 +18,6 @@ pub use std::ptr;
 
 pub use alloc::heap;
 
+pub use collections::Vec;
+
 pub use constants::*;

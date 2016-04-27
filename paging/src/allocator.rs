@@ -4,8 +4,8 @@ use constants;
 
 #[derive(Clone, Copy)]
 pub struct Region {
-    base: usize,
-    size: usize
+    base: u64,
+    size: u64
 }
 
 #[derive(Debug, Clone)]
@@ -21,7 +21,7 @@ impl Debug for Region {
 }
 
 impl Region {
-    pub const fn new(base: usize, size: usize) -> Region {
+    pub const fn new(base: u64, size: u64) -> Region {
         Region {
             base: base,
             size: size
@@ -29,12 +29,12 @@ impl Region {
     }
 
     #[inline]
-    pub fn base(&self) -> usize {
+    pub fn base(&self) -> u64 {
         self.base
     }
 
     #[inline]
-    pub fn size(&self) -> usize {
+    pub fn size(&self) -> u64 {
         self.size
     }
 
@@ -199,7 +199,7 @@ impl Allocator {
         }
     }
 
-    pub fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
+    pub fn allocate(&mut self, size: u64, align: u64) -> Option<Region> {
         let mut selected_region = None;
 
         for region in self.free.iter() {
@@ -234,7 +234,7 @@ impl Allocator {
         }
     }
 
-    pub fn grow(&mut self, region: Region, size: usize) -> bool {
+    pub fn grow(&mut self, region: Region, size: u64) -> bool {
         debug_assert!(size > region.size(), "Size was not greater than on grow");
 
         let mut next_region = None;
@@ -261,7 +261,7 @@ impl Allocator {
         }
     }
 
-    pub fn shrink(&mut self, region: Region, size: usize) -> bool {
+    pub fn shrink(&mut self, region: Region, size: u64) -> bool {
         debug_assert!(size < region.size(), "Size was not smaller than on shrink");
 
         self.register(Region::new(region.base() + size, region.size() - size));
@@ -269,7 +269,7 @@ impl Allocator {
         true
     }
 
-    pub fn resize(&mut self, region: Region, size: usize, align: usize) -> Option<Region> {
+    pub fn resize(&mut self, region: Region, size: u64, align: u64) -> Option<Region> {
         if region.size() == size {
             return Some(region);
         }

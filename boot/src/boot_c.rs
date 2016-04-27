@@ -1,16 +1,12 @@
-pub use c::boot_c_panic;
-
 use std::ptr;
-use std::mem;
+use std::str;
+use std::slice;
 
-use alloc::heap;
 use alloc::boxed::Box;
 
 use collections::{String, Vec};
 
 use constants::*;
-
-use kernel_std::BootInfo;
 
 use paging::Region;
 
@@ -20,38 +16,44 @@ mod c {
     use std::ptr;
     use std::slice;
     use std::str;
+    use std::mem;
+
+    use alloc::heap;
+
+    use constants::*;
 
     #[repr(C)]
+    #[unsafe_no_drop_flag]
     pub struct boot_info {
-        command_line_size: usize,
-        command_line: *const u8,
-        memory_map_capacity: usize,
-        memory_map_size: usize,
-        memory_map: *const memory_region,
-        modules_capacity: usize,
-        modules_size: usize,
-        modules: *const module
+        pub command_line_size: usize,
+        pub command_line: *const u8,
+        pub memory_map_capacity: usize,
+        pub memory_map_size: usize,
+        pub memory_map: *const memory_region,
+        pub modules_capacity: usize,
+        pub modules_size: usize,
+        pub modules: *const module
     }
 
     #[repr(C)]
     pub struct memory_region {
-        start: u64,
-        len: u64,
-        ty: u32
+        pub start: u64,
+        pub len: u64,
+        pub ty: u32
     }
 
     #[repr(C)]
     pub struct module {
-        start: u64,
-        len: u64,
-        cmdline_size: usize,
-        cmdline: *const u8
+        pub start: u64,
+        pub len: u64,
+        pub cmdline_size: usize,
+        pub cmdline: *const u8
     }
 
     extern "C" {
         static mut error_message: *const u8;
 
-        fn parse_multiboot_info(info: *const (), kernel_info: *const boot_info) -> u32;
+        pub fn parse_multiboot_info(info: *const c_void, kernel_info: *const boot_info) -> u32;
     }
 
     impl Drop for boot_info {
@@ -60,11 +62,15 @@ mod c {
             if !self.modules.is_null() {
                 unsafe {heap::deallocate(self.modules as *mut _, self.modules_capacity * mem::size_of::<module>(),
                                          mem::size_of::<usize>())};
+
+                self.modules = ptr::null();
             }
 
             if !self.memory_map.is_null() {
                 unsafe {heap::deallocate(self.memory_map as *mut _, self.memory_map_capacity * mem::size_of::<memory_region>(),
                                          mem::size_of::<usize>())};
+
+                self.modules = ptr::null();
             }
         }
     }
@@ -72,25 +78,28 @@ mod c {
     #[inline(never)]
     #[cold]
     pub fn c_panic() -> ! {
-        let mut size: isize = 0;
+        unsafe {
+            let mut size: isize = 0;
 
-        while ptr::read(error_message.offset(size)) != 0 {
-            size += 1;
-        }
-
-        let str_slice = slice::from_raw_parts(error_message, size as usize);
-
-        match str::from_utf8(str_slice) {
-            Ok(s) => {
-                panic!("{}", s);
+            while ptr::read(error_message.offset(size)) != 0 {
+                size += 1;
             }
-            Err(e) => {
-                panic!("C called panic with invalid string: {}", e);
+
+            let str_slice = slice::from_raw_parts(error_message, size as usize);
+
+            match str::from_utf8(str_slice) {
+                Ok(s) => {
+                    panic!("{}", s);
+                }
+                Err(e) => {
+                    panic!("C called panic with invalid string: {}", e);
+                }
             }
         }
     }
 }
 
+#[derive(Debug)]
 pub struct MemoryInfo {
     available: Vec<Region>,
     reserved: Vec<Region>,
@@ -99,11 +108,13 @@ pub struct MemoryInfo {
     bad: Vec<Region>,
 }
 
+#[derive(Debug)]
 pub struct ModuleInfo {
     command_line: String,
     memory: Region
 }
 
+#[derive(Debug)]
 pub struct BootInfo {
     log_level: Option<usize>,
     memory: MemoryInfo,
@@ -116,7 +127,7 @@ enum CommandItem {
 }
 
 fn parse_command_line(cmdline: &[u8]) -> Option<usize> {
-    let line = match str::from_utf8(str_slice) {
+    let line = match str::from_utf8(cmdline) {
         Ok(s) => s,
         Err(e) => {
             panic!("Command line was not valid utf8: {}", e);
@@ -222,12 +233,14 @@ fn parse_modules(modules: &[c::module]) -> Vec<ModuleInfo> {
     module_info
 }
 
-pub unsafe fn create_boot_info(multiboot_info: *const ()) -> BootInfo {
+pub unsafe fn parse_multiboot_info(multiboot_info: *const c_void) -> BootInfo {
     let info = Box::into_raw(Box::new(c::boot_info {
         command_line_size: 0,
         command_line: ptr::null(),
+        memory_map_capacity: 0,
         memory_map_size: 0,
         memory_map: ptr::null(),
+        modules_capacity: 0,
         modules_size: 0,
         modules: ptr::null()
     }));
@@ -252,10 +265,10 @@ pub unsafe fn create_boot_info(multiboot_info: *const ()) -> BootInfo {
 
     let log_level = if !info.command_line.is_null() {
         // parse command line
-        parse_command_line(slice::from_raw_parts(info.comand_line, info.command_line_size))
+        parse_command_line(slice::from_raw_parts(info.command_line, info.command_line_size))
     } else {
         None
-    }
+    };
 
     BootInfo {
         log_level: log_level,

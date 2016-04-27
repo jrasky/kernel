@@ -19,7 +19,7 @@ pub use std::ptr;
 
 pub use constants::*;
 
-#[repr(usize)]
+#[repr(u64)]
 #[derive(Debug, Clone, Copy)]
 pub enum FrameSize {
     Giant = 0x8000000000, // 512 gigabytes
@@ -27,7 +27,7 @@ pub enum FrameSize {
     Big = 0x200000,    // 2 megabytes
 }
 
-#[repr(usize)]
+#[repr(u64)]
 #[derive(Debug, Clone, Copy)]
 pub enum PageSize {
     Huge = 0x40000000, // 1 gigabyte
@@ -38,7 +38,7 @@ pub enum PageSize {
 
 impl PartialEq for FrameSize {
     fn eq(&self, other: &FrameSize) -> bool {
-        *self as usize == *other as usize
+        *self as u64 == *other as u64
     }
 }
 
@@ -46,7 +46,7 @@ impl Eq for FrameSize {}
 
 impl Ord for FrameSize {
     fn cmp(&self, other: &FrameSize) -> Ordering {
-        (*self as usize).cmp(&(*other as usize))
+        (*self as u64).cmp(&(*other as u64))
     }
 }
 
@@ -58,8 +58,8 @@ impl PartialOrd for FrameSize {
 
 impl FrameSize {
     #[inline]
-    pub fn get_shift(self) -> usize {
-        (self as usize).trailing_zeros() as usize
+    pub fn get_shift(self) -> u64 {
+        (self as u64).trailing_zeros() as u64
     }
 
     #[inline]
@@ -82,7 +82,7 @@ impl FrameSize {
 }
 impl PartialEq for PageSize {
     fn eq(&self, other: &PageSize) -> bool {
-        *self as usize == *other as usize
+        *self as u64 == *other as u64
     }
 }
 
@@ -90,7 +90,7 @@ impl Eq for PageSize {}
 
 impl Ord for PageSize {
     fn cmp(&self, other: &PageSize) -> Ordering {
-        (*self as usize).cmp(&(*other as usize))
+        (*self as u64).cmp(&(*other as u64))
     }
 }
 
@@ -101,7 +101,7 @@ impl PartialOrd for PageSize {
 }
 impl PageSize {
     #[inline]
-    pub fn get_shift(self) -> usize {
-        (self as usize).trailing_zeros() as usize
+    pub fn get_shift(self) -> u64 {
+        (self as u64).trailing_zeros() as u64
     }
 }

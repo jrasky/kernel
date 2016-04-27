@@ -1,3 +1,7 @@
+#![feature(unsafe_no_drop_flag)]
+#![feature(alloc)]
+#![feature(collections)]
+#![feature(heap_api)]
 #![feature(asm)]
 #![no_std]
 extern crate core as std;
@@ -9,21 +13,17 @@ extern crate log;
 extern crate serial;
 extern crate constants;
 extern crate paging;
-
-use std::fmt::Display;
-
-use std::mem;
+#[macro_use]
+extern crate collections;
 
 use constants::*;
-
-use alloc::heap;
 
 use kernel_std::cpu;
 
 mod boot_c;
 
 #[no_mangle]
-pub extern "C" fn bootstrap(magic: u32, boot_info: *const ()) -> ! {
+pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     // early setup
     kernel_std::early_setup();
 
@@ -43,11 +43,15 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const ()) -> ! {
         // set up SSE
         enable_sse();
 
-        // create initial boot info
-        let boot_c_info = boot_c::create_boot_info(boot_info);
+        // parse multiboot info
+        let boot_info = boot_c::parse_multiboot_info(boot_info);
+
+        // print out info for now.
+        // TODO: actually use it
+        info!("boot info: {:?}", boot_info);
 
         // create a starting gdt
-        let gdt = cpu::gdt::Table::new(vec![]);
+        let mut gdt = cpu::gdt::Table::new(vec![]);
         gdt.install();
     };
 

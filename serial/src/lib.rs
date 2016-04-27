@@ -1,4 +1,3 @@
-#![feature(decode_utf16)]
 #![feature(shared)]
 #![feature(unique)]
 #![feature(reflect_marker)]

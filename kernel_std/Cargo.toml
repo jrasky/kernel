@@ -8,3 +8,4 @@ rlibc = "*"
 log = { path = "../log" }
 memory = { path = "../memory" }
 serial = { path = "../serial" }
+constants = { path = "../constants" }

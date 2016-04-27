@@ -10,26 +10,26 @@ pub struct Layout {
 }
 
 struct RelativeBuilder {
-    base: usize,
-    used: usize,
-    tables: Vec<(Box<Table>, usize)>,
-    to_physical: BTreeMap<usize, usize>,
-    to_virtual: BTreeMap<usize, usize>
+    base: u64,
+    used: u64,
+    tables: Vec<(Box<Table>, u64)>,
+    to_physical: BTreeMap<u64, u64>,
+    to_virtual: BTreeMap<u64, u64>
 }
 
 impl Base for RelativeBuilder {
-    fn to_virtual(&self, address: usize) -> Option<usize> {
+    fn to_virtual(&self, address: u64) -> Option<u64> {
         self.to_virtual.get(&address).map(|addr| *addr)
     }
 
-    fn to_physical(&self, address: usize) -> Option<usize> {
+    fn to_physical(&self, address: u64) -> Option<u64> {
         self.to_physical.get(&address).map(|addr| *addr)
     }
 
     unsafe fn new_table(&mut self) -> Shared<Table> {
         // calculate a new pointer and update our used
         let offset = align(self.used, 0x1000);
-        self.used = offset + mem::size_of::<Table>();
+        self.used = offset + mem::size_of::<Table>() as u64;
 
         // produce physical address
         let physical_address = self.base + offset;
@@ -42,8 +42,8 @@ impl Base for RelativeBuilder {
         let table = Box::from_raw(virtual_address);
 
         // update both mappings
-        self.to_physical.insert(virtual_address as usize, physical_address);
-        self.to_virtual.insert(physical_address, virtual_address as usize);
+        self.to_physical.insert(virtual_address as u64, physical_address);
+        self.to_virtual.insert(physical_address, virtual_address as u64);
 
         // insert our object into our store
         self.tables.push((table, physical_address));
@@ -60,7 +60,7 @@ impl Base for RelativeBuilder {
 }
 
 impl RelativeBuilder {
-    fn new(base: usize) -> RelativeBuilder {
+    fn new(base: u64) -> RelativeBuilder {
         assert!(is_aligned(base, 0x1000), "Base address was not page aligned");
 
         RelativeBuilder {
@@ -75,7 +75,7 @@ impl RelativeBuilder {
     fn into_buffer(self) -> Vec<u8> {
         unsafe {
             // merge everything into one buffer
-            let mut buffer: Vec<u8> = Vec::with_capacity(self.used);
+            let mut buffer: Vec<u8> = Vec::with_capacity(self.used as usize);
 
             ptr::write_bytes(buffer.as_mut_ptr(), 0, buffer.capacity());
 
@@ -84,7 +84,7 @@ impl RelativeBuilder {
                            *table.clone())
             }
 
-            buffer.set_len(self.used);
+            buffer.set_len(self.used as usize);
 
             buffer
         }
@@ -120,7 +120,7 @@ impl Layout {
                 attribute_table: false,
                 protection_key: 0,
                 level: level,
-                address: builder.to_physical(*new_table as usize)
+                address: builder.to_physical(*new_table as u64)
                     .expect("Failed to translate table address to physical address")
             };
 
@@ -130,9 +130,9 @@ impl Layout {
         }
     }
 
-    fn build_page_at(&mut self, table: &mut Table, base: usize,
+    fn build_page_at(&mut self, table: &mut Table, base: u64,
                      size: FrameSize, idx: usize, segment: &Segment) {
-        let subframe_base = base + (idx * size.get_pagesize() as usize);
+        let subframe_base = base + (idx as u64 * size.get_pagesize() as u64);
 
         let info = Info {
             page: true,
@@ -159,19 +159,19 @@ impl Layout {
         debug_assert!(!result.present(), "Overwrote a present entry: 0x{:x}", result.address(Level::PTE));
     }
 
-    fn build_edge(&mut self, builder: &mut Base, table: &mut Table, base: usize, size: FrameSize,
-                             idx: usize, vbase: usize, segment: &Segment) -> bool {
+    fn build_edge(&mut self, builder: &mut Base, table: &mut Table, base: u64, size: FrameSize,
+                             idx: usize, vbase: u64, segment: &Segment) -> bool {
         trace!("0x{:x}, 0x{:x}, {:?}", idx, vbase, size);
 
         if let Some(next) = size.get_next() {
-            let subframe_base = base + (idx * size.get_pagesize() as usize);
+            let subframe_base = base + (idx as u64 * size.get_pagesize() as u64);
             trace!("c 0x{:x}, 0x{:x}", subframe_base, vbase);
-            if !is_aligned(segment.get_physical_subframe(subframe_base), size.get_pagesize() as usize)
-                || (vbase >= subframe_base && vbase - subframe_base >= next.get_pagesize() as usize)
-                || subframe_base - vbase >= next.get_pagesize() as usize
-                || ((subframe_base + size.get_pagesize() as usize) > segment.virtual_base() + segment.size()
-                    && (subframe_base + size.get_pagesize() as usize - segment.virtual_base() - segment.size())
-                    > next.get_pagesize() as usize)
+            if !is_aligned(segment.get_physical_subframe(subframe_base), size.get_pagesize() as u64)
+                || (vbase >= subframe_base && vbase - subframe_base >= next.get_pagesize() as u64)
+                || subframe_base - vbase >= next.get_pagesize() as u64
+                || ((subframe_base + size.get_pagesize() as u64) > segment.virtual_base() + segment.size()
+                    && (subframe_base + size.get_pagesize() as u64 - segment.virtual_base() - segment.size())
+                    > next.get_pagesize() as u64)
             {
                 // build a new table here
                 let new_table = unsafe {self.get_or_create(builder, table, idx, match next {
@@ -190,17 +190,17 @@ impl Layout {
         false
     }
 
-    fn build_part(&mut self, builder: &mut Base, table: &mut Table, base: usize,
+    fn build_part(&mut self, builder: &mut Base, table: &mut Table, base: u64,
                   size: FrameSize, segment: &Segment) {
-        trace!("0x{:x}, 0x{:x}, {:?}", table as *mut _ as usize, base, size);
+        trace!("0x{:x}, 0x{:x}, {:?}", table as *mut _ as u64, base, size);
 
         let min_idx = if base > segment.virtual_base() {
             0
         } else {
-            align_back(segment.virtual_base() - base, size.get_pagesize() as usize) >> size.get_pagesize().get_shift()
+            align_back(segment.virtual_base() - base, size.get_pagesize() as u64) >> size.get_pagesize().get_shift()
         };
 
-        let max_idx = cmp::min((align(segment.virtual_base() + segment.size() - base, size.get_pagesize() as usize)
+        let max_idx = cmp::min((align(segment.virtual_base() + segment.size() - base, size.get_pagesize() as u64)
                                 >> size.get_pagesize().get_shift()), 0x200);
 
         trace!("0x{:x}, 0x{:x}", min_idx, max_idx);
@@ -210,36 +210,36 @@ impl Layout {
             panic!("build_part called with incorret parameters");
         }
 
-        if !self.build_edge(builder, table, base, size, min_idx, segment.virtual_base(), segment) {
-            self.build_page_at(table, base, size, min_idx, segment);
+        if !self.build_edge(builder, table, base, size, min_idx as usize, segment.virtual_base(), segment) {
+            self.build_page_at(table, base, size, min_idx as usize, segment);
         }
 
-        trace!("a 0x{:x}, 0x{:x}, {:?}", table as *mut _ as usize, base, size);
+        trace!("a 0x{:x}, 0x{:x}, {:?}", table as *mut _ as u64, base, size);
         trace!("0x{:x}, 0x{:x}", min_idx, max_idx);
 
         if max_idx > min_idx + 1 {
-            if !self.build_edge(builder, table, base, size, max_idx - 1,
-                                align_back(segment.virtual_base() + segment.size() as usize - 1, size.get_pagesize() as usize), segment) {
-                self.build_page_at(table, base, size, max_idx - 1, segment);
+            if !self.build_edge(builder, table, base, size, max_idx as usize - 1,
+                                align_back(segment.virtual_base() + segment.size() as u64 - 1, size.get_pagesize() as u64), segment) {
+                self.build_page_at(table, base, size, max_idx as usize - 1, segment);
             }
         }
 
-        trace!("b 0x{:x}, 0x{:x}, {:?}", table as *mut _ as usize, base, size);
+        trace!("b 0x{:x}, 0x{:x}, {:?}", table as *mut _ as u64, base, size);
 
         for idx in min_idx + 1..max_idx - 1 {
-            if !self.build_edge(builder, table, base, size, idx, base + (idx * size.get_pagesize() as usize), segment) {
-                self.build_page_at(table, base, size, idx, segment)
+            if !self.build_edge(builder, table, base, size, idx as usize, base + (idx as u64 * size.get_pagesize() as u64), segment) {
+                self.build_page_at(table, base, size, idx as usize, segment)
             }
         }
     }
 
-    pub fn build(&mut self, builder: &mut Base) -> usize {
+    pub fn build(&mut self, builder: &mut Base) -> u64 {
         unsafe {
             let root = builder.new_table();
 
             self.build_at(builder, root);
 
-            builder.to_physical(*root as usize)
+            builder.to_physical(*root as u64)
                 .expect("Root table had no physical mapping")
         }
     }
@@ -250,26 +250,26 @@ impl Layout {
         for segment in segments {
             trace!("Building segment {:?}", segment);
 
-            let min_idx = align_back(segment.virtual_base(), FrameSize::Giant as usize)
+            let min_idx = align_back(segment.virtual_base(), FrameSize::Giant as u64)
                 >> FrameSize::Giant.get_shift();
-            let max_idx = align(segment.virtual_base() + segment.size(), FrameSize::Giant as usize)
+            let max_idx = align(segment.virtual_base() + segment.size(), FrameSize::Giant as u64)
                 >> FrameSize::Giant.get_shift();
 
             for idx in min_idx..max_idx {
-                let table = self.get_or_create(builder, root.as_mut().unwrap(), idx, Level::PML4E);
-                self.build_part(builder, table.as_mut().unwrap(), idx * FrameSize::Giant as usize, FrameSize::Giant, &segment);
+                let table = self.get_or_create(builder, root.as_mut().unwrap(), idx as usize, Level::PML4E);
+                self.build_part(builder, table.as_mut().unwrap(), idx as u64 * FrameSize::Giant as u64, FrameSize::Giant, &segment);
             }
         }
     }
 
-    pub fn build_relative(&mut self, base: usize) -> (usize, Vec<u8>) {
+    pub fn build_relative(&mut self, base: u64) -> (u64, Vec<u8>) {
         let mut builder = RelativeBuilder::new(base);
         let addr = self.build(&mut builder);
         (addr, builder.into_buffer())
     }
 
     #[inline]
-    pub fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
+    pub fn allocate(&mut self, size: u64, align: u64) -> Option<Region> {
         self.free.allocate(size, align)
     }
 
@@ -313,7 +313,7 @@ impl Layout {
         }
     }
 
-    pub fn to_physical(&self, addr: usize) -> Option<usize> {
+    pub fn to_physical(&self, addr: u64) -> Option<u64> {
         let dummy = Segment::dummy(addr);
 
         if let Some(segment) = self.map.get(&dummy) {
@@ -325,7 +325,7 @@ impl Layout {
         }
     }
 
-    pub fn to_virtual(&self, addr: usize) -> Option<usize> {
+    pub fn to_virtual(&self, addr: u64) -> Option<u64> {
         // naive implementation
         for segment in self.map.iter() {
             if segment.physical_base() <= addr && addr <= segment.physical_base() + segment.size() {

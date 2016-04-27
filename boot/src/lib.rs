@@ -34,8 +34,6 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const ()) -> ! {
         panic!("Incorrect magic for multiboot: 0x{:x}", magic);
     }
 
-    let boot_c_info;
-
     unsafe {
         // test for cpu features
         test_cpuid();
@@ -45,8 +43,8 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const ()) -> ! {
         // set up SSE
         enable_sse();
 
-        // create boot info
-        boot_c_info = boot_c::create_boot_info(boot_info);
+        // create initial boot info
+        let boot_c_info = boot_c::create_boot_info(boot_info);
 
         // create a starting gdt
         let gdt = cpu::gdt::Table::new(vec![]);

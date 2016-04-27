@@ -27,6 +27,11 @@ pub const CORE_SS: u16 = 0x10;
 
 pub const COM1: u16 = 0x3f8;
 pub const MULTIBOOT2_MAGIC: u32 = 0x36D76289;
+pub const MULTIBOOT_MEMORY_AVAILABLE: u32 = 1;
+pub const MULTIBOOT_MEMORY_RESERVED: u32 = 2;
+pub const MULTIBOOT_MEMORY_ACPI_RECLAIMABLE: u32 = 3;
+pub const MULTIBOOT_MEMORY_NVS: u32 = 4;
+pub const MULTIBOOT_MEMORY_BADRAM: u32 = 5;
 
 pub const U64_BYTES: usize = 0x8;
 pub const FXSAVE_SIZE: usize = 0x200;

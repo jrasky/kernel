@@ -1,8 +1,5 @@
-use std::ptr;
 use std::str;
 use std::slice;
-
-use alloc::boxed::Box;
 
 use collections::{String, Vec};
 
@@ -13,6 +10,8 @@ use paging::Region;
 use log;
 
 mod c {
+    use std::ops::Deref;
+
     use std::ptr;
     use std::slice;
     use std::str;
@@ -22,9 +21,12 @@ mod c {
 
     use constants::*;
 
+    pub struct BootInfo {
+        inner: boot_info_inner
+    }
+
     #[repr(C)]
-    #[unsafe_no_drop_flag]
-    pub struct boot_info {
+    pub struct boot_info_inner {
         pub command_line_size: usize,
         pub command_line: *const u8,
         pub memory_map_capacity: usize,
@@ -53,26 +55,58 @@ mod c {
     extern "C" {
         static mut error_message: *const u8;
 
-        pub fn parse_multiboot_info(info: *const c_void, kernel_info: *const boot_info) -> u32;
+        fn parse_multiboot_info(info: *const c_void, kernel_info: *mut boot_info_inner) -> u32;
     }
 
-    impl Drop for boot_info {
+    impl Drop for BootInfo {
         fn drop(&mut self) {
             // if modules is not null, then it's allocated somewhere
             if !self.modules.is_null() {
                 unsafe {heap::deallocate(self.modules as *mut _, self.modules_capacity * mem::size_of::<module>(),
                                          mem::size_of::<usize>())};
 
-                self.modules = ptr::null();
             }
 
             if !self.memory_map.is_null() {
                 unsafe {heap::deallocate(self.memory_map as *mut _, self.memory_map_capacity * mem::size_of::<memory_region>(),
                                          mem::size_of::<usize>())};
 
-                self.modules = ptr::null();
             }
         }
+    }
+
+    impl Deref for BootInfo {
+        type Target = boot_info_inner;
+        fn deref(&self) -> &boot_info_inner {
+            &self.inner
+        }
+    }
+
+    impl BootInfo {
+        fn new() -> BootInfo {
+            BootInfo {
+                inner: boot_info_inner {
+                    command_line_size: 0,
+                    command_line: ptr::null(),
+                    memory_map_capacity: 0,
+                    memory_map_size: 0,
+                    memory_map: ptr::null(),
+                    modules_capacity: 0,
+                    modules_size: 0,
+                    modules: ptr::null()
+                }
+            }
+        }
+    }
+
+    pub unsafe fn create_boot_info(multiboot_info: *const c_void) -> BootInfo {
+        let mut info = BootInfo::new();
+
+        if parse_multiboot_info(multiboot_info, &mut info.inner) != 0 {
+            c_panic();
+        }
+
+        info
     }
 
     #[inline(never)]
@@ -234,22 +268,7 @@ fn parse_modules(modules: &[c::module]) -> Vec<ModuleInfo> {
 }
 
 pub unsafe fn parse_multiboot_info(multiboot_info: *const c_void) -> BootInfo {
-    let info = Box::into_raw(Box::new(c::boot_info {
-        command_line_size: 0,
-        command_line: ptr::null(),
-        memory_map_capacity: 0,
-        memory_map_size: 0,
-        memory_map: ptr::null(),
-        modules_capacity: 0,
-        modules_size: 0,
-        modules: ptr::null()
-    }));
-
-    if c::parse_multiboot_info(multiboot_info, info) != 0 {
-        c::c_panic();
-    }
-
-    let info = Box::from_raw(info);
+    let info = c::create_boot_info(multiboot_info);
 
     if info.memory_map.is_null() {
         panic!("Did not get memory map in boot info");

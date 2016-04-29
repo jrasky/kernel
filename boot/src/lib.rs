@@ -15,6 +15,7 @@ extern crate constants;
 extern crate paging;
 #[macro_use]
 extern crate collections;
+extern crate memory;
 
 use constants::*;
 
@@ -33,6 +34,9 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     if magic != MULTIBOOT2_MAGIC {
         panic!("Incorrect magic for multiboot: 0x{:x}", magic);
     }
+
+    // enable memory
+    memory::enable();
 
     unsafe {
         // test for cpu features
@@ -116,19 +120,15 @@ unsafe fn test_sse() {
     }
 
     if cpuid_d & 1 << 26 == 0 {
-        panic!("No SSE");
+        panic!("No SSE2");
     }
 
     if cpuid_c & 1 << 0 == 0 {
-        panic!("No SSE");
-    }
-
-    if cpuid_c & 1 << 9 == 0 {
-        panic!("No SSE");
+        panic!("No SSE3");
     }
 
     if cpuid_d & 1 << 19 == 0 {
-        panic!("No SSE");
+        panic!("No CLFLUSH");
     }
 
     if cpuid_d & 1 << 5 == 0 {

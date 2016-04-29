@@ -15,6 +15,7 @@ kernel_std = { path = "../kernel_std" }
 serial = { path = "../serial" }
 constants = { path = "../constants" }
 paging = { path = "../paging" }
+memory = { path = "../memory" }
 
 [build-dependencies]
 gcc = "*"

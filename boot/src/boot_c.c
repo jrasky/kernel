@@ -73,8 +73,10 @@ static int32_t parse_memory_map(const struct multiboot_tag_mmap *mmap, struct bo
         __rust_reallocate(kernel_info->memory_map, kernel_info->memory_map_capacity * sizeof(struct memory_region),
                           kernel_info->memory_map_capacity * 2 * sizeof(struct memory_region), sizeof(uint64_t));
 
-      if (kernel_info->memory_map == old_memory_map)
+      if (kernel_info->memory_map == NULL) {
+        kernel_info->memory_map = old_memory_map;
         return error("Failed to reallocate memory map");
+      }
 
       kernel_info->memory_map_capacity *= 2;
     }
@@ -104,8 +106,10 @@ static int32_t parse_module(const struct multiboot_tag_module *tag, struct boot_
       __rust_reallocate(kernel_info->modules, kernel_info->modules_capacity * sizeof(struct module),
                         kernel_info->modules_capacity * 2 * sizeof(struct module), sizeof(uint64_t));
 
-    if (kernel_info->modules == old_modules)
+    if (kernel_info->modules == NULL) {
+      kernel_info->modules = old_modules;
       return error("Failed to reallocate modules");
+    }
 
     kernel_info->modules_capacity *= 2;
   }

@@ -7,3 +7,4 @@ authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
 rlibc = "*"
 log = { path = "../log" }
 constants = { path = "../constants" }
+kernel_std = { path = "../kernel_std" }

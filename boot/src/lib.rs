@@ -50,9 +50,12 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
         // parse multiboot info
         let boot_info = boot_c::parse_multiboot_info(boot_info);
 
-        // print out info for now.
-        // TODO: actually use it
-        info!("boot info: {:?}", boot_info);
+        // TODO here:
+        // - find the optimistic heap
+        // - create the initial page tables
+
+        // create the boot proto
+        let proto = Box::new(BootProto::from(boot_info));
 
         // create a starting gdt
         let mut gdt = cpu::gdt::Table::new(vec![]);

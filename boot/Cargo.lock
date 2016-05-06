@@ -65,6 +65,7 @@ name = "paging"
 version = "0.1.0"
 dependencies = [
  "constants 0.1.0",
+ "kernel_std 0.1.0",
  "log 0.1.0",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

@@ -1,4 +1,4 @@
-pub use std::marker::Reflect;
+pub use std::marker::{Reflect, PhantomData};
 pub use std::fmt::{Debug, Display, Write};
 pub use std::ptr::{Unique, Shared};
 pub use std::sync::atomic::{Ordering, AtomicUsize, AtomicBool};
@@ -18,6 +18,8 @@ pub use std::ptr;
 
 pub use alloc::heap;
 
-pub use collections::Vec;
+pub use collections::{String, Vec, BTreeSet, BTreeMap};
+pub use collections::Bound::{Included, Unbounded, Excluded};
+pub use collections::btree_map;
 
 pub use constants::*;

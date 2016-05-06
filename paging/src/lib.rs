@@ -1,7 +1,6 @@
 #![feature(stmt_expr_attributes)]
 #![feature(shared)]
 #![feature(unique)]
-#![feature(btree_range)]
 #![feature(collections_bound)]
 #![feature(heap_api)]
 #![feature(const_fn)]
@@ -17,16 +16,13 @@ extern crate collections;
 extern crate log;
 extern crate alloc;
 extern crate constants;
+extern crate kernel_std;
 
 pub use layout::Layout;
 pub use segment::{Segment, raw_segment_size};
-pub use allocator::{Allocator, Region};
 pub use table::{Entry, Table, Base};
-pub use map::Map;
 
 mod include;
 mod table;
 mod segment;
 mod layout;
-mod allocator;
-mod map;

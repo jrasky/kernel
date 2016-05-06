@@ -26,6 +26,8 @@ pub const CORE_DS: u16 = 0x10;
 pub const CORE_SS: u16 = 0x10;
 
 pub const COM1: u16 = 0x3f8;
+pub const BOOT_INFO_MAGIC: u64 = 9390519679394335664;
+
 pub const MULTIBOOT2_MAGIC: u32 = 0x36D76289;
 pub const MULTIBOOT_MEMORY_AVAILABLE: u32 = 1;
 pub const MULTIBOOT_MEMORY_RESERVED: u32 = 2;

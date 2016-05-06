@@ -50,18 +50,18 @@ impl Region {
 }
 
 impl Ord for Region {
-    fn cmp(&self, other: &Region) -> Ordering {
+    fn cmp(&self, other: &Region) -> cmp::Ordering {
         if self.base + self.size <= other.base || self.base >= other.base + other.size {
             self.base.cmp(&other.base)
         } else {
-            Ordering::Equal
+            cmp::Ordering::Equal
         }
     }
 }
 
 impl PartialOrd for Region {
     #[inline]
-    fn partial_cmp(&self, other: &Region) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &Region) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
@@ -69,7 +69,7 @@ impl PartialOrd for Region {
 impl PartialEq for Region {
     #[inline]
     fn eq(&self, other: &Region) -> bool {
-        self.cmp(other) == Ordering::Equal
+        self.cmp(other) == cmp::Ordering::Equal
     }
 }
 

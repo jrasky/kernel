@@ -5,9 +5,9 @@ use collections::{String, Vec};
 
 use constants::*;
 
-use paging::Region;
-
 use log;
+
+use kernel_std::*;
 
 mod c {
     use std::ops::Deref;
@@ -133,27 +133,6 @@ mod c {
     }
 }
 
-#[derive(Debug)]
-pub struct MemoryInfo {
-    available: Vec<Region>,
-    reserved: Vec<Region>,
-    acpi: Vec<Region>,
-    nvs: Vec<Region>,
-    bad: Vec<Region>,
-}
-
-#[derive(Debug)]
-pub struct ModuleInfo {
-    command_line: String,
-    memory: Region
-}
-
-#[derive(Debug)]
-pub struct BootInfo {
-    log_level: Option<usize>,
-    memory: MemoryInfo,
-    modules: Vec<ModuleInfo>
-}
 
 #[derive(Clone, Copy)]
 enum CommandItem {
@@ -238,7 +217,7 @@ fn parse_memory_info(memory: &[c::memory_region]) -> MemoryInfo {
                 info.bad.push(Region::new(entry.start, entry.len));
             },
             ty => {
-                unreachable!("Unknown memory type {}", ty);
+                panic!("Unknown memory type {}", ty);
             }
         }
     }

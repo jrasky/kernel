@@ -1,7 +1,6 @@
 use include::*;
 
 use segment::Segment;
-use allocator::{Allocator, Region};
 use table::{Info, Table, Base, Level};
 
 pub struct Layout {

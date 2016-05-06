@@ -67,14 +67,14 @@ impl Table {
         asm!(concat!(
             "push 0x08;",
             "push .target;",
-            "o64 retf",
+            "retf;",
             ".target:",
-            "mov ax, 0x10",
-            "mov ds, ax",
-            "mov es, ax",
-            "mov fs, ax",
-            "mov gs, ax",
-            "mov ss, ax") ::: "{ax}" : "intel");
+            "mov ax, 0x10;",
+            "mov ds, ax;",
+            "mov es, ax;",
+            "mov fs, ax;",
+            "mov gs, ax;",
+            "mov ss, ax;") ::: "{ax}" : "intel");
 
         // no change in code or data selector from setup in bootstrap
         // so no far jump to reload selector

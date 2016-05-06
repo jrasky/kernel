@@ -46,7 +46,6 @@ mod include;
 mod c;
 mod error;
 mod cpu;
-mod multiboot;
 mod logging;
 
 // pub use since we want to export
@@ -140,7 +139,7 @@ unsafe extern "C" fn serial_handler() -> ! {
 
 #[cfg(not(test))]
 #[no_mangle]
-pub extern "C" fn kernel_main(boot_info: *const u32, boot_info_size: usize) -> ! {
+pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
     // kernel main
     kernel_std::early_setup();
 
@@ -160,12 +159,8 @@ pub extern "C" fn kernel_main(boot_info: *const u32, boot_info_size: usize) -> !
     info!("Hello!");
     point!(traces, "set up logging");
 
-    // parse multiboot info
-    unsafe { multiboot::parse_multiboot_tags(boot_info, boot_info_size) };
-
-    debug!("finished parsing multiboot info");
-
-    point!(traces, "parsed multiboot info");
+    // get boot proto out
+    let proto = BootProto::new(boot_proto).expect("Did not receive boot proto");
 
     // now out of reserve memory
 

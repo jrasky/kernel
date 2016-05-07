@@ -1,5 +1,6 @@
 use include::*;
 
+use cpu;
 use c;
 
 static EARLY_IDT: [idt::Descriptor; 15] = [
@@ -65,7 +66,7 @@ pub fn setup_done() -> bool {
 }
 
 /// Unsafe because dropping gdt or idt leaks a reference
-pub unsafe fn setup() -> (gdt::Table, idt::Table, cpu::stack::Stack) {
+pub unsafe fn setup() -> (gdt::Table, idt::Table, stack::Stack) {
     trace!("Setting up cpu");
 
     // create a new GDT with a TSS

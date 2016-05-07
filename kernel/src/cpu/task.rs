@@ -1,6 +1,6 @@
 use include::*;
 
-use paging::{Region, Allocator, Layout, Segment, Table, Base};
+use paging::{Layout, Segment, Table, Base};
 
 use cpu::stack::Stack;
 
@@ -51,7 +51,7 @@ pub fn switch_core() {
     unsafe { MANAGER.switch_core() }
 }
 
-pub fn to_physical(addr: usize) -> Option<usize> {
+pub fn to_physical(addr: u64) -> Option<u64> {
     unsafe { MANAGER.to_physical(addr) }
 }
 
@@ -163,7 +163,7 @@ struct TaskInner {
 
 struct DirectBuilder {
     tables: Vec<Shared<Table>>,
-    to_virtual: BTreeMap<usize, usize>
+    to_virtual: BTreeMap<u64, u64>
 }
 
 #[derive(Clone)]
@@ -182,19 +182,19 @@ impl Drop for ManagerInner {
 }
 
 impl Base for DirectBuilder {
-    fn to_physical(&self, address: usize) -> Option<usize> {
+    fn to_physical(&self, address: u64) -> Option<u64> {
         to_physical(address)
     }
 
-    fn to_virtual(&self, address: usize) -> Option<usize> {
+    fn to_virtual(&self, address: u64) -> Option<u64> {
         self.to_virtual.get(&address).map(|addr| *addr)
     }
 
     unsafe fn new_table(&mut self) -> Shared<Table> {
         let table: Shared<Table> = Shared::new(heap::allocate(mem::size_of::<Table>(), 0x1000) as *mut Table);
         self.tables.push(table);
-        let physical = self.to_physical(*table as usize).expect("No physical mapping for table");
-        self.to_virtual.insert(physical, *table as usize);
+        let physical = self.to_physical(*table as u64).expect("No physical mapping for table");
+        self.to_virtual.insert(physical, *table as u64);
         table
     }
 
@@ -257,7 +257,7 @@ impl TaskRef {
     }
 
     #[inline]
-    pub fn to_physical(&self, addr: usize) -> Option<usize> {
+    pub fn to_physical(&self, addr: u64) -> Option<u64> {
         if let Some(inner) = self.get_inner() {
             inner.to_physical(addr)
         } else {
@@ -464,7 +464,7 @@ impl Task {
     }
 
     #[inline]
-    pub fn to_physical(&self, addr: usize) -> Option<usize> {
+    pub fn to_physical(&self, addr: u64) -> Option<u64> {
         unsafe {self.inner.get().as_ref().unwrap().to_physical(addr)}
     }
 
@@ -581,7 +581,7 @@ impl Manager {
     }
 
     #[inline]
-    pub fn to_physical(&mut self, addr: usize) -> Option<usize> {
+    pub fn to_physical(&mut self, addr: u64) -> Option<u64> {
         self.get_inner().to_physical(addr)
     }
 
@@ -650,7 +650,7 @@ impl ManagerInner {
     fn new() -> ManagerInner {
         // don't map things before the heap
         let mut core = Task::process(PrivilegeLevel::CORE, _dummy_entry, unsafe { Stack::kernel() },
-                                     Region::new(HEAP_BEGIN, CORE_SIZE - (HEAP_BEGIN - CORE_BEGIN)));
+                                     Region::new(HEAP_BEGIN as u64, (CORE_SIZE - (HEAP_BEGIN - CORE_BEGIN)) as u64));
 
         // core is initially busy
         core.set_busy(true);
@@ -675,7 +675,7 @@ impl ManagerInner {
 
     #[inline]
     fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
-        self.memory.allocate(size, align)
+        self.memory.allocate(size as u64, align as u64)
     }
 
     #[inline]
@@ -693,7 +693,7 @@ impl ManagerInner {
         self.memory.forget(region)
     }
 
-    fn to_physical(&self, addr: usize) -> Option<usize> {
+    fn to_physical(&self, addr: u64) -> Option<u64> {
         if self.in_core() {
             self.core.to_physical(addr)
         } else if let Some(ref task) = self.current {
@@ -1006,7 +1006,7 @@ impl TaskInner {
     }
 
     #[inline]
-    fn to_physical(&self, addr: usize) -> Option<usize> {
+    fn to_physical(&self, addr: u64) -> Option<u64> {
         self.memory.borrow().to_physical(addr)
     }
 
@@ -1032,7 +1032,7 @@ impl TaskInner {
 
     #[inline]
     fn allocate(&mut self, size: usize, align: usize) -> Option<Region> {
-        self.memory.borrow_mut().allocate(size, align)
+        self.memory.borrow_mut().allocate(size as u64, align as u64)
     }
 
     #[inline]

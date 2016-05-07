@@ -27,7 +27,8 @@ pub use alloc::heap;
 pub use constants::*;
 pub use constants;
 
-pub use kernel_std::cpu::{gdt, tss, idt};
+pub use kernel_std::cpu::{gdt, tss, idt, stack};
+pub use kernel_std::{Region, Allocator, Map, BootProto};
 
 pub use paging;
 pub use log;

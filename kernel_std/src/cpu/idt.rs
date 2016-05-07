@@ -20,7 +20,7 @@ pub struct Table {
     descriptors: Vec<Descriptor>,
 }
 
-unsafe extern "C" fn _dummy_target() {
+pub unsafe extern "C" fn _dummy_target() {
     unreachable!("dummy interrupt descriptor reached");
 }
 

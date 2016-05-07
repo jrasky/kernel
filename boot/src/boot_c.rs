@@ -55,7 +55,7 @@ mod c {
     extern "C" {
         static mut error_message: *const u8;
 
-        fn parse_multiboot_info(info: *const c_void, kernel_info: *mut boot_info_inner) -> u32;
+        fn parse_multiboot_info(info: *const c_void, kernel_info: *mut boot_info_inner) -> i32;
     }
 
     impl Drop for BootInfo {
@@ -134,7 +134,7 @@ mod c {
 }
 
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 enum CommandItem {
     LogLevel
 }
@@ -147,14 +147,20 @@ fn parse_command_line(cmdline: &[u8]) -> Option<usize> {
         }
     };
 
+    debug!("Boot command line: {}", line);
+
     let mut log_level = None;
 
     let mut acc = String::new();
     let mut item = None;
 
-    for ch in line.chars() {
+    let mut iter = line.chars();
+
+    loop {
+        let ch = iter.next();
         match ch {
-            ' ' => {
+            Some(' ') | None => {
+                trace!("{:?}", item);
                 if let Some(item) = item {
                     match item {
                         CommandItem::LogLevel => {
@@ -169,8 +175,14 @@ fn parse_command_line(cmdline: &[u8]) -> Option<usize> {
 
                 // clear accumulator no matter what
                 acc.clear();
+
+                if ch.is_none() {
+                    // done
+                    break;
+                }
             },
-            '=' => {
+            Some('=') => {
+                trace!("{:?}", acc);
                 if acc == "log" {
                     item = Some(CommandItem::LogLevel);
                 } else {
@@ -180,7 +192,7 @@ fn parse_command_line(cmdline: &[u8]) -> Option<usize> {
                 // clear accumulator
                 acc.clear();
             },
-            ch => {
+            Some(ch) => {
                 // next character
                 acc.push(ch);
             }
@@ -204,7 +216,10 @@ fn parse_memory_info(memory: &[c::memory_region]) -> MemoryInfo {
             MULTIBOOT_MEMORY_AVAILABLE => {
                 info.available.push(Region::new(entry.start, entry.len));
             },
-            MULTIBOOT_MEMORY_RESERVED => {
+            MULTIBOOT_MEMORY_RESERVED | MULTIBOOT_MEMORY_PERSISTENT
+                | MULTIBOOT_MEMORY_PERSISTENT_LEGACY | MULTIBOOT_MEMORY_COREBOOT_TABLES
+                | MULTIBOOT_MEMORY_CODE =>
+            {
                 info.reserved.push(Region::new(entry.start, entry.len));
             },
             MULTIBOOT_MEMORY_ACPI_RECLAIMABLE => {
@@ -247,7 +262,11 @@ fn parse_modules(modules: &[c::module]) -> Vec<ModuleInfo> {
 }
 
 pub unsafe fn parse_multiboot_info(multiboot_info: *const c_void) -> BootInfo {
+    trace!("creating boot info");
+
     let info = c::create_boot_info(multiboot_info);
+
+    trace!("created boot info");
 
     if info.memory_map.is_null() {
         panic!("Did not get memory map in boot info");
@@ -259,7 +278,11 @@ pub unsafe fn parse_multiboot_info(multiboot_info: *const c_void) -> BootInfo {
 
     let memory_info = parse_memory_info(slice::from_raw_parts(info.memory_map, info.memory_map_size));
 
+    trace!("parsed memory info");
+
     let module_info = parse_modules(slice::from_raw_parts(info.modules, info.modules_size));
+
+    trace!("parsed module info");
 
     let log_level = if !info.command_line.is_null() {
         // parse command line
@@ -267,6 +290,8 @@ pub unsafe fn parse_multiboot_info(multiboot_info: *const c_void) -> BootInfo {
     } else {
         None
     };
+
+    trace!("parsed command line");
 
     BootInfo {
         log_level: log_level,

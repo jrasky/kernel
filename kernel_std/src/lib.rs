@@ -72,6 +72,7 @@ pub struct MemoryProto {
 pub struct BootProto {
     magic: u64,
     log_level: Option<u64>,
+    optimistic_heap: u64,
     memory: MemoryProto,
     modules: BootSlice<ModuleProto>
 }
@@ -243,35 +244,6 @@ impl<T> BootSlice<T> {
     }
 }
 
-impl From<BootInfo> for BootProto {
-    fn from(info: BootInfo) -> BootProto {
-        let memory = MemoryProto {
-            available: BootSlice::new(info.memory.available),
-            reserved: BootSlice::new(info.memory.reserved),
-            acpi: BootSlice::new(info.memory.acpi),
-            nvs: BootSlice::new(info.memory.nvs),
-            bad: BootSlice::new(info.memory.bad)
-        };
-
-        let mut modules_list = vec![];
-        for module in info.modules {
-            modules_list.push(ModuleProto {
-                command_line: BootSlice::new(module.command_line.into_bytes()),
-                memory: module.memory
-            });
-        }
-
-        let modules = BootSlice::new(modules_list);
-
-        BootProto {
-            magic: BOOT_INFO_MAGIC,
-            log_level: info.log_level.map(|level| level as u64),
-            memory: memory,
-            modules: modules
-        }
-    }
-}
-
 impl ModuleProto {
     pub fn command_line(&self) -> &'static str {
         let slice = self.command_line.as_slice();
@@ -314,7 +286,35 @@ impl MemoryProto {
 }
 
 impl BootProto {
-    pub fn new(address: u64) -> Result<BootProto, ()> {
+    pub fn create(info: BootInfo, optimistic_heap: u64) -> BootProto {
+        let memory = MemoryProto {
+            available: BootSlice::new(info.memory.available),
+            reserved: BootSlice::new(info.memory.reserved),
+            acpi: BootSlice::new(info.memory.acpi),
+            nvs: BootSlice::new(info.memory.nvs),
+            bad: BootSlice::new(info.memory.bad)
+        };
+
+        let mut modules_list = vec![];
+        for module in info.modules {
+            modules_list.push(ModuleProto {
+                command_line: BootSlice::new(module.command_line.into_bytes()),
+                memory: module.memory
+            });
+        }
+
+        let modules = BootSlice::new(modules_list);
+
+        BootProto {
+            magic: BOOT_INFO_MAGIC,
+            log_level: info.log_level.map(|level| level as u64),
+            optimistic_heap: optimistic_heap,
+            memory: memory,
+            modules: modules
+        }
+    }
+
+    pub fn parse(address: u64) -> Result<BootProto, ()> {
         let info = unsafe {ptr::read(address as *const BootProto)};
 
         if info.magic != BOOT_INFO_MAGIC {
@@ -326,6 +326,10 @@ impl BootProto {
 
     pub fn log_level(&self) -> Option<usize> {
         self.log_level.map(|level| level as usize)
+    }
+
+    pub fn optimistic_heap(&self) -> u64 {
+        self.optimistic_heap
     }
 
     pub fn memory(&self) -> &MemoryProto {

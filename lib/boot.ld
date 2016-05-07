@@ -20,8 +20,12 @@ SECTIONS {
         * (.bss*)
     }
 
+    _end = .;
+
     /DISCARD/ : {
         * (.gcc_except_table)
         * (.note*)
     }
 }
+
+. = ASSERT((_end <= 0x200000), "boot image too big");

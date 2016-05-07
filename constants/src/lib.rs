@@ -34,6 +34,10 @@ pub const MULTIBOOT_MEMORY_RESERVED: u32 = 2;
 pub const MULTIBOOT_MEMORY_ACPI_RECLAIMABLE: u32 = 3;
 pub const MULTIBOOT_MEMORY_NVS: u32 = 4;
 pub const MULTIBOOT_MEMORY_BADRAM: u32 = 5;
+pub const MULTIBOOT_MEMORY_PERSISTENT: u32 = 7;
+pub const MULTIBOOT_MEMORY_PERSISTENT_LEGACY: u32 = 12;
+pub const MULTIBOOT_MEMORY_COREBOOT_TABLES: u32 = 16;
+pub const MULTIBOOT_MEMORY_CODE: u32 = 20;
 
 pub const U64_BYTES: usize = 0x8;
 pub const FXSAVE_SIZE: usize = 0x200;
@@ -45,6 +49,7 @@ pub const CORE_SIZE: usize = 0x80000000;
 pub const HEAP_BEGIN: usize = 0xffffffff81000000;
 pub const IDENTITY_END: usize = 0x200000;
 pub const OPTIMISTIC_HEAP: usize = 0x200000;
+pub const OPTIMISTIC_HEAP_SIZE: usize = 0x200000;
 
 pub const TASK_BEGIN: usize = 0x400000;
 pub const TASK_SIZE: usize = 0x7fc00000;

@@ -1,3 +1,4 @@
+#![feature(shared)]
 #![feature(unsafe_no_drop_flag)]
 #![feature(alloc)]
 #![feature(collections)]
@@ -17,11 +18,52 @@ extern crate paging;
 extern crate collections;
 extern crate memory;
 
+use std::ptr::Shared;
+
+use std::cmp;
+use std::mem;
+
+use alloc::boxed::Box;
+
 use constants::*;
 
-use kernel_std::cpu;
+use kernel_std::*;
 
 mod boot_c;
+
+struct WatermarkBuilder {
+    base: u64,
+    end: u64
+}
+
+impl paging::Base for WatermarkBuilder {
+    fn to_physical(&self, address: u64) -> Option<u64> {
+        Some(address)
+    }
+
+    fn to_virtual(&self, address: u64) -> Option<u64> {
+        Some(address)
+    }
+
+    unsafe fn new_table(&mut self) -> Shared<paging::Table> {
+        let ptr = Shared::new(self.end as *mut paging::Table);
+        self.end += mem::size_of::<paging::Table>() as u64;
+        ptr
+    }
+
+    fn clear(&mut self) {
+        self.end = self.base;
+    }
+}
+
+impl WatermarkBuilder {
+    fn new(base: u64) -> WatermarkBuilder {
+        WatermarkBuilder {
+            base: base,
+            end: base
+        }
+    }
+}
 
 #[no_mangle]
 pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
@@ -29,6 +71,16 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     kernel_std::early_setup();
 
     debug!("reached bootstrap");
+
+    unsafe {
+        // test for cpu features
+        test_cpuid();
+        test_long_mode();
+        test_sse();
+
+        // set up SSE
+        enable_sse();
+    }
 
     // test magic
     if magic != MULTIBOOT2_MAGIC {
@@ -39,27 +91,40 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     memory::enable();
 
     unsafe {
-        // test for cpu features
-        test_cpuid();
-        test_long_mode();
-        test_sse();
-
-        // set up SSE
-        enable_sse();
-
         // parse multiboot info
-        let boot_info = boot_c::parse_multiboot_info(boot_info);
+        let info = boot_c::parse_multiboot_info(boot_info);
 
         // TODO here:
         // - find the optimistic heap
+        let mut heap = None;
+
+        for region in info.memory.available.iter() {
+            if region.base() + region.size() > OPTIMISTIC_HEAP as u64 &&
+                region.base() + region.size() - cmp::max(OPTIMISTIC_HEAP as u64, region.base()) >= OPTIMISTIC_HEAP_SIZE as u64
+            {
+                // region works for the optimistic heap
+                heap = Some(Region::new(cmp::max(OPTIMISTIC_HEAP as u64, region.base()), OPTIMISTIC_HEAP_SIZE as u64));
+                break;
+            }
+        }
+
+        let heap = heap.expect("Could not place optimistic heap");
+
+        debug!("Initial heap: {:?}", heap);
+
         // - create the initial page tables
 
+        // print out modules for now
+        info!("{:?}", info);
+
         // create the boot proto
-        let proto = Box::new(BootProto::from(boot_info));
+        let proto = Box::new(BootProto::create(info, heap.base()));
 
         // create a starting gdt
         let mut gdt = cpu::gdt::Table::new(vec![]);
         gdt.install();
+        // leak it
+        mem::forget(gdt);
     };
 
     unreachable!("bootstrap tried to return");

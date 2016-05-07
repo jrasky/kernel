@@ -5,9 +5,9 @@ use std::panic;
 
 use c;
 
-use cpu::stack::Stack;
-
 use cpu;
+
+use kernel_std::cpu::stack::Stack;
 
 // things that are clobbered by sysenter:
 // RIP, RSP, CS, SS

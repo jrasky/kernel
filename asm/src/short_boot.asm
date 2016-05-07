@@ -14,6 +14,11 @@ _start:
 
     ;; set up stack
     mov esp, _boot_stack
+    ;; align stack for arguments
+    sub esp, 8
+    and esp, -16
+    ;; make space for argumens
+    add esp, 8
 
     ;; push arguments
     push ebx

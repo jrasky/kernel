@@ -56,6 +56,7 @@ impl Memory {
 impl MemoryInner {
     #[inline]
     fn belongs(&self, ptr: *mut u8) -> bool {
+        //trace!("{:?}, {:?}, {}", ptr, self.slab.as_ptr(), self.slab.len());
         (ptr as usize) >= self.slab.as_ptr() as usize && (ptr as usize) < unsafe {self.slab.as_ptr().offset(self.slab.len() as isize)} as usize
     }
 

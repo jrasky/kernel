@@ -98,7 +98,7 @@ static int32_t parse_module(const struct multiboot_tag_module *tag, struct boot_
     if (kernel_info->modules == NULL)
       return error("Failed to allocate modules");
 
-    kernel_info->memory_map_capacity = 4;
+    kernel_info->modules_capacity = 4;
   } else if (kernel_info->modules_size == kernel_info->modules_capacity) {
     struct module *old_modules = kernel_info->modules;
 
@@ -116,10 +116,13 @@ static int32_t parse_module(const struct multiboot_tag_module *tag, struct boot_
 
   kernel_info->modules[kernel_info->modules_size].start = tag->mod_start;
   kernel_info->modules[kernel_info->modules_size].len = tag->mod_end - tag->mod_start;
-  kernel_info->modules[kernel_info->modules_size].cmdline_size = tag->size - sizeof(struct multiboot_tag_module);
+  // null-terminated
+  kernel_info->modules[kernel_info->modules_size].cmdline_size = tag->size - sizeof(struct multiboot_tag_module) - 1;
   kernel_info->modules[kernel_info->modules_size].cmdline = tag->cmdline;
 
   kernel_info->modules_size++;
+
+  return 0;
 }
 
 int32_t parse_multiboot_info(const struct multiboot_tag_fixed *info, struct boot_info *kernel_info) {
@@ -136,7 +139,7 @@ int32_t parse_multiboot_info(const struct multiboot_tag_fixed *info, struct boot
       // command line
       cmdline = (struct multiboot_tag_string *)tag;
       // multiboot_tag_string ends with a zero-size char array, so its size is just the header fields
-      kernel_info->command_line_size = cmdline->size - sizeof(struct multiboot_tag_string);
+      kernel_info->command_line_size = cmdline->size - sizeof(struct multiboot_tag_string) - 1; // null-terminated
       kernel_info->command_line = cmdline->string;
       break;
     case MULTIBOOT_TAG_TYPE_MMAP:

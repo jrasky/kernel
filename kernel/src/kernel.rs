@@ -160,9 +160,17 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
     point!(traces, "set up logging");
 
     // get boot proto out
-    let proto = BootProto::new(boot_proto).expect("Did not receive boot proto");
+    let proto = BootProto::parse(boot_proto).expect("Did not receive boot proto");
 
-    // now out of reserve memory
+    // set up allocator
+    unsafe {
+        memory::register(proto.optimistic_heap() as *mut u8, OPTIMISTIC_HEAP_SIZE);
+    }
+
+    // exit reserve memory
+    memory::exit_reserved();
+
+    point!(traces, "out of reserve memory");
 
     // set up cpu data structures and other settings
     // keep references around so we don't break things

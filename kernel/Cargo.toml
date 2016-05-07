@@ -10,7 +10,6 @@ crate-type = ["staticlib"]
 [dependencies]
 rlibc = "*"
 spin = "*"
-elfloader = "*"
 log = { path = "../log" }
 paging = { path = "../paging" }
 user = { path = "../user" }

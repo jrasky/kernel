@@ -27,6 +27,10 @@ _kernel_end = .;
     * (.rodata*)
 } > rodata AT> identity :rodata
 
+.note ALIGN(4K) : ALIGN(4K) {
+    *(.note*)
+} > rodata AT> identity :rodata
+
 . = .;
 
 _rodata_end = .;
@@ -50,5 +54,4 @@ _data_end = .;
 
 /DISCARD/ : {
     * (.gcc_except_table)
-    * (.note*)
 }

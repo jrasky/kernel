@@ -10,6 +10,7 @@ crate-type = ["staticlib"]
 
 [dependencies]
 rlibc = "*"
+elfloader = "*"
 log = { path = "../log" }
 kernel_std = { path = "../kernel_std" }
 serial = { path = "../serial" }

@@ -17,6 +17,7 @@ extern crate paging;
 #[macro_use]
 extern crate collections;
 extern crate memory;
+extern crate elfloader;
 
 use std::ptr::Shared;
 
@@ -94,23 +95,45 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
         // parse multiboot info
         let info = boot_c::parse_multiboot_info(boot_info);
 
-        // TODO here:
-        // - find the optimistic heap
-        let mut heap = None;
+        // find the optimistic heap
+        let mut heap: Option<Region> = None;
+        let mut pages = None;
+
+        // figure out a base address
+        let mut base = OPTIMISTIC_HEAP as u64;
+
+        for module in info.modules.iter() {
+            // don't place optimistic heap above any modules
+            base = cmp::max(base, align(module.memory.base() + module.memory.size(), 0x1000));
+        }
 
         for region in info.memory.available.iter() {
-            if region.base() + region.size() > OPTIMISTIC_HEAP as u64 &&
-                region.base() + region.size() - cmp::max(OPTIMISTIC_HEAP as u64, region.base()) >= OPTIMISTIC_HEAP_SIZE as u64
-            {
-                // region works for the optimistic heap
-                heap = Some(Region::new(cmp::max(OPTIMISTIC_HEAP as u64, region.base()), OPTIMISTIC_HEAP_SIZE as u64));
-                break;
+            if let Some(base) = heap {
+                // find another heap for initial page tables
+                if region.base() + region.size() > base.base() + base.size() &&
+                    region.base() + region.size() - cmp::max(base.base() + base.size(), region.base()) >= OPTIMISTIC_HEAP_SIZE as u64
+                {
+                    // region works for page heap
+                    pages = Some(Region::new(align(cmp::max(base.base() + base.size(), region.base()), 0x1000), OPTIMISTIC_HEAP_SIZE as u64));
+
+                    // done
+                    break;
+                }
+            } else {
+                if region.base() + region.size() > base &&
+                    region.base() + region.size() - cmp::max(base, region.base()) >= OPTIMISTIC_HEAP_SIZE as u64
+                {
+                    // region works for the optimistic heap
+                    heap = Some(Region::new(align(cmp::max(base, region.base()), 0x1000), OPTIMISTIC_HEAP_SIZE as u64));
+                }
             }
         }
 
         let heap = heap.expect("Could not place optimistic heap");
+        let pages = pages.expect("Could not place page tables");
 
         debug!("Initial heap: {:?}", heap);
+        debug!("Page tables: {:?}", pages);
 
         // - create the initial page tables
 

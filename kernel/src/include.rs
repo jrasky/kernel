@@ -21,7 +21,6 @@ pub use std::cmp;
 pub use std::str;
 pub use std::ptr;
 
-pub use elfloader::elf;
 pub use alloc::heap;
 
 pub use constants::*;

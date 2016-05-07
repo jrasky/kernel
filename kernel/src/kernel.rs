@@ -30,7 +30,6 @@ extern crate spin;
 extern crate alloc;
 #[macro_use]
 extern crate collections;
-extern crate elfloader;
 #[macro_use]
 extern crate log;
 extern crate paging;

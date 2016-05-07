@@ -8,6 +8,8 @@ SECTIONS {
         * (.text*)
     }
 
+    .note.gnu.build-id : { *(.note.gnu.build-id) }
+
     .rodata ALIGN(8) : ALIGN(8) {
         * (.rodata*)
     }
@@ -24,7 +26,6 @@ SECTIONS {
 
     /DISCARD/ : {
         * (.gcc_except_table)
-        * (.note*)
     }
 }
 

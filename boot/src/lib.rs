@@ -178,6 +178,8 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
                             // done with this module
                             break 'sections;
                         }
+
+                        base += 3 + (align(namesz, 4) / 4) as isize + (align(descsz, 4) / 4) as isize;
                     }
                 }
             }
@@ -191,7 +193,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
         gdt.install();
         // leak it
         mem::forget(gdt);
-    };
+    }
 
     unreachable!("bootstrap tried to return");
 }

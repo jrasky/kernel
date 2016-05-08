@@ -18,13 +18,19 @@ extern crate paging;
 extern crate collections;
 extern crate memory;
 extern crate elfloader;
+extern crate uuid;
 
 use std::ptr::Shared;
 
 use std::cmp;
 use std::mem;
+use std::slice;
+use std::ptr;
+use std::str;
 
 use alloc::boxed::Box;
+
+use uuid::Uuid;
 
 use constants::*;
 
@@ -139,6 +145,43 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
 
         // print out modules for now
         info!("{:?}", info);
+
+        // parse modules
+        for module in info.modules.iter() {
+            let bytes: &[u8] = slice::from_raw_parts(module.memory.base() as *const u8, module.memory.size() as usize);
+            let elf = elfloader::ElfBinary::new("module", bytes).expect("Failed to parse elf binary from module");
+            'sections: for section in elf.section_headers() {
+                if section.shtype == elfloader::elf::SHT_NOTE {
+                    // found note section
+                    let data = elf.section_data(section);
+                    let ptr = data.as_ptr() as *const u32;
+                    let mut base: isize = 0;
+                    loop {
+                        if base * 4 >= data.len() as isize {
+                            break;
+                        }
+
+                        let namesz = ptr::read(ptr.offset(base));
+                        let descsz = ptr::read(ptr.offset(base + 1));
+                        let ty = ptr::read(ptr.offset(base + 2));
+                        let data_ptr = ptr.offset(base + 3) as *const u8;
+                        let name = str::from_utf8(slice::from_raw_parts(data_ptr, namesz as usize - 1))
+                            .expect("Note name was not utf-8");
+                        let desc = slice::from_raw_parts(data_ptr.offset(align(namesz as isize, 4)), descsz as usize);
+                        if name == "GNU" && ty == 3 {
+                            if let Ok(id) = Uuid::from_bytes(desc) {
+                                info!("Module {} present", id.urn());
+                            } else {
+                                error!("Module with unknown build id: {:x}", ByteHex::from(desc));
+                            }
+
+                            // done with this module
+                            break 'sections;
+                        }
+                    }
+                }
+            }
+        }
 
         // create the boot proto
         let proto = Box::new(BootProto::create(info, heap.base()));

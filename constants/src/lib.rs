@@ -1,8 +1,15 @@
+#![feature(zero_one)]
 #![feature(reflect_marker)]
 #![feature(asm)]
 #![feature(const_fn)]
 #![no_std]
 extern crate core as std;
+
+use std::ops::*;
+use std::cmp::{Eq, Ord};
+use std::num::{One, Zero};
+
+use std::fmt;
 
 pub mod util;
 pub mod error;
@@ -68,23 +75,72 @@ pub const PAGE_ADDR_MASK: u64 = ((1 << CANONICAL_BITS) - 1) & !((1 << 12) - 1);
 #[allow(non_camel_case_types)]
 pub enum c_void {}
 
-#[inline]
-pub const fn align(n: u64, to: u64) -> u64 {
-    (n + to - 1) & !(to - 1)
+#[derive(Debug)]
+pub struct ByteHex<'a> {
+    slice: &'a [u8]
+}
+
+impl<'a> ByteHex<'a> {
+    pub const fn new(slice: &'a [u8]) -> ByteHex<'a> {
+        ByteHex {
+            slice: slice
+        }
+    }
+}
+
+impl<'a> From<&'a [u8]> for ByteHex<'a> {
+    fn from(slice: &'a [u8]) -> ByteHex<'a> {
+        ByteHex::new(slice)
+    }
+}
+
+impl<'a> fmt::Display for ByteHex<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::LowerHex::fmt(&self, f)
+    }
+}
+
+impl<'a> fmt::LowerHex for ByteHex<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for byte in self.slice.iter() {
+            try!(write!(f, "{:x}", byte));
+        }
+
+        Ok(())
+    }
+}
+
+impl<'a> fmt::UpperHex for ByteHex<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for byte in self.slice.iter() {
+            try!(write!(f, "{:X}", byte));
+        }
+
+        Ok(())
+    }
 }
 
 #[inline]
-pub const fn align_back(n: u64, to: u64) -> u64 {
-    n & !(to - 1)
+pub fn align<T>(n: T, to: T) -> T
+    where T: Add<Output=T> + Sub<Output=T> + BitAnd<Output=T> + Not<Output=T> + Copy + One {
+    (n + to - T::one()) & !(to - T::one())
 }
 
 #[inline]
-pub const fn is_aligned(n: u64, to: u64) -> bool {
-    n & (to - 1) == 0
+pub fn align_back<T>(n: T, to: T) -> T
+    where T: Sub<Output=T> + BitAnd<Output=T> + Not<Output=T> + One {
+    n & !(to - T::one())
 }
 
 #[inline]
-pub fn on_boundary(base: u64, end: u64, align_to: u64) -> bool {
+pub fn is_aligned<T>(n: T, to: T) -> bool
+    where T: Sub<Output=T> + BitAnd<Output=T> + Eq + One + Zero {
+    n & (to - T::one()) == T::zero()
+}
+
+#[inline]
+pub fn on_boundary<T>(base: T, end: T, align_to: T) -> bool
+    where T: Add<Output=T> + Sub<Output=T> + BitAnd<Output=T> + Not<Output=T> + Ord + Copy + One {
     align(base, align_to) <= align_back(end, align_to)
 }
 

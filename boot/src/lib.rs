@@ -278,6 +278,10 @@ unsafe fn test_sse() {
     if cpuid_d & 1 << 24 == 0 {
         panic!("No FXSAVE/FXRSTOR");
     }
+
+    if cpuid_c & 1 << 30 == 0 {
+        panic!("No RDRAND/RDSEED");
+    }
 }
 
 unsafe fn enable_sse() {

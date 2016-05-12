@@ -10,6 +10,8 @@ use std::cmp::{Eq, Ord};
 use std::num::{One, Zero};
 
 use std::fmt;
+use std::mem;
+use std::slice;
 
 pub mod util;
 pub mod error;
@@ -74,6 +76,16 @@ pub const PAGE_ADDR_MASK: u64 = ((1 << CANONICAL_BITS) - 1) & !((1 << 12) - 1);
 
 #[allow(non_camel_case_types)]
 pub enum c_void {}
+
+pub trait AsBytes: Copy {
+    fn as_raw_bytes(&self) -> &[u8] {
+        unsafe {
+            slice::from_raw_parts(self as *const _ as *const u8, mem::size_of::<Self>())
+        }
+    }
+}
+
+impl<T: Copy> AsBytes for T {}
 
 #[derive(Debug)]
 pub struct ByteHex<'a> {

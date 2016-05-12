@@ -34,3 +34,13 @@ pub unsafe fn read_port_byte(port: u16) -> u8 {
 pub unsafe fn write_port_byte(port: u16, byte: u8) {
     asm!("out dx, al" :: "{al}"(byte), "{dx}"(port) :: "intel");
 }
+
+pub fn random() -> u64 {
+    unsafe {
+        let num: u64;
+
+        asm!("rdrand $0" : "=i"(num) ::: "intel");
+
+        num
+    }
+}

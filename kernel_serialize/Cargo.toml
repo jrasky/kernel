@@ -1,0 +1,9 @@
+[package]
+name = "kernel_serialize"
+version = "0.1.0"
+authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
+
+[dependencies]
+uuid = "*"
+log = { path = "../log" }
+constants = { path = "../constants" }

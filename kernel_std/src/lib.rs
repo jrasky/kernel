@@ -13,10 +13,12 @@
 #![feature(unwind_attributes)]
 #![no_std]
 extern crate core as std;
+#[cfg(feature = "freestanding")]
 extern crate rlibc;
 extern crate constants;
 #[macro_use]
 extern crate log;
+#[cfg(feature = "freestanding")]
 extern crate memory;
 extern crate serial;
 extern crate alloc;
@@ -89,6 +91,7 @@ struct PanicInfo {
     line: u32
 }
 
+#[cfg(feature = "freestanding")]
 pub fn early_setup() {
     // set up the serial line
     serial::setup_serial();
@@ -98,7 +101,7 @@ pub fn early_setup() {
     log::set_reserve(Some(RESERVE));
 }
 
-#[cfg(not(test))]
+#[cfg(and(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 #[lang = "eh_personality"]
@@ -106,7 +109,7 @@ extern "C" fn eh_personality() {
     unreachable!("C++ exception code called")
 }
 
-#[cfg(not(test))]
+#[cfg(and(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 #[lang = "panic_fmt"]
@@ -143,7 +146,7 @@ pub extern "C" fn kernel_panic(msg: fmt::Arguments, file: &'static str, line: u3
     }
 }
 
-#[cfg(not(test))]
+#[cfg(and(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
@@ -161,7 +164,7 @@ fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     panic_halt();
 }
 
-#[cfg(not(test))]
+#[cfg(and(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
@@ -182,7 +185,7 @@ fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, l
     panic_halt();
 }
 
-#[cfg(not(test))]
+#[cfg(and(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 fn triple_panic(file: &'static str, line: u32) -> ! {
@@ -200,7 +203,7 @@ fn triple_panic(file: &'static str, line: u32) -> ! {
     panic_halt();
 }
 
-#[cfg(not(test))]
+#[cfg(and(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 fn panic_halt() -> ! {
@@ -213,7 +216,7 @@ fn panic_halt() -> ! {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(and(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 #[no_mangle]

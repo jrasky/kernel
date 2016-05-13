@@ -39,7 +39,7 @@ pub fn random() -> u64 {
     unsafe {
         let num: u64;
 
-        asm!("rdrand $0" : "=i"(num) ::: "intel");
+        asm!("rdrand $0" : "=r"(num) ::: "intel");
 
         num
     }

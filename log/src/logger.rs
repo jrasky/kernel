@@ -203,7 +203,7 @@ pub fn has_output() -> bool {
 }
 
 fn set_callback() {
-    static REF: &'static Fn(usize, &Location, &Display, &Display) = &log;
+    static REF: &'static (Fn(usize, &Location, &Display, &Display) + Send + Sync) = &log;
     log_abi::set_callback(REF);
 }
 

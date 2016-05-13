@@ -1,3 +1,4 @@
+#![feature(drop_types_in_const)]
 #![feature(macro_reexport)]
 #![allow(improper_ctypes)]
 #![feature(stmt_expr_attributes)]

@@ -1,12 +1,10 @@
-use std::fmt;
+use std::str::FromStr;
 
 use uuid::Uuid;
 
-use collections::String;
+use collections::{String, Vec};
 
-use alloc::raw_vec::RawVec;
-
-use super::Resource;
+use super::{Resource, ResourceData};
 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
@@ -27,6 +25,26 @@ pub struct Symbol {
     id: Uuid,
     name: String,
     version: u64,
-    program: Uuid,
+    program: Resource<Program>,
     offset: u64,
+}
+
+impl ResourceData for Program {
+    fn ty() -> Uuid {
+        Uuid::from_str("64ca5221-56e9-413b-8f3d-debf832d5d38").unwrap()
+    }
+
+    fn id(&self) -> Option<Uuid> {
+        Some(self.id)
+    }
+}
+
+impl ResourceData for Symbol {
+    fn ty() -> Uuid {
+        Uuid::from_str("18cf39e6-4507-4108-92cb-4b16f916bfda").unwrap()
+    }
+
+    fn id(&self) -> Option<Uuid> {
+        Some(self.id)
+    }
 }

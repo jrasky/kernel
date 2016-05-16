@@ -36,6 +36,14 @@ mod include;
 mod allocator;
 mod map;
 
+pub trait Error: Debug + Display + Reflect {
+    fn descripton(&self) -> &str;
+
+    fn cause(&self) -> Option<&Error> {
+        None
+    }
+}
+
 #[derive(Debug)]
 pub struct MemoryInfo {
     pub available: Vec<Region>,

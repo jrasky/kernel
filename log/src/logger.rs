@@ -29,6 +29,10 @@ pub struct Logger {
     lost: usize
 }
 
+// The logger struct is an internal singleton by design
+unsafe impl Send for Logger {}
+unsafe impl Sync for Logger {}
+
 impl Logger {
     #[cfg(any(all(feature = "log_any", debug_assertions), all(feature = "release_log_any", not(debug_assertions))))]
     pub const fn new() -> Logger {

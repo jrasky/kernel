@@ -19,6 +19,10 @@ struct Manager {
     free: *mut Block
 }
 
+// Manager is an internally-managed singleton
+unsafe impl Sync for Manager {}
+unsafe impl Send for Manager {}
+
 impl Manager {
     #[inline]
     const fn new() -> Manager {

@@ -30,6 +30,7 @@ pub use map::Map;
 
 use include::*;
 
+#[cfg(feature = "freestanding")]
 pub mod cpu;
 
 mod include;
@@ -105,11 +106,11 @@ pub fn early_setup() {
     serial::setup_serial();
 
     // set up the reserve logger
-    static RESERVE: &'static Fn(&log::Location, &Display, &Display) = &serial::reserve_log;
+    static RESERVE: &'static (Fn(&log::Location, &Display, &Display) + Send + Sync) = &serial::reserve_log;
     log::set_reserve(Some(RESERVE));
 }
 
-#[cfg(and(not(test), feature = "freestanding"))]
+#[cfg(all(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 #[lang = "eh_personality"]
@@ -117,7 +118,7 @@ extern "C" fn eh_personality() {
     unreachable!("C++ exception code called")
 }
 
-#[cfg(and(not(test), feature = "freestanding"))]
+#[cfg(all(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 #[lang = "panic_fmt"]
@@ -154,7 +155,7 @@ pub extern "C" fn kernel_panic(msg: fmt::Arguments, file: &'static str, line: u3
     }
 }
 
-#[cfg(and(not(test), feature = "freestanding"))]
+#[cfg(all(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
@@ -172,7 +173,7 @@ fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     panic_halt();
 }
 
-#[cfg(and(not(test), feature = "freestanding"))]
+#[cfg(all(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
@@ -193,7 +194,7 @@ fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, l
     panic_halt();
 }
 
-#[cfg(and(not(test), feature = "freestanding"))]
+#[cfg(all(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 fn triple_panic(file: &'static str, line: u32) -> ! {
@@ -211,7 +212,7 @@ fn triple_panic(file: &'static str, line: u32) -> ! {
     panic_halt();
 }
 
-#[cfg(and(not(test), feature = "freestanding"))]
+#[cfg(all(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 fn panic_halt() -> ! {
@@ -224,7 +225,7 @@ fn panic_halt() -> ! {
     }
 }
 
-#[cfg(and(not(test), feature = "freestanding"))]
+#[cfg(all(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
 #[no_mangle]

@@ -9,4 +9,6 @@ log = { path = "../log" }
 paging = { path = "../paging" }
 constants = { path = "../constants" }
 uuid = { version = "*", features = ["v4"] }
-corepack = { git = "https://github.com/jrasky/corepack" }
+corepack = { git = "https://github.com/jrasky/corepack", features = ["std"] }
+serde = { version = "*", git = "https://github.com/serde-rs/serde" }
+serde_macros = { version = "*", git = "https://github.com/serde-rs/serde" }

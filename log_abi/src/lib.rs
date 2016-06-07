@@ -12,7 +12,12 @@ mod include;
 
 use include::*;
 
-static CALLBACK: Mutex<Option<TraitObject>> = Mutex::new(None);
+static CALLBACK: Mutex<Option<TOWrapper>> = Mutex::new(None);
+
+// sshh rustc, I know what I'm doing
+struct TOWrapper(TraitObject);
+unsafe impl Sync for TOWrapper {}
+unsafe impl Send for TOWrapper {}
 
 pub struct Location {
     pub module_path: &'static str,
@@ -49,13 +54,13 @@ pub fn set_callback(func: &'static Fn(usize, &Location, &Display, &Display)) {
     unsafe {
         let trait_obj: TraitObject = mem::transmute(func);
         let mut callback = CALLBACK.lock();
-        *callback = Some(trait_obj);
+        *callback = Some(TOWrapper(trait_obj));
     }
 }
 
 unsafe fn get_callback() -> Option<&'static Fn(usize, &Location, &Display, &Display)> {
     if let Some(ref trait_ref) = *CALLBACK.lock() {
-        Some(mem::transmute(trait_ref.clone()))
+        Some(mem::transmute(trait_ref.0.clone()))
     } else {
         None
     }

@@ -10,7 +10,7 @@ extern crate constants;
 extern crate uuid;
 extern crate corepack;
 
-use std::io::{Read, Write};
+use std::io::{Read, Write, Seek, SeekFrom};
 use std::fmt::Display;
 use std::fs::File;
 use std::collections::HashMap;
@@ -42,7 +42,7 @@ struct ModuleWriter {
 
 // ModuleHeader heads the modules loaded by grub.
 // The actual data follows on the next page boundary.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct ModuleHeader {
     magic: [u8; 16], // 0af979b7-02c3-4ca6-b354-b709bec81199
     id: [u8; 16], // unique ID for this module
@@ -53,23 +53,23 @@ struct ModuleHeader {
 
 impl elfloader::ElfLoader for ModuleWriter {
     fn allocate(&mut self, base: elfloader::VAddr, size: usize, flags: elfloader::elf::ProgFlag) {
-        let mut new_file = File::create(format!("kernel-{}.mod", Uuid::new_v4().urn()))
+        let mut new_file = File::create(format!("target/kernel-{}.mod", Uuid::new_v4().hyphenated()))
             .expect("Failed to open file");
 
         let mut module_flags = 0;
 
-        if flags.0 & PF_X.0 {
-            module_flags &= 0x2;
+        if flags.0 & PF_X.0 == PF_X.0 {
+            module_flags |= 0x2;
         }
 
-        if flags.0 & PF_W.0 {
-            module_flags &= 0x1;
+        if flags.0 & PF_W.0 == PF_W.0 {
+            module_flags |= 0x1;
         }
 
         // create header structure
         let header = ModuleHeader {
-            magic: Uuid::parse_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap().as_bytes(),
-            id: Uuid::new_v4().as_bytes(),
+            magic: *Uuid::parse_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap().as_bytes(),
+            id: *Uuid::new_v4().as_bytes(),
             base: base as u64,
             flags: module_flags
         };
@@ -77,8 +77,9 @@ impl elfloader::ElfLoader for ModuleWriter {
         // encode and write it to a file
         let mut bytes = corepack::to_bytes(header).expect("Failed to encode module header");
         let pad_len = align(bytes.len() as u64, 0x1000); // pad to page-align
-        file.write_all(bytes).expect("Failed to write bytes to file");
-        file.set_len(pad_len).expect("Failed to pad out file to page");
+        new_file.write_all(bytes.as_slice()).expect("Failed to write bytes to file");
+        new_file.set_len(pad_len).expect("Failed to pad out file to page");
+        new_file.seek(SeekFrom::Start(pad_len)).expect("Failed to seek to end of file");
 
         self.files.insert(base, new_file);
     }

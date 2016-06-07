@@ -72,6 +72,17 @@ impl WatermarkBuilder {
     }
 }
 
+// ModuleHeader heads the modules loaded by grub.
+// The actual data follows on the next page boundary.
+#[derive(Debug)]
+struct ModuleHeader {
+    magic: [u8; 16], // 0af979b7-02c3-4ca6-b354-b709bec81199
+    id: [u8; 16], // unique ID for this module
+    base: u64, // base vaddr for this module
+    // size is already provided by grub
+    flags: u8 // write = 0x1, user = 0x2, execute = 0x4
+}
+
 #[no_mangle]
 pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     // early setup

@@ -8,3 +8,5 @@ elfloader = "*"
 log = { path = "../log" }
 paging = { path = "../paging" }
 constants = { path = "../constants" }
+uuid = { version = "*", features = ["v4"] }
+corepack = { git = "https://github.com/jrasky/corepack" }

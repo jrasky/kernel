@@ -1,18 +1,26 @@
+#![feature(custom_derive)]
+#![feature(plugin)]
 #![feature(const_fn)]
+#![plugin(serde_macros)]
 extern crate elfloader;
 #[macro_use]
 extern crate log;
 extern crate paging;
 extern crate constants;
+extern crate uuid;
+extern crate corepack;
 
 use std::io::{Read, Write};
 use std::fmt::Display;
 use std::fs::File;
+use std::collections::HashMap;
 
 use std::cmp;
 
 use elfloader::ElfBinary;
 use elfloader::elf::{PF_X, PF_W, PF_R};
+
+use uuid::Uuid;
 
 use constants::*;
 
@@ -24,6 +32,67 @@ impl log::Output for LogOutput {
             println!("{} {} at {}({}): {}", target, log::level_name(level), location.file, location.line, message);
         } else {
             println!("{} {}: {}", target, log::level_name(level), message);
+        }
+    }
+}
+
+struct ModuleWriter {
+    files: HashMap<elfloader::VAddr, File>
+}
+
+// ModuleHeader heads the modules loaded by grub.
+// The actual data follows on the next page boundary.
+#[derive(Debug, Serialize, Deserialize)]
+struct ModuleHeader {
+    magic: [u8; 16], // 0af979b7-02c3-4ca6-b354-b709bec81199
+    id: [u8; 16], // unique ID for this module
+    base: u64, // base vaddr for this module
+    // size is already provided by grub
+    flags: u8 // write = 0x1, execute = 0x2
+}
+
+impl elfloader::ElfLoader for ModuleWriter {
+    fn allocate(&mut self, base: elfloader::VAddr, size: usize, flags: elfloader::elf::ProgFlag) {
+        let mut new_file = File::create(format!("kernel-{}.mod", Uuid::new_v4().urn()))
+            .expect("Failed to open file");
+
+        let mut module_flags = 0;
+
+        if flags.0 & PF_X.0 {
+            module_flags &= 0x2;
+        }
+
+        if flags.0 & PF_W.0 {
+            module_flags &= 0x1;
+        }
+
+        // create header structure
+        let header = ModuleHeader {
+            magic: Uuid::parse_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap().as_bytes(),
+            id: Uuid::new_v4().as_bytes(),
+            base: base as u64,
+            flags: module_flags
+        };
+
+        // encode and write it to a file
+        let mut bytes = corepack::to_bytes(header).expect("Failed to encode module header");
+        let pad_len = align(bytes.len() as u64, 0x1000); // pad to page-align
+        file.write_all(bytes).expect("Failed to write bytes to file");
+        file.set_len(pad_len).expect("Failed to pad out file to page");
+
+        self.files.insert(base, new_file);
+    }
+
+    fn load(&mut self, base: elfloader::VAddr, region: &'static [u8]) {
+        let mut output = self.files.get_mut(&base).expect("Allocate not called before load");
+        output.write_all(region).expect("Failed to write out region to file");
+    }
+}
+
+impl ModuleWriter {
+    fn new() -> ModuleWriter {
+        ModuleWriter {
+            files: HashMap::new()
         }
     }
 }
@@ -57,98 +126,9 @@ fn main() {
 
     let elf = ElfBinary::new("stage1.elf", buf.as_slice()).expect("Failed to parse stage 1 file");
 
-    debug!("Geting program headers");
+    debug!("Writing out sections to files");
+    let mut loader = ModuleWriter::new();
+    elf.load(&mut loader);
 
-    let mut max_paddr = 0x200000;
-
-    for ref phdr in elf.program_headers() {
-        if phdr.flags.0 & PF_R.0 == PF_R.0 && phdr.memsz > 0 {
-            let segment = paging::Segment::new(
-                phdr.paddr as usize, phdr.vaddr as usize, phdr.memsz as usize,
-                phdr.flags.0 & PF_W.0 == PF_W.0,
-                false, // user
-                phdr.flags.0 & PF_X.0 == PF_X.0,
-                false); // global
-
-            trace!("Inserting segment: {:?}", segment);
-
-            max_paddr = cmp::max(max_paddr, align(phdr.paddr as usize + phdr.memsz as usize, 0x200000));
-
-            segments.push(segment.clone());
-
-            assert!(layout.insert(segment), "Failed to insert segment");
-        }
-    }
-
-    trace!("Max paddr: 0x{:x}", max_paddr);
-
-    // optimistically insert a 2-MB segment immediately following max_paddr
-    let segment = paging::Segment::new(
-        max_paddr, HEAP_BEGIN, 0x200000,
-        true, // write
-        false, // user
-        false, // execute
-        false, // global
-    );
-
-    trace!("Inserting segment: {:?}", segment);
-    segments.push(segment.clone());
-    assert!(layout.insert(segment), "Failed to insert heap segment");
-
-    debug!("Creating tables");
-
-    let (address, tables) = layout.build_relative(PAGE_TABLES_OFFSET);
-
-    trace!("Giant table address: 0x{:x}", address);
-
-    debug!("Getting raw tables");
-
-    let mut segment_buffer: Vec<u8> = vec![];
-
-    for segment in segments.iter() {
-        segment_buffer.extend(segment.get_raw().into_iter());
-    }
-
-    debug!("Writing output");
-
-    let mut raw_output = File::create(RAW_OUTPUT).expect("Failed to open raw output file");
-
-    raw_output.write_all(tables.as_slice()).expect("Failed to write bytes to output");
-
-    let mut seg_output = File::create(SEG_OUTPUT).expect("Failed to open seg output file");
-
-    seg_output.write_all(segment_buffer.as_slice()).expect("Failed to write segments to output");
-
-    let mut asm_output = File::create(ASM_OUTPUT).expect("Failed to open asm output file");
-
-    write!(asm_output, concat!(
-        "    global _gen_load_page_tables\n",
-        "    global _gen_segments_size\n",
-        "    global _gen_max_paddr\n",
-        "    global _gen_page_tables\n",
-        "    global _gen_segments\n",
-
-        "    section .gen_pages\n",
-        "    incbin \"{}\"\n",
-
-        "    section .gen_data\n",
-        "_gen_segments_size:\n",
-        "    dq {}\n",
-        "_gen_max_paddr:\n",
-        "    dq {}\n",
-        "_gen_page_tables:\n",
-        "    dq {}\n",
-        "_gen_segments:\n",
-        "    incbin \"{}\"\n",
-
-        "    section .gen_text\n",
-        "    bits 32\n",
-        "_gen_load_page_tables:\n",
-        "    mov eax, 0x{:x}\n",
-        "    mov cr3, eax\n",
-        "    ret\n"),
-             RAW_OUTPUT, segments.len(), max_paddr, address, SEG_OUTPUT, address)
-        .expect("Failed to write asm to output");
-
-    info!("Created page tables at offset 0x{:x}", PAGE_TABLES_OFFSET);
+    // done
 }

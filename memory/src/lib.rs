@@ -108,6 +108,8 @@ impl Manager {
     unsafe fn allocate(&self, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
         try!(self.enabled());
 
+        trace!("Allocate 0x{:x} with align 0x{:x}", size, align);
+
         if size == 0 {
             warn!("Tried to allocate zero bytes");
             Err(MemoryError::EmptyAllocation)

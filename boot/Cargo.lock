@@ -3,29 +3,45 @@ name = "boot"
 version = "0.1.0"
 dependencies = [
  "constants 0.1.0",
- "elfloader 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)",
- "gcc 0.3.27 (registry+https://github.com/rust-lang/crates.io-index)",
+ "corepack 0.1.0 (git+https://github.com/jrasky/corepack)",
+ "gcc 0.3.28 (registry+https://github.com/rust-lang/crates.io-index)",
  "kernel_std 0.1.0",
  "log 0.1.0",
  "memory 0.1.0",
  "paging 0.1.0",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 0.7.8 (git+https://github.com/serde-rs/serde)",
+ "serde_macros 0.7.8 (git+https://github.com/serde-rs/serde)",
  "serial 0.1.0",
  "uuid 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
+
+[[package]]
+name = "aster"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "byteorder"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "constants"
 version = "0.1.0"
 
 [[package]]
-name = "elfloader"
-version = "0.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+name = "corepack"
+version = "0.1.0"
+source = "git+https://github.com/jrasky/corepack#63121404a606b5e4e62cdf1c808aca20104b9bbe"
+dependencies = [
+ "byteorder 0.5.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "serde 0.7.8 (git+https://github.com/serde-rs/serde)",
+]
 
 [[package]]
 name = "gcc"
-version = "0.3.27"
+version = "0.3.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
@@ -46,7 +62,7 @@ dependencies = [
  "constants 0.1.0",
  "log_abi 0.1.0",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "spin 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "spin 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -55,7 +71,7 @@ version = "0.1.0"
 dependencies = [
  "constants 0.1.0",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "spin 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "spin 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -64,7 +80,7 @@ version = "0.1.0"
 dependencies = [
  "constants 0.1.0",
  "log_abi 0.1.0",
- "spin 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
+ "spin 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -78,9 +94,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "quasi"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "quasi_codegen"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "aster 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "quasi_macros"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "quasi_codegen 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "rlibc"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "serde"
+version = "0.7.8"
+source = "git+https://github.com/serde-rs/serde#58fa30200708cd1ccc91d2bbea0b620f69b5397b"
+
+[[package]]
+name = "serde_codegen"
+version = "0.7.8"
+source = "git+https://github.com/serde-rs/serde#58fa30200708cd1ccc91d2bbea0b620f69b5397b"
+dependencies = [
+ "aster 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "quasi 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "quasi_macros 0.11.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "serde_macros"
+version = "0.7.8"
+source = "git+https://github.com/serde-rs/serde#58fa30200708cd1ccc91d2bbea0b620f69b5397b"
+dependencies = [
+ "serde_codegen 0.7.8 (git+https://github.com/serde-rs/serde)",
+]
 
 [[package]]
 name = "serial"
@@ -92,7 +152,7 @@ dependencies = [
 
 [[package]]
 name = "spin"
-version = "0.3.5"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]

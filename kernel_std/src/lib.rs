@@ -94,6 +94,7 @@ struct BootSlice<T> {
     phantom: PhantomData<T>
 }
 
+#[cfg(feature = "freestanding")]
 struct PanicInfo {
     msg: Option<fmt::Arguments<'static>>,
     file: &'static str,
@@ -230,9 +231,7 @@ fn panic_halt() -> ! {
 #[inline(never)]
 #[no_mangle]
 #[allow(non_snake_case)]
-#[unwind]
-#[lang = "eh_unwind_resume"]
-pub fn _Unwind_Resume() {
+pub extern "C" fn _Unwind_Resume() {
     unreachable!("C++ exception code called");
 }
 

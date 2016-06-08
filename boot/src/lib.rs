@@ -1,9 +1,12 @@
+#![feature(custom_derive)]
+#![feature(plugin)]
 #![feature(shared)]
 #![feature(unsafe_no_drop_flag)]
 #![feature(alloc)]
 #![feature(collections)]
 #![feature(heap_api)]
 #![feature(asm)]
+#![plugin(serde_macros)]
 #![no_std]
 extern crate core as std;
 extern crate alloc;
@@ -17,10 +20,11 @@ extern crate paging;
 #[macro_use]
 extern crate collections;
 extern crate memory;
-extern crate elfloader;
 extern crate uuid;
+extern crate corepack;
 
 use std::ptr::Shared;
+use std::str::FromStr;
 
 use std::cmp;
 use std::mem;
@@ -74,12 +78,12 @@ impl WatermarkBuilder {
 
 // ModuleHeader heads the modules loaded by grub.
 // The actual data follows on the next page boundary.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct ModuleHeader {
     magic: [u8; 16], // 0af979b7-02c3-4ca6-b354-b709bec81199
     id: [u8; 16], // unique ID for this module
     base: u64, // base vaddr for this module
-    // size is already provided by grub
+    size: u64, // memory size of the module
     flags: u8 // write = 0x1, user = 0x2, execute = 0x4
 }
 
@@ -160,40 +164,15 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
         // parse modules
         for module in info.modules.iter() {
             let bytes: &[u8] = slice::from_raw_parts(module.memory.base() as *const u8, module.memory.size() as usize);
-            let elf = elfloader::ElfBinary::new("module", bytes).expect("Failed to parse elf binary from module");
-            'sections: for section in elf.section_headers() {
-                if section.shtype == elfloader::elf::SHT_NOTE {
-                    // found note section
-                    let data = elf.section_data(section);
-                    let ptr = data.as_ptr() as *const u32;
-                    let mut base: isize = 0;
-                    loop {
-                        if base * 4 >= data.len() as isize {
-                            break;
-                        }
 
-                        let namesz = ptr::read(ptr.offset(base));
-                        let descsz = ptr::read(ptr.offset(base + 1));
-                        let ty = ptr::read(ptr.offset(base + 2));
-                        let data_ptr = ptr.offset(base + 3) as *const u8;
-                        let name = str::from_utf8(slice::from_raw_parts(data_ptr, namesz as usize - 1))
-                            .expect("Note name was not utf-8");
-                        let desc = slice::from_raw_parts(data_ptr.offset(align(namesz as isize, 4)), descsz as usize);
-                        if name == "GNU" && ty == 3 {
-                            if let Ok(id) = Uuid::from_bytes(desc) {
-                                info!("Module {} present", id.urn());
-                            } else {
-                                error!("Module with unknown build id: {:x}", ByteHex::from(desc));
-                            }
-
-                            // done with this module
-                            break 'sections;
-                        }
-
-                        base += 3 + (align(namesz, 4) / 4) as isize + (align(descsz, 4) / 4) as isize;
-                    }
-                }
+            let header: ModuleHeader = corepack::from_bytes(bytes).expect("Failed to decode module header");
+            if Uuid::from_bytes(&header.magic).expect("Failed to decode magic") != 
+                Uuid::from_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap()
+            {
+                panic!("Provided module had invalid magic number");
             }
+
+            debug!("Found module {}", Uuid::from_bytes(&header.id).expect("Failed to decode id"));
         }
 
         // create the boot proto
@@ -290,9 +269,9 @@ unsafe fn test_sse() {
         panic!("No FXSAVE/FXRSTOR");
     }
 
-    if cpuid_c & 1 << 30 == 0 {
-        panic!("No RDRAND/RDSEED");
-    }
+    //if cpuid_c & 1 << 30 == 0 {
+    //    panic!("No RDRAND/RDSEED");
+    //}
 }
 
 unsafe fn enable_sse() {

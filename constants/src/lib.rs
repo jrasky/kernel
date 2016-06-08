@@ -70,6 +70,7 @@ pub const STAGE1_ELF: &'static str = "target/stage1.elf";
 pub const RAW_OUTPUT: &'static str = "target/gen/page_tables.bin";
 pub const SEG_OUTPUT: &'static str = "target/gen/segments.bin";
 pub const ASM_OUTPUT: &'static str = "target/gen/page_tables.asm";
+pub const MODULE_PREFIX: &'static str = "target/modules";
 
 pub const CANONICAL_BITS: usize = 48;
 pub const PAGE_ADDR_MASK: u64 = ((1 << CANONICAL_BITS) - 1) & !((1 << 12) - 1);

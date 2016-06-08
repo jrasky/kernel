@@ -22,6 +22,7 @@ extern crate collections;
 extern crate memory;
 extern crate uuid;
 extern crate corepack;
+extern crate serde;
 
 use std::ptr::Shared;
 use std::str::FromStr;
@@ -37,6 +38,8 @@ use alloc::boxed::Box;
 use uuid::Uuid;
 
 use constants::*;
+
+use serde::Deserialize;
 
 use kernel_std::*;
 
@@ -84,7 +87,8 @@ struct ModuleHeader {
     id: [u8; 16], // unique ID for this module
     base: u64, // base vaddr for this module
     size: u64, // memory size of the module
-    flags: u8 // write = 0x1, user = 0x2, execute = 0x4
+    write: bool,
+    execute: bool,
 }
 
 #[no_mangle]
@@ -112,78 +116,101 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     // enable memory
     memory::enable();
 
-    unsafe {
-        // parse multiboot info
-        let info = boot_c::parse_multiboot_info(boot_info);
+    // parse multiboot info
+    let info = unsafe {boot_c::parse_multiboot_info(boot_info)};
 
-        // find the optimistic heap
-        let mut heap: Option<Region> = None;
-        let mut pages = None;
+    // find the optimistic heap
+    let mut heap: Option<Region> = None;
+    let mut pages = None;
 
-        // figure out a base address
-        let mut base = OPTIMISTIC_HEAP as u64;
+    // figure out a base address
+    let mut base = OPTIMISTIC_HEAP as u64;
 
-        for module in info.modules.iter() {
-            // don't place optimistic heap above any modules
-            base = cmp::max(base, align(module.memory.base() + module.memory.size(), 0x1000));
-        }
-
-        for region in info.memory.available.iter() {
-            if let Some(base) = heap {
-                // find another heap for initial page tables
-                if region.base() + region.size() > base.base() + base.size() &&
-                    region.base() + region.size() - cmp::max(base.base() + base.size(), region.base()) >= OPTIMISTIC_HEAP_SIZE as u64
-                {
-                    // region works for page heap
-                    pages = Some(Region::new(align(cmp::max(base.base() + base.size(), region.base()), 0x1000), OPTIMISTIC_HEAP_SIZE as u64));
-
-                    // done
-                    break;
-                }
-            } else {
-                if region.base() + region.size() > base &&
-                    region.base() + region.size() - cmp::max(base, region.base()) >= OPTIMISTIC_HEAP_SIZE as u64
-                {
-                    // region works for the optimistic heap
-                    heap = Some(Region::new(align(cmp::max(base, region.base()), 0x1000), OPTIMISTIC_HEAP_SIZE as u64));
-                }
-            }
-        }
-
-        let heap = heap.expect("Could not place optimistic heap");
-        let pages = pages.expect("Could not place page tables");
-
-        debug!("Initial heap: {:?}", heap);
-        debug!("Page tables: {:?}", pages);
-
-        // - create the initial page tables
-
-        // print out modules for now
-        info!("{:?}", info);
-
-        // parse modules
-        for module in info.modules.iter() {
-            let bytes: &[u8] = slice::from_raw_parts(module.memory.base() as *const u8, module.memory.size() as usize);
-
-            let header: ModuleHeader = corepack::from_bytes(bytes).expect("Failed to decode module header");
-            if Uuid::from_bytes(&header.magic).expect("Failed to decode magic") != 
-                Uuid::from_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap()
-            {
-                panic!("Provided module had invalid magic number");
-            }
-
-            debug!("Found module {}", Uuid::from_bytes(&header.id).expect("Failed to decode id"));
-        }
-
-        // create the boot proto
-        let proto = Box::new(BootProto::create(info, heap.base()));
-
-        // create a starting gdt
-        let mut gdt = cpu::gdt::Table::new(vec![]);
-        gdt.install();
-        // leak it
-        mem::forget(gdt);
+    for module in info.modules.iter() {
+        // don't place optimistic heap above any modules
+        base = cmp::max(base, align(module.memory.base() + module.memory.size(), 0x1000));
     }
+
+    for region in info.memory.available.iter() {
+        if let Some(base) = heap {
+            // find another heap for initial page tables
+            if region.base() + region.size() > base.base() + base.size() &&
+                region.base() + region.size() - cmp::max(base.base() + base.size(), region.base()) >= OPTIMISTIC_HEAP_SIZE as u64
+            {
+                // region works for page heap
+                pages = Some(Region::new(align(cmp::max(base.base() + base.size(), region.base()), 0x1000), OPTIMISTIC_HEAP_SIZE as u64));
+
+                // done
+                break;
+            }
+        } else {
+            if region.base() + region.size() > base &&
+                region.base() + region.size() - cmp::max(base, region.base()) >= OPTIMISTIC_HEAP_SIZE as u64
+            {
+                // region works for the optimistic heap
+                heap = Some(Region::new(align(cmp::max(base, region.base()), 0x1000), OPTIMISTIC_HEAP_SIZE as u64));
+            }
+        }
+    }
+
+    let heap = heap.expect("Could not place optimistic heap");
+    let pages = pages.expect("Could not place page tables");
+
+    debug!("Initial heap: {:?}", heap);
+    debug!("Page tables: {:?}", pages);
+
+    // - create the initial page tables
+
+    // print out modules for now
+    info!("{:?}", info);
+
+    // parse modules
+    for module in info.modules.iter() {
+        let bytes: &[u8] = unsafe {slice::from_raw_parts(module.memory.base() as *const u8, module.memory.size() as usize)};
+        let header: ModuleHeader;
+        let mut position: usize = 0;
+
+        // future rust will make this lifetime boundary unnecessary
+        {
+            let mut de = corepack::Deserializer::new(|buf| {
+                if position + buf.len() > bytes.len() {
+                    Err(corepack::error::Error::simple(corepack::error::Reason::EndOfStream))
+                } else {
+                    unsafe {
+                        ptr::copy(bytes.as_ptr().offset(position as isize), buf.as_mut_ptr(), buf.len());
+                    }
+
+                    position += buf.len();
+                    Ok(())
+                }
+            });
+
+            header = ModuleHeader::deserialize(&mut de).expect("Failed to decode module header");
+        }
+
+        if Uuid::from_bytes(&header.magic).expect("Failed to decode magic") != 
+            Uuid::from_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap()
+        {
+            panic!("Provided module had invalid magic number");
+        }
+
+        debug!("Found module {}", Uuid::from_bytes(&header.id).expect("Failed to decode id"));
+        position = align(position, 0x1000);
+        if position < bytes.len() {
+            debug!("0x{:x} bytes included", bytes.len() - position);
+        }
+    }
+
+    // create the boot proto
+    let proto = Box::new(BootProto::create(info, heap.base()));
+
+    // create a starting gdt
+    let mut gdt = cpu::gdt::Table::new(vec![]);
+    unsafe {
+        gdt.install();
+    }
+    // leak it
+    mem::forget(gdt);
 
     unreachable!("bootstrap tried to return");
 }

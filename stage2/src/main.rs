@@ -45,8 +45,9 @@ struct ModuleHeader {
     magic: [u8; 16], // 0af979b7-02c3-4ca6-b354-b709bec81199
     id: [u8; 16], // unique ID for this module
     base: u64, // base vaddr for this module
-    size: u64,
-    flags: u8 // write = 0x1, execute = 0x2
+    size: u64, // virtual memory size
+    write: bool,
+    execute: bool
 }
 
 impl elfloader::ElfLoader for ModuleWriter {
@@ -57,23 +58,14 @@ impl elfloader::ElfLoader for ModuleWriter {
         let mut new_file = File::create(format!("{}/kernel-{}.mod", MODULE_PREFIX, id.hyphenated()))
             .expect("Failed to open file");
 
-        let mut module_flags = 0;
-
-        if flags.0 & PF_X.0 == PF_X.0 {
-            module_flags |= 0x2;
-        }
-
-        if flags.0 & PF_W.0 == PF_W.0 {
-            module_flags |= 0x1;
-        }
-
         // create header structure
         let header = ModuleHeader {
             magic: *Uuid::parse_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap().as_bytes(),
             id: *id.as_bytes(),
             size: size as u64,
             base: base as u64,
-            flags: module_flags
+            write: flags.0 & PF_W.0 == PF_W.0,
+            execute: flags.0 & PF_X.0 == PF_X.0,
         };
 
         // encode and write it to a file

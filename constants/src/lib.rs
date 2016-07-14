@@ -1,4 +1,3 @@
-#![feature(zero_one)]
 #![feature(reflect_marker)]
 #![feature(asm)]
 #![feature(const_fn)]
@@ -7,7 +6,6 @@ extern crate core as std;
 
 use std::ops::*;
 use std::cmp::{Eq, Ord};
-use std::num::{One, Zero};
 
 use std::fmt;
 use std::mem;
@@ -85,6 +83,33 @@ pub trait AsBytes: Copy {
         }
     }
 }
+
+pub trait One {
+    fn one() -> Self;
+}
+
+pub trait Zero {
+    fn zero() -> Self;
+}
+
+macro_rules! one_zero_impl {
+    ($($t:ty),*) => ($(
+        impl One for $t {
+            #[inline]
+            fn one() -> Self {
+                1
+            }
+        }
+
+        impl Zero for $t {
+            fn zero() -> Self {
+                0
+            }
+        }
+    )*)
+}
+
+one_zero_impl!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
 impl<T: Copy> AsBytes for T {}
 

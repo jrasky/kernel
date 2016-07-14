@@ -58,7 +58,7 @@ impl Table {
         #[cfg(not(test))]
         asm!("lgdt $0;"
              :: "i"(&REGISTER)
-             : "{ax}"
+             : "ax"
              : "intel");
 
         // only reload segments if we're already in long mode
@@ -74,7 +74,7 @@ impl Table {
             "mov es, ax;",
             "mov fs, ax;",
             "mov gs, ax;",
-            "mov ss, ax;") ::: "{ax}" : "intel");
+            "mov ss, ax;") ::: "ax" : "intel");
 
         // no change in code or data selector from setup in bootstrap
         // so no far jump to reload selector

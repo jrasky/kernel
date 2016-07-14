@@ -237,7 +237,7 @@ unsafe fn test_cpuid() {
 unsafe fn test_long_mode() {
     let mut cpuid_a: u32 = 0x80000000;
 
-    asm!("cpuid" : "={eax}"(cpuid_a) : "{eax}"(cpuid_a) : "{ebx}", "{ecx}", "{edx}" : "intel");
+    asm!("cpuid" : "={eax}"(cpuid_a) : "{eax}"(cpuid_a) : "ebx", "ecx", "edx" : "intel");
 
     if cpuid_a < 0x80000001 {
         panic!("No long mode available");
@@ -246,7 +246,7 @@ unsafe fn test_long_mode() {
     cpuid_a = 0x80000001;
     let cpuid_d: u32;
 
-    asm!("cpuid" : "={edx}"(cpuid_d) : "{eax}"(cpuid_a) : "{ebx}", "{ecx}" : "intel");
+    asm!("cpuid" : "={edx}"(cpuid_d) : "{eax}"(cpuid_a) : "ebx", "ecx" : "intel");
 
     if cpuid_d & 1 << 29 == 0 {
         panic!("No long mode available");
@@ -266,7 +266,7 @@ unsafe fn test_sse() {
     let cpuid_c: u32;
     let cpuid_d: u32;
 
-    asm!("cpuid" : "={ecx}"(cpuid_c), "={edx}"(cpuid_d) : "{eax}"(cpuid_a) : "{eax}", "{ebx}" : "intel");
+    asm!("cpuid" : "={ecx}"(cpuid_c), "={edx}"(cpuid_d) : "{eax}"(cpuid_a) : "eax", "ebx" : "intel");
 
     if cpuid_d & 1 << 25 == 0 {
         panic!("No SSE");

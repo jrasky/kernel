@@ -42,27 +42,16 @@ impl Table {
     }
 
     pub unsafe fn install(&mut self) {
-        // lgdt needs a compile-time constant location
-        // we basically have to use a mutable static for this
-        static mut REGISTER: Register = Register {
-            size: 0,
-            base: 0
-        };
-
         // write out to buffer
         let res = self.save();
 
-        // save info in static
-        REGISTER.size = res.size;
-        REGISTER.base = res.base;
-
-        debug!("{:?}", REGISTER);
+        debug!("{:?}", res);
 
         // load the new global descriptor table,
         // and reload the segments
         #[cfg(not(test))]
         asm!("lgdt $0;"
-             :: "i"(&REGISTER)
+             :: "*m"(&res)
              :: "intel");
 
         // only reload segments if we're already in long mode

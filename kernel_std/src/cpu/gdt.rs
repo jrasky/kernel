@@ -1,7 +1,6 @@
 use include::*;
 
 #[repr(packed)]
-#[derive(Debug)]
 struct Register {
     size: u16,
     base: u64
@@ -10,6 +9,12 @@ struct Register {
 pub struct Table {
     buffer: RawVec<u8>,
     tss: Vec<super::tss::Segment>
+}
+
+impl Debug for Register {
+    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+        write!(fmt, "Register {{ size: 0x{:x}, base: 0x{:x} }}", self.size, self.base)
+    }
 }
 
 impl Drop for Table {
@@ -58,8 +63,7 @@ impl Table {
         #[cfg(not(test))]
         asm!("lgdt $0;"
              :: "i"(&REGISTER)
-             : "ax"
-             : "intel");
+             :: "intel");
 
         // only reload segments if we're already in long mode
         #[cfg(not(test))]

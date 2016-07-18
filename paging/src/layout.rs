@@ -101,12 +101,15 @@ impl Layout {
     unsafe fn get_or_create(&mut self, builder: &mut Base, table: &mut Table,
                             idx: usize, level: Level) -> Shared<Table> {
         let entry = table.read(idx);
+        debug!("Table entry: {:?}", entry);
         if entry.present() {
+            trace!("Entry already exists");
             Shared::new(
                 builder.to_virtual(entry.address(level))
                     .expect("Failed to translate physical address to table address")
                     as *mut Table)
         } else {
+            trace!("Creating new table");
             let new_table = builder.new_table();
             let info = Info {
                 page: false,
@@ -131,7 +134,7 @@ impl Layout {
 
     fn build_page_at(&mut self, table: &mut Table, base: u64,
                      size: FrameSize, idx: usize, segment: &Segment) {
-        let subframe_base = base + (idx as u64 * size.get_pagesize() as u64);
+        let subframe_base = base + (idx as u64 * size.get_pagesize().get_size());
 
         let info = Info {
             page: true,
@@ -163,14 +166,14 @@ impl Layout {
         trace!("0x{:x}, 0x{:x}, {:?}", idx, vbase, size);
 
         if let Some(next) = size.get_next() {
-            let subframe_base = base + (idx as u64 * size.get_pagesize() as u64);
+            let subframe_base = base + (idx as u64 * size.get_pagesize().get_size());
             trace!("c 0x{:x}, 0x{:x}", subframe_base, vbase);
-            if !is_aligned(segment.get_physical_subframe(subframe_base), size.get_pagesize() as u64)
-                || (vbase >= subframe_base && vbase - subframe_base >= next.get_pagesize() as u64)
-                || subframe_base - vbase >= next.get_pagesize() as u64
-                || ((subframe_base + size.get_pagesize() as u64) > segment.virtual_base() + segment.size()
-                    && (subframe_base + size.get_pagesize() as u64 - segment.virtual_base() - segment.size())
-                    > next.get_pagesize() as u64)
+            if !is_aligned(segment.get_physical_subframe(subframe_base), size.get_pagesize().into())
+                || (vbase >= subframe_base && vbase - subframe_base >= next.get_pagesize().into())
+                || subframe_base - vbase >= next.get_pagesize().into()
+                || ((subframe_base + size.get_pagesize().get_size()) > segment.virtual_base() + segment.size()
+                    && (subframe_base + size.get_pagesize().get_size() - segment.virtual_base() - segment.size())
+                    > next.get_pagesize().get_size())
             {
                 // build a new table here
                 let new_table = unsafe {self.get_or_create(builder, table, idx, match next {
@@ -196,10 +199,10 @@ impl Layout {
         let min_idx = if base > segment.virtual_base() {
             0
         } else {
-            align_back(segment.virtual_base() - base, size.get_pagesize() as u64) >> size.get_pagesize().get_shift()
+            align_back(segment.virtual_base() - base, size.get_pagesize().into()) >> size.get_pagesize().get_shift()
         };
 
-        let max_idx = cmp::min((align(segment.virtual_base() + segment.size() - base, size.get_pagesize() as u64)
+        let max_idx = cmp::min((align(segment.virtual_base() + segment.size() - base, size.get_pagesize().into())
                                 >> size.get_pagesize().get_shift()), 0x200);
 
         trace!("0x{:x}, 0x{:x}", min_idx, max_idx);
@@ -218,7 +221,7 @@ impl Layout {
 
         if max_idx > min_idx + 1 {
             if !self.build_edge(builder, table, base, size, max_idx as usize - 1,
-                                align_back(segment.virtual_base() + segment.size() as u64 - 1, size.get_pagesize() as u64), segment) {
+                                align_back(segment.virtual_base() + segment.size() - 1, size.get_pagesize().into()), segment) {
                 self.build_page_at(table, base, size, max_idx as usize - 1, segment);
             }
         }
@@ -226,7 +229,7 @@ impl Layout {
         trace!("b 0x{:x}, 0x{:x}, {:?}", table as *mut _ as u64, base, size);
 
         for idx in min_idx + 1..max_idx - 1 {
-            if !self.build_edge(builder, table, base, size, idx as usize, base + (idx as u64 * size.get_pagesize() as u64), segment) {
+            if !self.build_edge(builder, table, base, size, idx as usize, base + (idx as u64 * size.get_pagesize().get_size()), segment) {
                 self.build_page_at(table, base, size, idx as usize, segment)
             }
         }
@@ -249,14 +252,14 @@ impl Layout {
         for segment in segments {
             trace!("Building segment {:?}", segment);
 
-            let min_idx = align_back(segment.virtual_base(), FrameSize::Giant as u64)
+            let min_idx = align_back(segment.virtual_base(), FrameSize::Giant.into())
                 >> FrameSize::Giant.get_shift();
-            let max_idx = align(segment.virtual_base() + segment.size(), FrameSize::Giant as u64)
+            let max_idx = align(segment.virtual_base() + segment.size(), FrameSize::Giant.into())
                 >> FrameSize::Giant.get_shift();
 
             for idx in min_idx..max_idx {
                 let table = self.get_or_create(builder, root.as_mut().unwrap(), idx as usize, Level::PML4E);
-                self.build_part(builder, table.as_mut().unwrap(), idx as u64 * FrameSize::Giant as u64, FrameSize::Giant, &segment);
+                self.build_part(builder, table.as_mut().unwrap(), idx as u64 * FrameSize::Giant.get_size(), FrameSize::Giant, &segment);
             }
         }
     }

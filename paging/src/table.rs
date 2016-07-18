@@ -8,7 +8,7 @@ pub enum Level {
     PTE
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 #[repr(C, packed)]
 pub struct Entry {
     entry: u64
@@ -113,6 +113,48 @@ impl From<Info> for Entry {
         Entry {
             entry: entry
         }
+    }
+}
+
+impl Debug for Entry {
+    fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
+        try!(write!(fmt, "Entry {{ entry: 0x{:x}, (", self.entry));
+
+        if self.present() {
+            try!(write!(fmt, "present"));
+
+            if self.write() {
+                try!(write!(fmt, ", write"));
+            }
+
+            if self.user() {
+                try!(write!(fmt, ", user"));
+            }
+
+            if self.execute() {
+                try!(write!(fmt, ", execute"));
+            }
+
+            if self.write_through() {
+                try!(write!(fmt, ", write-through"));
+            }
+
+            if self.cache_disable() {
+                try!(write!(fmt, ", cache-disable"));
+            }
+
+            if self.accessed() {
+                try!(write!(fmt, ", accessed"));
+            }
+
+            if self.dirty() {
+                try!(write!(fmt, ", dirty"));
+            }
+        } else {
+            try!(write!(fmt, "not present"));
+        }
+
+        write!(fmt, ") }}")
     }
 }
 

@@ -49,11 +49,9 @@ pub const MULTIBOOT_MEMORY_CODE: u32 = 20;
 pub const U64_BYTES: usize = 0x8;
 pub const FXSAVE_SIZE: usize = 0x200;
 
-#[cfg(target_pointer_width = "64")]
-pub const CORE_BEGIN: usize = 0xffffffff80000000;
+pub const CORE_BEGIN: u64 = 0xffffffff80000000;
 pub const CORE_SIZE: usize = 0x80000000;
-#[cfg(target_pointer_width = "64")]
-pub const HEAP_BEGIN: usize = 0xffffffff81000000;
+pub const HEAP_BEGIN: u64 = 0xffffffff81000000;
 pub const IDENTITY_END: usize = 0x200000;
 pub const OPTIMISTIC_HEAP: usize = 0x200000;
 pub const OPTIMISTIC_HEAP_SIZE: usize = 0x200000;
@@ -83,33 +81,6 @@ pub trait AsBytes: Copy {
         }
     }
 }
-
-pub trait One {
-    fn one() -> Self;
-}
-
-pub trait Zero {
-    fn zero() -> Self;
-}
-
-macro_rules! one_zero_impl {
-    ($($t:ty),*) => ($(
-        impl One for $t {
-            #[inline]
-            fn one() -> Self {
-                1
-            }
-        }
-
-        impl Zero for $t {
-            fn zero() -> Self {
-                0
-            }
-        }
-    )*)
-}
-
-one_zero_impl!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
 impl<T: Copy> AsBytes for T {}
 
@@ -160,25 +131,25 @@ impl<'a> fmt::UpperHex for ByteHex<'a> {
 
 #[inline]
 pub fn align<T>(n: T, to: T) -> T
-    where T: Add<Output=T> + Sub<Output=T> + BitAnd<Output=T> + Not<Output=T> + Copy + One {
-    (n + to - T::one()) & !(to - T::one())
+    where T: Add<Output=T> + Sub<Output=T> + BitAnd<Output=T> + Not<Output=T> + Copy + From<u8> {
+    (n + to - 1.into()) & !(to - 1.into())
 }
 
 #[inline]
 pub fn align_back<T>(n: T, to: T) -> T
-    where T: Sub<Output=T> + BitAnd<Output=T> + Not<Output=T> + One {
-    n & !(to - T::one())
+    where T: Sub<Output=T> + BitAnd<Output=T> + Not<Output=T> + From<u8> {
+    n & !(to - 1.into())
 }
 
 #[inline]
 pub fn is_aligned<T>(n: T, to: T) -> bool
-    where T: Sub<Output=T> + BitAnd<Output=T> + Eq + One + Zero {
-    n & (to - T::one()) == T::zero()
+    where T: Sub<Output=T> + BitAnd<Output=T> + Eq + From<u8> {
+    n & (to - 1.into()) == 0.into()
 }
 
 #[inline]
 pub fn on_boundary<T>(base: T, end: T, align_to: T) -> bool
-    where T: Add<Output=T> + Sub<Output=T> + BitAnd<Output=T> + Not<Output=T> + Ord + Copy + One {
+    where T: Add<Output=T> + Sub<Output=T> + BitAnd<Output=T> + Not<Output=T> + Ord + Copy + From<u8> {
     align(base, align_to) <= align_back(end, align_to)
 }
 

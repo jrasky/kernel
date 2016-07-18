@@ -1,5 +1,5 @@
 pub use std::marker::{Reflect, PhantomData};
-pub use std::fmt::{Debug, Display, Write};
+pub use std::fmt::{Debug, Display, Write, Formatter};
 pub use std::ptr::{Unique, Shared};
 pub use std::sync::atomic::{Ordering, AtomicUsize, AtomicBool};
 pub use std::cell::{UnsafeCell, RefCell};

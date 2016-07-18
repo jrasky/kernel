@@ -61,6 +61,8 @@ impl paging::Base for WatermarkBuilder {
 
     unsafe fn new_table(&mut self) -> Shared<paging::Table> {
         let ptr = Shared::new(self.end as *mut paging::Table);
+        ptr::write(*ptr, paging::Table::new());
+        trace!("Watermark table at {:?}", *ptr);
         self.end += mem::size_of::<paging::Table>() as u64;
         ptr
     }
@@ -71,7 +73,7 @@ impl paging::Base for WatermarkBuilder {
 }
 
 impl WatermarkBuilder {
-    fn new(base: u64) -> WatermarkBuilder {
+    unsafe fn new(base: u64) -> WatermarkBuilder {
         WatermarkBuilder {
             base: base,
             end: base
@@ -98,6 +100,11 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
 
     debug!("reached bootstrap");
 
+    // test magic
+    if magic != MULTIBOOT2_MAGIC {
+        panic!("Incorrect magic for multiboot: 0x{:x}", magic);
+    }
+
     unsafe {
         // test for cpu features
         test_cpuid();
@@ -106,11 +113,6 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
 
         // set up SSE
         enable_sse();
-    }
-
-    // test magic
-    if magic != MULTIBOOT2_MAGIC {
-        panic!("Incorrect magic for multiboot: 0x{:x}", magic);
     }
 
     // enable memory
@@ -160,9 +162,19 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     debug!("Page tables: {:?}", pages);
 
     // - create the initial page tables
+    let mut layout = paging::Layout::new();
 
-    // print out modules for now
-    info!("{:?}", info);
+    // add the identity mapping
+    layout.insert(paging::Segment::new(
+        0x0, 0x0, IDENTITY_END as u64,
+        true, false, true, false
+    ));
+
+    // add the optimistic heap
+    layout.insert(paging::Segment::new(
+        heap.base(), HEAP_BEGIN, OPTIMISTIC_HEAP_SIZE as u64,
+        true, false, false, false
+    ));
 
     // parse modules
     for module in info.modules.iter() {
@@ -198,18 +210,55 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
         position = align(position, 0x1000);
         if position < bytes.len() {
             debug!("0x{:x} bytes included", bytes.len() - position);
+
+            // include region in page tables
+            let segment = paging::Segment::new(module.memory.base() + position as u64, header.base, header.size,
+                                               header.write, false, header.execute, false);
+            layout.insert(segment);
         }
     }
+
+    // create the builder
+    let mut builder = unsafe {
+        WatermarkBuilder::new(pages.base())
+    };
+
+    // build things out
+    let page_tables = layout.build(&mut builder);
+
+    debug!("built page tables at 0x{:x}", page_tables);
 
     // create the boot proto
     let proto = Box::new(BootProto::create(info, heap.base()));
 
     // create a starting gdt
     let mut gdt = cpu::gdt::Table::new(vec![]);
+
     unsafe {
+        // enable paging
+
+        // load 64-bit GDT
         gdt.install();
+
+        trace!("installed gdt");
+
+        // update selectors
+        asm!(concat!(
+            "mov ax, 0x10;",
+            "mov ds, ax;",
+            "mov es, ax;",
+            "mov fs, ax;",
+            "mov gs, ax;",
+            "mov ss, ax;")
+             ::: "ax" : "intel"
+        );
+
+        trace!("updated selectors");
+
+        // far jump to long mode
     }
-    // leak it
+
+    // leak gdt here to avoid trying to reclaim that space
     mem::forget(gdt);
 
     unreachable!("bootstrap tried to return");

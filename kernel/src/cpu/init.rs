@@ -1,4 +1,8 @@
-use include::*;
+use std::sync::atomic::{Ordering, AtomicBool};
+
+use constants::*;
+
+use kernel_std::cpu::{gdt, tss, idt, stack};
 
 use cpu;
 use c;

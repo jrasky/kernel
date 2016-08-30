@@ -1,4 +1,21 @@
-use include::*;
+use std::ptr::Shared;
+use std::cell::{UnsafeCell, RefCell};
+
+use alloc::boxed::Box;
+use alloc::arc::{Arc, Weak};
+
+use collections::{BTreeMap, VecDeque, Vec};
+
+use std::ptr;
+use std::mem;
+
+use alloc::heap;
+
+use spin::Mutex;
+
+use constants::*;
+
+use kernel_std::{Region, Allocator};
 
 use paging::{Layout, Segment, Table, Base};
 
@@ -650,7 +667,7 @@ impl ManagerInner {
     fn new() -> ManagerInner {
         // don't map things before the heap
         let mut core = Task::process(PrivilegeLevel::CORE, _dummy_entry, unsafe { Stack::kernel() },
-                                     Region::new(HEAP_BEGIN as u64, (CORE_SIZE - (HEAP_BEGIN - CORE_BEGIN)) as u64));
+                                     Region::new(HEAP_BEGIN, (CORE_SIZE as u64 - (HEAP_BEGIN - CORE_BEGIN))));
 
         // core is initially busy
         core.set_busy(true);

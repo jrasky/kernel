@@ -1,4 +1,4 @@
-use include::*;
+use std::ptr;
 
 #[allow(dead_code)]
 // may be used more later

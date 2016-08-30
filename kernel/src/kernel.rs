@@ -1,16 +1,7 @@
-#![feature(unicode)]
-#![feature(decode_utf16)]
 #![feature(shared)]
-#![feature(btree_range)]
-#![feature(collections_bound)]
-#![feature(reflect_marker)]
-#![feature(unsafe_no_drop_flag)]
 #![feature(lang_items)]
-#![feature(ptr_as_ref)]
 #![feature(const_fn)]
 #![feature(unique)]
-#![feature(oom)]
-#![feature(reflect_marker)]
 #![feature(alloc)]
 #![feature(collections)]
 #![feature(unwind_attributes)]
@@ -18,8 +9,6 @@
 #![feature(asm)]
 #![feature(heap_api)]
 #![cfg_attr(not(test), no_std)]
-#![cfg_attr(not(test), no_start)]
-#![cfg_attr(not(test), no_main)]
 #![cfg_attr(test, feature(std_panic))]
 #![cfg_attr(test, feature(recover))]
 #[cfg(not(test))]
@@ -38,12 +27,14 @@ extern crate constants;
 extern crate serial;
 extern crate memory;
 
-use include::*;
-use c::*;
+use alloc::boxed::Box;
 
-mod include;
+use std::mem;
+
+use kernel_std::BootProto;
+use constants::*;
+
 mod c;
-mod error;
 mod cpu;
 mod logging;
 
@@ -127,9 +118,6 @@ unsafe extern "C" fn test_task_2() -> ! {
 
 #[cfg(not(test))]
 unsafe extern "C" fn serial_handler() -> ! {
-
-    let mut next_char: u32 = 0;
-
     loop {
         info!("Got character: {:?}", serial::read());
         user::release();
@@ -163,7 +151,8 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
 
     // set up allocator
     unsafe {
-        memory::register(proto.optimistic_heap() as *mut u8, OPTIMISTIC_HEAP_SIZE);
+        memory::register(proto.optimistic_heap() as *mut u8, OPTIMISTIC_HEAP_SIZE)
+            .expect("Failed to register optimistic heap");
     }
 
     // exit reserve memory

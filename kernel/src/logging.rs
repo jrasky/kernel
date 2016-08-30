@@ -1,4 +1,10 @@
-use include::*;
+use std::fmt::{Display, Write};
+
+use collections::{Vec, String};
+
+use std::fmt;
+
+use log;
 
 pub struct Logger<T: Write> {
     inner: T,

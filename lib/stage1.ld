@@ -10,7 +10,7 @@
  */
 INCLUDE lib/headers.ld
 
-ENTRY(_lstart)
+ENTRY(kernel_main)
 
 SECTIONS {
     /* start at one MiB */

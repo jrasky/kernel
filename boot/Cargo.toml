@@ -18,8 +18,8 @@ constants = { path = "../constants" }
 paging = { path = "../paging" }
 memory = { path = "../memory" }
 corepack = { version = "*", git = "https://github.com/jrasky/corepack" }
-serde = { version = "*", git = "https://github.com/serde-rs/serde", default-features = false }
-serde_macros = { version = "*", git = "https://github.com/serde-rs/serde" }
+serde = { version = "*", default-features = false }
+serde_derive = "*"
 
 [build-dependencies]
 gcc = "*"

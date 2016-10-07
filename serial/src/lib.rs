@@ -1,6 +1,3 @@
-#![feature(shared)]
-#![feature(unique)]
-#![feature(reflect_marker)]
 #![feature(unicode)]
 #![feature(const_fn)]
 #![no_std]
@@ -9,9 +6,14 @@ extern crate rustc_unicode;
 extern crate constants;
 extern crate log_abi;
 
-mod include;
+use std::fmt::{Display, Write};
 
-use include::*;
+use std::fmt;
+use std::str;
+
+pub use constants::*;
+
+pub use log_abi::Location;
 
 pub struct Writer;
 
@@ -49,7 +51,7 @@ fn write_byte(byte: u8) {
 }
 
 pub fn read() -> char {
-    let mut buf = [0, 0, 0, 0];
+    let mut buf = [0; 4];
     buf[0] = read_byte();
 
     let width = rustc_unicode::str::utf8_char_width(buf[0]);
@@ -68,8 +70,10 @@ pub fn read() -> char {
 }
 
 pub fn write(ch: char) {
-    for byte in ch.encode_utf8() {
-        write_byte(byte);
+    let mut buf = [0; 4];
+
+    for byte in ch.encode_utf8(&mut buf).as_bytes().iter() {
+        write_byte(*byte);
     }
 }
 

@@ -96,8 +96,8 @@ impl Table {
 
         #[cfg(not(test))]
         asm!("lidt $0"
-             :: "i"(&REGISTER)
-             :: "intel");
+             :: "m"(&REGISTER)
+             :: "intel", "volatile");
     }
 
     pub unsafe fn early_install(descriptors: &[Descriptor], mut idt: *mut u64) {
@@ -124,8 +124,8 @@ impl Table {
         // install IDT
         #[cfg(not(test))]
         asm!("lidt $0"
-             :: "i"(&REGISTER)
-             :: "intel");
+             :: "m"(&REGISTER)
+             :: "intel", "volatile");
     }
 
     unsafe fn save(&mut self) -> Register {

@@ -1,12 +1,10 @@
-#![feature(custom_derive)]
+#![feature(rustc_macro)]
 #![feature(plugin)]
 #![feature(shared)]
-#![feature(unsafe_no_drop_flag)]
 #![feature(alloc)]
 #![feature(collections)]
 #![feature(heap_api)]
 #![feature(asm)]
-#![plugin(serde_macros)]
 #![no_std]
 extern crate core as std;
 extern crate alloc;
@@ -23,6 +21,8 @@ extern crate memory;
 extern crate uuid;
 extern crate corepack;
 extern crate serde;
+#[macro_use]
+extern crate serde_derive;
 
 use std::ptr::Shared;
 use std::str::FromStr;

@@ -11,6 +11,7 @@
 #![feature(const_fn)]
 #![feature(asm)]
 #![feature(unwind_attributes)]
+#![feature(rustc_macro)]
 #![no_std]
 extern crate core as std;
 #[cfg(feature = "freestanding")]
@@ -24,6 +25,10 @@ extern crate serial;
 extern crate alloc;
 #[macro_use]
 extern crate collections;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde;
+extern crate uuid;
 
 pub use allocator::{Region, Allocator};
 pub use map::Map;
@@ -36,6 +41,8 @@ pub mod cpu;
 mod include;
 mod allocator;
 mod map;
+
+pub mod module;
 
 pub trait Error: Debug + Display + Reflect {
     fn descripton(&self) -> &str;

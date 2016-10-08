@@ -34,6 +34,11 @@ impl Region {
     }
 
     #[inline]
+    pub fn end(&self) -> u64 {
+        self.base + self.size
+    }
+
+    #[inline]
     pub fn size(&self) -> u64 {
         self.size
     }

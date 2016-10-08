@@ -99,10 +99,10 @@ mod c {
         }
     }
 
-    pub unsafe fn create_boot_info(multiboot_info: *const c_void) -> BootInfo {
+    pub fn create_boot_info(multiboot_info: *const c_void) -> BootInfo {
         let mut info = BootInfo::new();
 
-        if parse_multiboot_info(multiboot_info, &mut info.inner) != 0 {
+        if unsafe {parse_multiboot_info(multiboot_info, &mut info.inner)} != 0 {
             c_panic();
         }
 
@@ -115,7 +115,7 @@ mod c {
         unsafe {
             let mut size: isize = 0;
 
-            while ptr::read(error_message.offset(size)) != 0 {
+            while ptr::read_volatile(error_message.offset(size)) != 0 {
                 size += 1;
             }
 
@@ -261,7 +261,7 @@ fn parse_modules(modules: &[c::module]) -> Vec<ModuleInfo> {
     module_info
 }
 
-pub unsafe fn parse_multiboot_info(multiboot_info: *const c_void) -> BootInfo {
+pub fn parse_multiboot_info(multiboot_info: *const c_void) -> BootInfo {
     trace!("creating boot info");
 
     let info = c::create_boot_info(multiboot_info);
@@ -276,17 +276,20 @@ pub unsafe fn parse_multiboot_info(multiboot_info: *const c_void) -> BootInfo {
         panic!("Did not get any modules in boot info");
     }
 
-    let memory_info = parse_memory_info(slice::from_raw_parts(info.memory_map, info.memory_map_size));
+    let memory_info = parse_memory_info(
+        unsafe {slice::from_raw_parts(info.memory_map, info.memory_map_size)});
 
     trace!("parsed memory info");
 
-    let module_info = parse_modules(slice::from_raw_parts(info.modules, info.modules_size));
+    let module_info = parse_modules(
+        unsafe {slice::from_raw_parts(info.modules, info.modules_size)});
 
     trace!("parsed module info");
 
     let log_level = if !info.command_line.is_null() {
         // parse command line
-        parse_command_line(slice::from_raw_parts(info.command_line, info.command_line_size))
+        parse_command_line(
+            unsafe {slice::from_raw_parts(info.command_line, info.command_line_size)})
     } else {
         None
     };

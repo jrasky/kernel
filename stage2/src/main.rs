@@ -1,7 +1,6 @@
-#![feature(custom_derive)]
+#![feature(rustc_macro)]
 #![feature(plugin)]
 #![feature(const_fn)]
-#![plugin(serde_macros)]
 extern crate elfloader;
 #[macro_use]
 extern crate log;
@@ -9,14 +8,22 @@ extern crate paging;
 extern crate constants;
 extern crate uuid;
 extern crate corepack;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate kernel_std;
 
-use std::io::{Read, Write, Seek, SeekFrom};
+use std::io::{Read, Write};
 use std::fmt::Display;
 use std::fs::File;
 use std::collections::HashMap;
 
 use elfloader::ElfBinary;
 use elfloader::elf::{PF_X, PF_W};
+
+use kernel_std::module::{Module, Text, Header};
+
+use serde::Serialize;
 
 use uuid::Uuid;
 
@@ -35,59 +42,57 @@ impl log::Output for LogOutput {
 }
 
 struct ModuleWriter {
-    files: HashMap<elfloader::VAddr, File>
+    module: Module,
+    id_map: HashMap<u64, Uuid>
 }
 
-// ModuleHeader heads the modules loaded by grub.
-// The actual data follows on the next page boundary.
-#[derive(Serialize, Deserialize, Debug)]
-struct ModuleHeader {
-    magic: [u8; 16], // 0af979b7-02c3-4ca6-b354-b709bec81199
-    id: [u8; 16], // unique ID for this module
-    base: u64, // base vaddr for this module
-    size: u64, // virtual memory size
-    write: bool,
-    execute: bool
-}
 
 impl elfloader::ElfLoader for ModuleWriter {
     fn allocate(&mut self, base: elfloader::VAddr, size: usize, flags: elfloader::elf::ProgFlag) {
         let id = Uuid::new_v4();
-        debug!("New module kernel-{}.mod", id.hyphenated());
-
-        let mut new_file = File::create(format!("{}/kernel-{}.mod", MODULE_PREFIX, id.hyphenated()))
-            .expect("Failed to open file");
+        debug!("New text {}", id.hyphenated());
 
         // create header structure
-        let header = ModuleHeader {
-            magic: *Uuid::parse_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap().as_bytes(),
-            id: *id.as_bytes(),
+        let header = Header {
+            id: id.clone(),
+            base: Some(base as u64),
             size: size as u64,
-            base: base as u64,
             write: flags.0 & PF_W.0 == PF_W.0,
             execute: flags.0 & PF_X.0 == PF_X.0,
+            depends: vec![]
         };
 
-        // encode and write it to a file
-        let bytes = corepack::to_bytes(header).expect("Failed to encode module header");
-        let pad_len = align(bytes.len() as u64, 0x1000); // pad to page-align
-        new_file.write_all(bytes.as_slice()).expect("Failed to write bytes to file");
-        new_file.set_len(pad_len).expect("Failed to pad out file to page");
-        new_file.seek(SeekFrom::Start(pad_len)).expect("Failed to seek to end of file");
+        // add it to our list
+        self.module.headers.push(header);
 
-        self.files.insert(base, new_file);
+        // add this id to the id_map
+        self.id_map.insert(base as u64, id);
     }
 
     fn load(&mut self, base: elfloader::VAddr, region: &'static [u8]) {
-        let mut output = self.files.get_mut(&base).expect("Allocate not called before load");
-        output.write_all(region).expect("Failed to write out region to file");
+        // allocate should be called bofer load
+        let id = self.id_map.get(&(base as u64)).unwrap().clone();
+
+        let text = Text {
+            id: id,
+            data: Vec::from(region)
+        };
+
+        self.module.texts.push(text);
     }
 }
 
 impl ModuleWriter {
     fn new() -> ModuleWriter {
         ModuleWriter {
-            files: HashMap::new()
+            module: Module {
+                magic: Uuid::parse_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap(),
+                id: Uuid::new_v4(),
+                ports: vec![],
+                headers: vec![],
+                texts: vec![]
+            },
+            id_map: HashMap::new()
         }
     }
 }
@@ -108,6 +113,19 @@ fn main() {
     debug!("Writing out sections to files");
     let mut loader = ModuleWriter::new();
     elf.load(&mut loader);
+
+    // serialize everything
+
+    // create the file
+    let mut file = File::create(format!("{}/kernel.mod", MODULE_PREFIX))
+        .expect("Failed to create output file");
+
+    let mut ser = corepack::Serializer::new(|buf| {
+        file.write_all(buf).expect("Failed to write output");
+        Ok(())
+    });
+
+    loader.module.serialize(&mut ser).expect("Failed to serialize module");
 
     // done
 }

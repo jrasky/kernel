@@ -36,10 +36,12 @@ struct boot_info {
   struct module *modules;
 };
 
-extern void *__rust_allocate(size_t size, size_t align);
-extern void *__rust_reallocate(void *ptr, size_t old_size, size_t size, size_t align);
+extern void *__rust_allocate(size_t size, size_t align)
+  __attribute__((malloc, alloc_size(1), alloc_align(2)));
+extern void *__rust_reallocate(void *ptr, size_t old_size, size_t size, size_t align)
+  __attribute__((alloc_size(3), alloc_align(4)));
 
-const char *error_message = "";
+const volatile char *error_message = "";
 
 static inline int error(const char *message) {
   error_message = message;

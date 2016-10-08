@@ -42,6 +42,7 @@ use constants::*;
 use serde::Deserialize;
 
 use kernel_std::*;
+use kernel_std::module::Module;
 
 mod boot_c;
 
@@ -81,21 +82,9 @@ impl WatermarkBuilder {
     }
 }
 
-// ModuleHeader heads the modules loaded by grub.
-// The actual data follows on the next page boundary.
-#[derive(Debug, Serialize, Deserialize)]
-struct ModuleHeader {
-    magic: [u8; 16], // 0af979b7-02c3-4ca6-b354-b709bec81199
-    id: [u8; 16], // unique ID for this module
-    base: u64, // base vaddr for this module
-    size: u64, // memory size of the module
-    write: bool,
-    execute: bool,
-}
-
 #[no_mangle]
 pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
-    // early setup
+    /*****************EARLY SETUP*****************/
     kernel_std::early_setup();
 
     debug!("reached bootstrap");
@@ -105,52 +94,78 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
         panic!("Incorrect magic for multiboot: 0x{:x}", magic);
     }
 
-    unsafe {
-        // test for cpu features
-        test_cpuid();
-        test_long_mode();
-        test_sse();
+    // test for cpu features
+    test_cpuid();
+    test_long_mode();
+    test_sse();
 
-        // set up SSE
-        enable_sse();
-    }
+    // set up SSE
+    enable_sse();
 
     // enable memory
     memory::enable();
 
     // parse multiboot info
-    let info = unsafe {boot_c::parse_multiboot_info(boot_info)};
+    let info = boot_c::parse_multiboot_info(boot_info);
+
+    /*****************PARSE MEMORY*****************/
 
     // find the optimistic heap
     let mut heap: Option<Region> = None;
     let mut pages = None;
 
-    // figure out a base address
+    // figure out a base address for the optimistic heap
+    // place it at at least OPTIMISTC_HEAP
     let mut base = OPTIMISTIC_HEAP as u64;
 
     for module in info.modules.iter() {
-        // don't place optimistic heap above any modules
-        base = cmp::max(base, align(module.memory.base() + module.memory.size(), 0x1000));
+        // don't place optimistic heap under any modules
+        base = cmp::max(base, align(module.memory.end(), 0x1000));
     }
 
     for region in info.memory.available.iter() {
-        if let Some(base) = heap {
-            // find another heap for initial page tables
-            if region.base() + region.size() > base.base() + base.size() &&
-                region.base() + region.size() - cmp::max(base.base() + base.size(), region.base()) >= OPTIMISTIC_HEAP_SIZE as u64
-            {
-                // region works for page heap
-                pages = Some(Region::new(align(cmp::max(base.base() + base.size(), region.base()), 0x1000), OPTIMISTIC_HEAP_SIZE as u64));
+        if let Some(heap) = heap {
+            // clamp and align the endpoints
 
-                // done
-                break;
+            // don't place the start under the end of the already chosen optimistic heap
+            let start = align(cmp::max(heap.end(), region.base()), 0x1000);
+            let end = align_back(region.end(), 0x1000);
+
+            // ensure we still have a valid region
+            if start > end {
+                // skip this region
+                continue;
             }
+
+            // variants are ensured above
+            let size = end - start;
+
+            if size >= OPTIMISTIC_HEAP_SIZE as u64 {
+                // save as the place we'll build the page tables
+                pages = Some(Region::new(start, OPTIMISTIC_HEAP_SIZE as u64));
+
+                // and we're done!
+                break;
+            } 
         } else {
-            if region.base() + region.size() > base &&
-                region.base() + region.size() - cmp::max(base, region.base()) >= OPTIMISTIC_HEAP_SIZE as u64
-            {
-                // region works for the optimistic heap
-                heap = Some(Region::new(align(cmp::max(base, region.base()), 0x1000), OPTIMISTIC_HEAP_SIZE as u64));
+            // we have to consider a modified region, that's clamped and aligned to our requirements
+
+            // clamp and align the start
+            let start = align(cmp::max(base, region.base()), 0x1000);
+            let end = align_back(region.end(), 0x1000);
+
+            // start might end up being before end if the region ends before OPTIMISTC_HEAP
+            if start > end {
+                // skip this region
+                continue;
+            }
+
+            // we've already ensured that end is >= start
+            let size = end - start;
+
+            if size >= OPTIMISTIC_HEAP_SIZE as u64 {
+                // use OPTIMISTIC_HEAP_SIZE instead of size because we only care to use that much
+                heap = Some(Region::new(start, OPTIMISTIC_HEAP_SIZE as u64));
             }
         }
     }
@@ -161,62 +176,55 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     debug!("Initial heap: {:?}", heap);
     debug!("Page tables: {:?}", pages);
 
+    /*****************PARSE MODULES*****************/
+
     // - create the initial page tables
     let mut layout = paging::Layout::new();
 
     // add the identity mapping
-    layout.insert(paging::Segment::new(
+    assert!(layout.insert(paging::Segment::new(
         0x0, 0x0, IDENTITY_END as u64,
         true, false, true, false
-    ));
+
+    )), "failed to add segment");
 
     // add the optimistic heap
-    layout.insert(paging::Segment::new(
+    assert!(layout.insert(paging::Segment::new(
         heap.base(), HEAP_BEGIN, OPTIMISTIC_HEAP_SIZE as u64,
         true, false, false, false
-    ));
+    )), "failed to add segment");
 
     // parse modules
     for module in info.modules.iter() {
-        let bytes: &[u8] = unsafe {slice::from_raw_parts(module.memory.base() as *const u8, module.memory.size() as usize)};
-        let header: ModuleHeader;
-        let mut position: usize = 0;
+        let bytes: &[u8] = unsafe {
+            slice::from_raw_parts(module.memory.base() as *const u8, module.memory.size() as usize)
+        };
+        let module: Module = corepack::from_bytes(bytes).expect("Failed to decode module");
 
-        // future rust will make this lifetime boundary unnecessary
-        {
-            let mut de = corepack::Deserializer::new(|buf| {
-                if position + buf.len() > bytes.len() {
-                    Err(corepack::error::Error::simple(corepack::error::Reason::EndOfStream))
-                } else {
-                    unsafe {
-                        ptr::copy(bytes.as_ptr().offset(position as isize), buf.as_mut_ptr(), buf.len());
-                    }
-
-                    position += buf.len();
-                    Ok(())
-                }
-            });
-
-            header = ModuleHeader::deserialize(&mut de).expect("Failed to decode module header");
-        }
-
-        if Uuid::from_bytes(&header.magic).expect("Failed to decode magic") != 
-            Uuid::from_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap()
+        if module.magic != Uuid::from_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap()
         {
             panic!("Provided module had invalid magic number");
         }
 
-        debug!("Found module {}", Uuid::from_bytes(&header.id).expect("Failed to decode id"));
+        debug!("Found module {}", module.id);
+
         position = align(position, 0x1000);
         if position < bytes.len() {
             debug!("0x{:x} bytes included", bytes.len() - position);
 
             // include region in page tables
-            let segment = paging::Segment::new(module.memory.base() + position as u64, header.base, header.size,
-                                               header.write, false, header.execute, false);
-            layout.insert(segment);
+            let segment = paging::Segment::new(
+                module.memory.base() + position as u64,
+                header.base,
+                header.size,
+                header.write, false, header.execute, false
+            );
+
+            assert!(layout.insert(segment), "failed to insert segment");
         }
     }
+
+    /*****************LOAD KERNEL*****************/
 
     // create the builder
     let mut builder = unsafe {
@@ -254,9 +262,14 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
         );
 
         trace!("updated selectors");
-
-        // far jump to long mode
     }
+
+    /*****************JUMP TO KERNEL*****************/
+    unsafe {
+        // TODO: jump to kernel
+    }
+
+    // The following code should never run
 
     // leak gdt here to avoid trying to reclaim that space
     mem::forget(gdt);
@@ -264,29 +277,33 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     unreachable!("bootstrap tried to return");
 }
 
-unsafe fn test_cpuid() {
-    let mut flags: u32;
-    let test_flags: u32;
+fn test_cpuid() {
+    unsafe {
+        let mut flags: u32;
+        let test_flags: u32;
 
-    asm!("pushfd; pop $0" : "=r"(flags) ::: "intel");
+        asm!("pushfd; pop $0" : "=r"(flags) ::: "intel");
 
-    test_flags = flags;
+        test_flags = flags;
 
-    flags ^= 1 << 21;
+        flags ^= 1 << 21;
 
-    asm!("push $0; popfd; pushfd; pop $0" : "=r"(flags) : "0"(flags) :: "intel");
+        asm!("push $0; popfd; pushfd; pop $0" : "=r"(flags) : "0"(flags) :: "intel");
 
-    asm!("push $0; popfd" :: "r"(test_flags) :: "intel");
+        asm!("push $0; popfd" :: "r"(test_flags) :: "intel", "volatile");
 
-    if test_flags == flags {
-        panic!("No cpuid available");
+        if test_flags == flags {
+            panic!("No cpuid available");
+        }
     }
 }
 
-unsafe fn test_long_mode() {
+fn test_long_mode() {
     let mut cpuid_a: u32 = 0x80000000;
 
-    asm!("cpuid" : "={eax}"(cpuid_a) : "{eax}"(cpuid_a) : "ebx", "ecx", "edx" : "intel");
+    unsafe {
+        asm!("cpuid" : "={eax}"(cpuid_a) : "{eax}"(cpuid_a) : "ebx", "ecx", "edx" : "intel");
+    }
 
     if cpuid_a < 0x80000001 {
         panic!("No long mode available");
@@ -295,7 +312,9 @@ unsafe fn test_long_mode() {
     cpuid_a = 0x80000001;
     let cpuid_d: u32;
 
-    asm!("cpuid" : "={edx}"(cpuid_d) : "{eax}"(cpuid_a) : "ebx", "ecx" : "intel");
+    unsafe {
+        asm!("cpuid" : "={edx}"(cpuid_d) : "{eax}"(cpuid_a) : "ebx", "ecx" : "intel");
+    }
 
     if cpuid_d & 1 << 29 == 0 {
         panic!("No long mode available");
@@ -310,12 +329,14 @@ unsafe fn test_long_mode() {
     }
 }
 
-unsafe fn test_sse() {
+fn test_sse() {
     let cpuid_a: u32 = 0x1;
     let cpuid_c: u32;
     let cpuid_d: u32;
 
-    asm!("cpuid" : "={ecx}"(cpuid_c), "={edx}"(cpuid_d) : "{eax}"(cpuid_a) : "eax", "ebx" : "intel");
+    unsafe {
+        asm!("cpuid" : "={ecx}"(cpuid_c), "={edx}"(cpuid_d) : "{eax}"(cpuid_a) : "eax", "ebx" : "intel");
+    }
 
     if cpuid_d & 1 << 25 == 0 {
         panic!("No SSE");
@@ -350,21 +371,29 @@ unsafe fn test_sse() {
     //}
 }
 
-unsafe fn enable_sse() {
+fn enable_sse() {
     let mut cr0: u32;
 
-    asm!("mov $0, cr0" : "=r"(cr0) ::: "intel");
+    unsafe {
+        asm!("mov $0, cr0" : "=r"(cr0) ::: "intel");
+    }
 
     cr0 &= 0xFFFB; // clear coprocessor emulation CR0.EM
     cr0 |= 0x2; // set coprocessor monitoring CR0.MP
 
-    asm!("mov cr0, $0" :: "r"(cr0) :: "intel");
+    unsafe {
+        asm!("mov cr0, $0" :: "r"(cr0) :: "intel", "volatile");
+    }
 
     let mut cr4: u32;
 
-    asm!("mov $0, cr4" : "=r"(cr4) ::: "intel");
+    unsafe {
+        asm!("mov $0, cr4" : "=r"(cr4) ::: "intel");
+    }
 
     cr4 |= 3 << 9; // CR4.OSFXSR and CR4.OSXMMEXCPT
 
-    asm!("mov cr4, $0" :: "r"(cr4) :: "intel");
+    unsafe {
+        asm!("mov cr4, $0" :: "r"(cr4) :: "intel", "volatile");
+    }
 }

@@ -9,9 +9,9 @@ log = { path = "../log" }
 memory = { path = "../memory" }
 serial = { path = "../serial" }
 constants = { path = "../constants" }
-serde = { version = "*", default-features = false }
+serde = { version = "*", default-features = false, features = ["collections"] }
 serde_derive = "*"
-uuid = "*"
+uuid = { version = "*", features = ["serde"] }
 
 [features]
 default = []

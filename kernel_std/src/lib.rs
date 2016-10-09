@@ -1,3 +1,4 @@
+#![feature(proc_macro)]
 #![feature(collections_bound)]
 #![feature(btree_range)]
 #![feature(alloc)]
@@ -11,7 +12,6 @@
 #![feature(const_fn)]
 #![feature(asm)]
 #![feature(unwind_attributes)]
-#![feature(rustc_macro)]
 #![no_std]
 extern crate core as std;
 #[cfg(feature = "freestanding")]

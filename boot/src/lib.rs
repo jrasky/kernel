@@ -1,4 +1,4 @@
-#![feature(rustc_macro)]
+#![feature(proc_macro)]
 #![feature(plugin)]
 #![feature(shared)]
 #![feature(alloc)]
@@ -38,8 +38,6 @@ use alloc::boxed::Box;
 use uuid::Uuid;
 
 use constants::*;
-
-use serde::Deserialize;
 
 use kernel_std::*;
 use kernel_std::module::{Module, Data, Placement};
@@ -188,6 +186,8 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
 
     )), "failed to add segment");
 
+    trace!("0x{:x}", HEAP_BEGIN);
+
     // add the optimistic heap
     assert!(layout.insert(paging::Segment::new(
         heap.base(), HEAP_BEGIN, OPTIMISTIC_HEAP_SIZE as u64,
@@ -195,9 +195,9 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     )), "failed to add segment");
 
     // parse modules
-    for module in info.modules.iter() {
+    for grub_module in info.modules.iter() {
         let bytes: &[u8] = unsafe {
-            slice::from_raw_parts(module.memory.base() as *const u8, module.memory.size() as usize)
+            slice::from_raw_parts(grub_module.memory.base() as *const u8, grub_module.memory.size() as usize)
         };
 
         let module: Module = corepack::from_bytes(bytes).expect("Failed to decode module");
@@ -212,7 +212,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
             debug!("Module declared text {}, 0x{:x} bytes", header.id, header.size);
 
             // look for a matching text
-            let text = None;
+            let mut text = None;
 
             for module_text in module.texts.iter() {
                 if module_text.id == header.id {
@@ -221,7 +221,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
                 }
             }
 
-            text = text.expect("Did not find text matching header");
+            let text = text.expect("Did not find text matching header");
 
             let base;
 
@@ -237,7 +237,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
 
                     // include region in page tables
                     let segment = paging::Segment::new(
-                        module.memory.base() + offset;
+                        grub_module.memory.base() + offset,
                         base,
                         header.size,
                         header.write, false, header.execute, false

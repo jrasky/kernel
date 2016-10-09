@@ -248,7 +248,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "uuid"
 version = "0.3.1"
-source = "git+https://github.com/jrasky/uuid#7d687baf3cd141325ab10c6c64d5e4708ac76c1f"
+source = "git+https://github.com/jrasky/uuid#888655c3903a1d62b7612968fbc5da7fb62e8e73"
 dependencies = [
  "serde 0.8.12 (registry+https://github.com/rust-lang/crates.io-index)",
 ]

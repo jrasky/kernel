@@ -100,8 +100,8 @@ impl Table {
         // long mode, and requirements for syscall instruction
         let header: [u64; 3] = [
             0, // null
-            (1 << 44) | (1 << 47) | (1 << 41) | (1 << 43) | (1 << 53), // code
-            (1 << 44) | (1 << 47) | (1 << 41) // data
+            0xffff | (1 << 44) | (0xff << 48) | (1 << 47) | (1 << 41) | (1 << 43) | (1 << 53) | (1 << 55), // code
+            0xffff | (1 << 44) | (0xff << 48) | (1 << 47) | (1 << 41) | (1 << 55) // data
         ];
 
         trace!("{:?}", gdt);

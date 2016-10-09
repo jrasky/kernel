@@ -9,7 +9,7 @@ log = { path = "../log" }
 paging = { path = "../paging" }
 constants = { path = "../constants" }
 kernel_std = { path = "../kernel_std" }
-uuid = { version = "*", features = ["v4", "serde"] }
+uuid = { git = "https://github.com/jrasky/uuid", features = ["v4", "serde"] }
 corepack = { git = "https://github.com/jrasky/corepack", features = ["std"] }
 serde = "*"
 serde_derive = "*"

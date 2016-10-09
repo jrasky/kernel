@@ -5,20 +5,21 @@ ENTRY(_start)
 SECTIONS {
     .boot 1M : ALIGN(8) {
         KEEP(asm/target/multiboot2.o (.multiboot2))
+    }
+
+    .text : ALIGN(4K) {
         * (.text*)
     }
 
-    .note.gnu.build-id : { *(.note.gnu.build-id) }
-
-    .rodata ALIGN(8) : ALIGN(8) {
+    .rodata : ALIGN(4K) {
         * (.rodata*)
     }
 
-    .data ALIGN(8) : ALIGN(8) {
+    .data : ALIGN(4K) {
         * (.data*)
     }
 
-    .bss ALIGN(8) : ALIGN(8) {
+    .bss : ALIGN(4K) {
         * (.bss*)
     }
 
@@ -28,5 +29,3 @@ SECTIONS {
         * (.gcc_except_table)
     }
 }
-
-. = ASSERT((_end <= 0x200000), "boot image too big");

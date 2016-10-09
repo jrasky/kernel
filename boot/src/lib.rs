@@ -42,7 +42,7 @@ use constants::*;
 use serde::Deserialize;
 
 use kernel_std::*;
-use kernel_std::module::Module;
+use kernel_std::module::{Module, Data, Placement};
 
 mod boot_c;
 
@@ -199,28 +199,57 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
         let bytes: &[u8] = unsafe {
             slice::from_raw_parts(module.memory.base() as *const u8, module.memory.size() as usize)
         };
+
         let module: Module = corepack::from_bytes(bytes).expect("Failed to decode module");
 
-        if module.magic != Uuid::from_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap()
-        {
+        if module.magic != Uuid::from_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap() {
             panic!("Provided module had invalid magic number");
         }
 
         debug!("Found module {}", module.id);
 
-        position = align(position, 0x1000);
-        if position < bytes.len() {
-            debug!("0x{:x} bytes included", bytes.len() - position);
+        for header in module.headers.iter() {
+            debug!("Module declared text {}, 0x{:x} bytes", header.id, header.size);
 
-            // include region in page tables
-            let segment = paging::Segment::new(
-                module.memory.base() + position as u64,
-                header.base,
-                header.size,
-                header.write, false, header.execute, false
-            );
+            // look for a matching text
+            let text = None;
 
-            assert!(layout.insert(segment), "failed to insert segment");
+            for module_text in module.texts.iter() {
+                if module_text.id == header.id {
+                    text = Some(module_text);
+                    break;
+                }
+            }
+
+            text = text.expect("Did not find text matching header");
+
+            let base;
+
+            if let Placement::Absolute(addr) = header.base {
+                base = addr;
+            } else {
+                unimplemented!();
+            }
+
+            match text.data {
+                Data::Offset(offset) => {
+                    trace!("Text data at offset 0x{:x}", offset);
+
+                    // include region in page tables
+                    let segment = paging::Segment::new(
+                        module.memory.base() + offset;
+                        base,
+                        header.size,
+                        header.write, false, header.execute, false
+                    );
+
+                    assert!(layout.insert(segment), "failed to insert segment");
+                }
+                Data::Empty => {
+                    warn!("Empty sections not yet implemented");
+                }
+                _ => unimplemented!()
+            }
         }
     }
 
@@ -258,7 +287,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
             "mov fs, ax;",
             "mov gs, ax;",
             "mov ss, ax;")
-             ::: "ax" : "intel"
+             ::: "ax" : "intel", "volatile"
         );
 
         trace!("updated selectors");
@@ -267,6 +296,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     /*****************JUMP TO KERNEL*****************/
     unsafe {
         // TODO: jump to kernel
+        unimplemented!();
     }
 
     // The following code should never run

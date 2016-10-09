@@ -1,4 +1,4 @@
-use collections::{Vec, String};
+use collections::{String, Vec};
 
 use uuid::Uuid;
 
@@ -58,6 +58,7 @@ pub struct Module {
     pub headers: Vec<Header>, // headers provided by this module
     pub texts: Vec<Text> // texts provided by this module
 }
+
 
 impl Serialize for Data {
     fn serialize<S: Serializer>(&self, serializer: &mut S) -> Result<(), S::Error> {

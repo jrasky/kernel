@@ -10,7 +10,7 @@ crate-type = ["staticlib"]
 
 [dependencies]
 rlibc = "*"
-uuid = "*"
+uuid = { git = "https://github.com/jrasky/uuid" }
 log = { path = "../log" }
 kernel_std = { path = "../kernel_std", features = ["freestanding"] }
 serial = { path = "../serial" }

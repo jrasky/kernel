@@ -11,9 +11,8 @@ serial = { path = "../serial" }
 constants = { path = "../constants" }
 serde = { version = "*", default-features = false, features = ["collections"] }
 serde_derive = "*"
-uuid = { version = "*", features = ["serde"] }
+uuid = { git = "https://github.com/jrasky/uuid", features = ["serde"] }
 
 [features]
 default = []
-
 freestanding = []

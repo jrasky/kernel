@@ -83,6 +83,8 @@ impl elfloader::ElfLoader for ModuleWriter {
             return;
         }
 
+        // TODO: ensure data size matches the header size
+
         // allocate should be called before load
         let id = self.id_map.get(&(base as u64)).unwrap().clone();
 

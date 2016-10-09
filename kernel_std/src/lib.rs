@@ -25,9 +25,9 @@ extern crate serial;
 extern crate alloc;
 #[macro_use]
 extern crate collections;
+extern crate serde;
 #[macro_use]
 extern crate serde_derive;
-extern crate serde;
 extern crate uuid;
 
 pub use allocator::{Region, Allocator};

@@ -29,8 +29,8 @@ pub struct Port {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Dependency {
-    pub id: Uuid, // port type being depended on
+pub struct Require {
+    pub id: Uuid, // port type required
     pub places: Vec<u64> // list of offsets to fill port address into
 }
 
@@ -42,7 +42,7 @@ pub struct Header {
     pub write: bool, // whether this text should be writeable
     pub execute: bool, // whether this text should be executable
     pub provides: Vec<Port>, // ports this text provides
-    pub depends: Vec<Dependency>, // ports this text depends on 
+    pub requires: Vec<Require> // ports this text requires
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -58,7 +58,6 @@ pub struct Module {
     pub headers: Vec<Header>, // headers provided by this module
     pub texts: Vec<Text> // texts provided by this module
 }
-
 
 impl Serialize for Data {
     fn serialize<S: Serializer>(&self, serializer: &mut S) -> Result<(), S::Error> {

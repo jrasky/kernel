@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
 
 [dependencies]
-elfloader = "*"
+elf = "*"
 log = { path = "../log" }
 paging = { path = "../paging" }
 constants = { path = "../constants" }

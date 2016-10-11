@@ -1,7 +1,7 @@
 #![feature(proc_macro)]
 #![feature(plugin)]
 #![feature(const_fn)]
-extern crate elfloader;
+extern crate elf;
 #[macro_use]
 extern crate log;
 extern crate paging;
@@ -16,12 +16,8 @@ extern crate kernel_std;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::fmt::Display;
 use std::fs::File;
-use std::collections::HashMap;
 
-use elfloader::ElfBinary;
-use elfloader::elf::{PF_X, PF_W};
-
-use kernel_std::module::{Module, Text, Header, Data, Placement};
+use kernel_std::module::{Module, Text, Header, Data, Placement, Port};
 
 use uuid::Uuid;
 
@@ -39,102 +35,96 @@ impl log::Output for LogOutput {
     }
 }
 
-struct ModuleWriter {
-    module: Module,
-    data: HashMap<Uuid, Data>,
-    id_map: HashMap<u64, Uuid>
-}
+fn load_stage1() -> Module {
+    info!("Loading stage1 binary");
 
+    let elf_file = elf::File::open_path(STAGE1_ELF).expect("Failed to open stage1 binary");
 
-impl elfloader::ElfLoader for ModuleWriter {
-    fn allocate(&mut self, base: elfloader::VAddr, size: usize, flags: elfloader::elf::ProgFlag) {
-        // ignore zero-size texts
-        if size == 0 {
-            return;
+    let mut file = File::open(STAGE1_ELF).expect("Failed to open stage1 file");
+
+    let mut module = Module {
+        magic: Uuid::parse_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap(),
+        id: Uuid::new_v4(),
+        headers: vec![],
+        texts: vec![]
+    };
+
+    debug!("Creating module {}", module.id);
+
+    let entry = elf_file.ehdr.entry;
+
+    debug!("File entry point at 0x{:x}", entry);
+
+    // TODO: think about a more general tag structure for modules
+
+    for program_header in elf_file.phdrs.iter() {
+        if program_header.progtype.0 & elf::types::PT_LOAD.0 == elf::types::PT_LOAD.0 &&
+            program_header.memsz > 0 && program_header.flags.0 & elf::types::PF_R.0 == elf::types::PF_R.0
+        {
+            // only include a header if it's loadable, has a non-zero size, and is readable
+
+            if program_header.filesz > 0 && program_header.filesz != program_header.memsz {
+                panic!("Don't know how to handle a partial program header");
+            }
+
+            let id = Uuid::new_v4();
+
+            trace!("New header {} size 0x{:x}", id, program_header.memsz);
+
+            let provides;
+
+            // check to see if the entry point is in this text
+            if program_header.vaddr <= entry && entry < program_header.vaddr + program_header.memsz {
+                trace!("This text contains the entry point at offset 0x{:x}", entry - program_header.vaddr);
+                provides = vec![Port {
+                    id: Uuid::parse_str("b3de1342-4d70-449d-9752-3122338aa864").unwrap(),
+                    offset: entry - program_header.vaddr
+                }];
+            } else {
+                provides = vec![];
+            }
+
+            let header = Header {
+                id: id,
+                base: Placement::Absolute(program_header.vaddr),
+                size: program_header.memsz,
+                write: program_header.flags.0 & elf::types::PF_W.0 == elf::types::PF_W.0,
+                execute: program_header.flags.0 & elf::types::PF_X.0 == elf::types::PF_X.0,
+                provides: provides,
+                requires: vec![]
+            };
+
+            // insert the header
+            module.headers.push(header);
+
+            if program_header.filesz == 0 {
+                // record an empty text
+                module.texts.push(Text {
+                    id: id,
+                    data: Data::Empty
+                });
+            } else {
+                // read out the section we care about
+                let mut buffer = vec![0; program_header.filesz as usize];
+                file.seek(SeekFrom::Start(program_header.offset)).expect("Failed to seek");
+                file.read_exact(buffer.as_mut_slice()).expect("Failed to read from file");
+                module.texts.push(Text {
+                    id: id,
+                    data: Data::Direct(buffer)
+                });
+            }
         }
-
-        let id = Uuid::new_v4();
-        trace!("New text {} size 0x{:x}", id.hyphenated(), size);
-
-        // create header structure
-        let header = Header {
-            id: id.clone(),
-            base: Placement::Absolute(base as u64),
-            size: size as u64,
-            write: flags.0 & PF_W.0 == PF_W.0,
-            execute: flags.0 & PF_X.0 == PF_X.0,
-            provides: vec![], // TODO: fill these in with whatever
-            depends: vec![]
-        };
-
-        // add it to our list
-        self.module.headers.push(header);
-
-        // add this text to our data map
-        assert!(self.data.insert(id.clone(), Data::Empty).is_none());
-
-        // add this id to the id_map
-        assert!(self.id_map.insert(base as u64, id).is_none(), "Two texts shared the same base address");
     }
 
-    fn load(&mut self, base: elfloader::VAddr, region: &'static [u8]) {
-        // ignore zero-size regions
-        if region.len() == 0 {
-            return;
-        }
-
-        // TODO: ensure data size matches the header size
-
-        // allocate should be called before load
-        let id = self.id_map.get(&(base as u64)).unwrap().clone();
-
-        trace!("Loading region for text {} size 0x{:x}", id, region.len());
-
-        // create a new data object
-        let data = Data::Direct(Vec::from(region));
-
-        // update our text data
-        assert!(self.data.insert(id, data).is_some());
-    }
+    module
 }
 
-impl ModuleWriter {
-    fn new() -> ModuleWriter {
-        ModuleWriter {
-            module: Module {
-                magic: Uuid::parse_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap(),
-                id: Uuid::new_v4(),
-                headers: vec![],
-                texts: vec![]
-            },
-            data: HashMap::new(),
-            id_map: HashMap::new()
-        }
-    }
-}
-
-fn main() {
-    log::set_output(Some(Box::new(LogOutput)));
-
-    debug!("Reading file");
-
-    let mut file = File::open(STAGE1_ELF).expect("Failed to open stage 1 file");
-
-    let mut buf = vec![];
-
-    file.read_to_end(&mut buf).expect("Failed to read file");
-
-    let elf = ElfBinary::new("stage1.elf", buf.as_slice()).expect("Failed to parse stage 1 file");
-
-    debug!("Loading binary");
-    let mut loader = ModuleWriter::new();
-    elf.load(&mut loader);
-
-    debug!("Figuring out offsets");
+fn indirect_texts(module: &mut Module, texts: Vec<Text>) -> (Vec<Text>, Vec<u8>, u64) {
+    info!("Figuring out offsets");
 
     // establish a lower bound for offsets
 
-    let mut module_bytes = corepack::to_bytes(&loader.module).expect("Failed to serialize module");
+    let mut module_bytes = corepack::to_bytes(&module).expect("Failed to serialize module");
 
     // align the offset to a page boundary
     let mut offset = align(module_bytes.len() as u64, 0x1000);
@@ -143,23 +133,23 @@ fn main() {
 
     loop {
         // first clear any texts we've placed into the module
-        loader.module.texts.clear();
+        module.texts.clear();
 
         // update this offset as we account for each text
         let mut further_offset = offset as u64;
 
-        for (id, data) in loader.data.iter() {
+        for &Text { id, ref data } in texts.iter() {
             // align further_offset
             further_offset = align(further_offset, 0x1000);
 
             trace!("Trying text {} at offset 0x{:x}", id, further_offset);
 
             let new_text = Text {
-                id: id.clone(),
+                id: id,
                 data: match data {
                     &Data::Direct(_) => Data::Offset(further_offset),
                     &Data::Empty => Data::Empty,
-                    _ => unreachable!("ALl loader texts should be empty or direct")
+                    _ => unreachable!("All loader texts should be empty or direct")
                 }
             };
 
@@ -169,11 +159,11 @@ fn main() {
                 _ => unreachable!("All loader texts should be direct or empty")
             };
 
-            loader.module.texts.push(new_text);
+            module.texts.push(new_text);
         }
 
         // try serializing the module again
-        module_bytes = corepack::to_bytes(&loader.module).expect("Failed to serialize module");
+        module_bytes = corepack::to_bytes(&module).expect("Failed to serialize module");
 
         trace!("Module now 0x{:x} bytes long", module_bytes.len());
 
@@ -189,7 +179,11 @@ fn main() {
         }
     }
 
-    debug!("Creating output");
+    (texts, module_bytes, offset)
+}
+
+fn create_output(module: Module, texts: Vec<Text>, module_bytes: Vec<u8>, total_size: u64) {
+    info!("Creating output");
 
     // serialize everything
 
@@ -198,13 +192,13 @@ fn main() {
         .expect("Failed to create output file");
 
     // allocate the space we need
-    file.set_len(offset).expect("Failed to allocate space in kernel.mod");
+    file.set_len(total_size).expect("Failed to allocate space in kernel.mod");
 
     // write out module
     file.write_all(module_bytes.as_slice()).expect("Failed to write out module");
 
     // write out all our texts
-    for text in loader.module.texts.iter() {
+    for (idx, text) in module.texts.iter().enumerate() {
         let offset = match text.data {
             Data::Offset(addr) => addr,
             Data::Empty => {
@@ -218,11 +212,11 @@ fn main() {
 
         file.seek(SeekFrom::Start(offset)).expect("Failed to seek in file");
 
-        match loader.data.get(&text.id).unwrap() {
-            &Data::Direct(ref bytes) => {
+        match texts[idx] {
+            Text { id: _, data: Data::Direct(ref bytes) } => {
                 file.write_all(bytes.as_slice()).expect("Failed to write out bytes");
             }
-            &Data::Empty => {
+            Text { id: _, data: Data::Empty } => {
                 // do nothing
             }
             _ => {
@@ -230,6 +224,19 @@ fn main() {
             }
         }
     }
+}
+
+fn main() {
+    log::set_output(Some(Box::new(LogOutput)));
+
+    let mut module = load_stage1();
+
+    let texts = module.texts;
+    module.texts = vec![];
+
+    let (texts, module_bytes, total_size) = indirect_texts(&mut module, texts);
+
+    create_output(module, texts, module_bytes, total_size);
 
     // done!
 }

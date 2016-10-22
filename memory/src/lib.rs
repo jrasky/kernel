@@ -1,6 +1,3 @@
-#![feature(unique)]
-#![feature(shared)]
-#![feature(reflect_marker)]
 #![feature(const_fn)]
 #![feature(allocator)]
 #![allocator]
@@ -11,9 +8,12 @@ extern crate log_abi;
 extern crate constants;
 extern crate spin;
 
-mod include;
+use std::fmt::Display;
+use std::sync::atomic::{Ordering, AtomicBool};
 
-use include::*;
+use std::fmt;
+use std::str;
+use std::ptr;
 
 use constants::error::Error;
 
@@ -45,8 +45,6 @@ pub enum MemoryError {
     NoPlace,
     Overlap
 }
-
-impl Reflect for MemoryError {}
 
 impl Display for MemoryError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

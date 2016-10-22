@@ -1,4 +1,10 @@
-use include::*;
+use std::sync::atomic::{Ordering, AtomicBool};
+use std::cell::{UnsafeCell};
+
+use std::str;
+use std::ptr;
+
+use constants::*;
 
 use super::MemoryError;
 

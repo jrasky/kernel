@@ -1,4 +1,13 @@
-use include::*;
+use std::iter::Iterator;
+
+use alloc::raw_vec::RawVec;
+
+use std::str;
+use std::ptr;
+
+use collections::Vec;
+
+use constants::*;
 
 use cpu::stack::Stack;
 

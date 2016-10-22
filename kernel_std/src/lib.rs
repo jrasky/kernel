@@ -5,8 +5,6 @@
 #![feature(collections)]
 #![feature(unique)]
 #![feature(heap_api)]
-#![feature(reflect_marker)]
-#![feature(shared)]
 #![feature(stmt_expr_attributes)]
 #![feature(lang_items)]
 #![feature(const_fn)]
@@ -33,18 +31,29 @@ extern crate uuid;
 pub use allocator::{Region, Allocator};
 pub use map::Map;
 
-use include::*;
+use std::marker::PhantomData;
+use std::fmt::{Debug, Display};
+use std::sync::atomic::{Ordering, AtomicUsize};
+
+use std::fmt;
+use std::mem;
+use std::slice;
+use std::str;
+use std::ptr;
+
+use collections::{String, Vec};
+
+use constants::*;
 
 #[cfg(feature = "freestanding")]
 pub mod cpu;
 
-mod include;
 mod allocator;
 mod map;
 
 pub mod module;
 
-pub trait Error: Debug + Display + Reflect {
+pub trait Error: Debug + Display {
     fn descripton(&self) -> &str;
 
     fn cause(&self) -> Option<&Error> {

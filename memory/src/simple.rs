@@ -1,4 +1,9 @@
-use include::*;
+use std::mem;
+use std::cmp;
+use std::str;
+use std::ptr;
+
+use spin::Mutex;
 
 use constants;
 

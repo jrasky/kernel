@@ -1,4 +1,6 @@
-use include::*;
+use std::ptr::Unique;
+
+use alloc::heap;
 
 pub struct Stack {
     buffer: Unique<u8>,

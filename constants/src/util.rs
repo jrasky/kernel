@@ -7,13 +7,13 @@ pub fn read_msr(id: u32) -> u64 {
         asm!("rdmsr" : "={eax}"(low), "={edx}"(high) : "{ecx}"(id) :: "intel");
     }
 
-    ((high as u64) << 32) + (low as u64)
+    ((high as u64) << 32) | (low as u64)
 }
 
 #[cfg(not(test))]
 pub fn write_msr(id: u32, value: u64) {
     unsafe {
-        asm!("wrmsr" :: "{eax}"((value % (::core::u32::MAX as u64)) as u32),
+        asm!("wrmsr" :: "{eax}"((value & (::core::u32::MAX as u64)) as u32),
              "{edx}"((value >> 32) as usize), "{ecx}"(id) :: "intel", "volatile");
     }
 }

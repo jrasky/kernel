@@ -294,22 +294,62 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
         trace!("updated selectors");
     }
 
+    // set up paging
+    assert!(page_tables >> 32 == 0, "Page tables built above 4 gigabytes, somehow");
+    setup_paging(page_tables as u32);
+
     /*****************JUMP TO KERNEL*****************/
     // bogus target address 08:0x300000
     let target: [u8; 6] = [0x00, 0x00, 0x30, 0x00, 0x08, 0x00];
 
     unsafe {
-        // boot protocol is the first argument to kernel main
+        // once we enable paging, the next instruction /must/ be the far jump
+        // so get our cr0 ready now
+        let mut cr0: u32;
+        asm!("mov $0, cr0" : "=r"(cr0) ::: "intel");
+        cr0 |= 1 << 31;
+
         asm!(concat!(
-            "mov edi, $0;",
-            "ljmp $1"
-        ) :: "*m"(proto.deref()), "*m"(&target) : "edi" : "intel", "volatile");
+            "mov edi, $0;", // first argument to kernel main is boot proto
+            "mov cr0, $1;", // come on (enable paging)
+            "ljmp $2" // and slam (far jump to kernel)
+        ) :: "*m"(proto.deref()), "r"(cr0), "*m"(&target) : "edi" : "intel", "volatile");
     }
 
     // leak gdt here to avoid trying to reclaim that space
     mem::forget(gdt);
 
     unreachable!("bootstrap tried to return");
+}
+
+fn setup_paging(page_tables: u32) {
+    unsafe {
+        // do everything but turn on paging
+
+        // put page table address into cr3
+        asm!("mov cr3, $0" :: "r"(page_tables) :: "intel", "volatile");
+
+        // enable PAE-flag, PSE-flag, and PGE-flag in cr4
+        let mut cr4: u32;
+
+        asm!("mov $0, cr4" : "=r"(cr4) ::: "intel");
+        cr4 |= 0xb << 4;
+        asm!("mov cr4, $0" :: "r"(cr4) :: "intel", "volatile");
+
+        // set long mode bit and NX bit in EFER MSR
+        let mut efer_msr = util::read_msr(EFER_MSR);
+        efer_msr |= 0x9 << 8;
+        // set the syscall bit too
+        efer_msr |= 0x1;
+        util::write_msr(EFER_MSR, efer_msr);
+
+        // set the WP bit in the cr0 register
+        let mut cr0: u32;
+
+        asm!("mov $0, cr0" : "=r"(cr0) ::: "intel");
+        cr0 |= 1 << 16;
+        asm!("mov cr0, $0" :: "r"(cr0) :: "intel", "volatile");
+    }
 }
 
 fn test_cpuid() {

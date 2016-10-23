@@ -1,4 +1,3 @@
-#![feature(reflect_marker)]
 #![feature(asm)]
 #![feature(const_fn)]
 #![no_std]

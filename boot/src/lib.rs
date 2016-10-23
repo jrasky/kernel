@@ -26,6 +26,7 @@ extern crate serde_derive;
 
 use std::ptr::Shared;
 use std::str::FromStr;
+use std::ops::Deref;
 
 use std::cmp;
 use std::mem;
@@ -294,12 +295,16 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     }
 
     /*****************JUMP TO KERNEL*****************/
-    unsafe {
-        // TODO: jump to kernel
-        unimplemented!();
-    }
+    // bogus target address 08:0x300000
+    let target: [u8; 6] = [0x00, 0x00, 0x30, 0x00, 0x08, 0x00];
 
-    // The following code should never run
+    unsafe {
+        // boot protocol is the first argument to kernel main
+        asm!(concat!(
+            "mov edi, $0;",
+            "ljmp $1"
+        ) :: "*m"(proto.deref()), "*m"(&target) : "edi" : "intel", "volatile");
+    }
 
     // leak gdt here to avoid trying to reclaim that space
     mem::forget(gdt);

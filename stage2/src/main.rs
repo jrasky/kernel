@@ -119,7 +119,7 @@ fn load_stage1() -> Module {
     module
 }
 
-fn indirect_texts(module: &mut Module, texts: Vec<Text>) -> (Vec<Text>, Vec<u8>, u64) {
+fn create_output(mut module: Module, texts: Vec<Text>) {
     info!("Figuring out offsets");
 
     // establish a lower bound for offsets
@@ -179,13 +179,10 @@ fn indirect_texts(module: &mut Module, texts: Vec<Text>) -> (Vec<Text>, Vec<u8>,
         }
     }
 
-    (texts, module_bytes, offset)
-}
-
-fn create_output(module: Module, texts: Vec<Text>, module_bytes: Vec<u8>, total_size: u64) {
     info!("Creating output");
 
     // serialize everything
+    let total_size = offset;
 
     // create the file
     let mut file = File::create(format!("{}/kernel.mod", MODULE_PREFIX))
@@ -234,9 +231,7 @@ fn main() {
     let texts = module.texts;
     module.texts = vec![];
 
-    let (texts, module_bytes, total_size) = indirect_texts(&mut module, texts);
-
-    create_output(module, texts, module_bytes, total_size);
+    create_output(module, texts);
 
     // done!
 }

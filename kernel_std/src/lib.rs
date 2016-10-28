@@ -3,8 +3,6 @@
 #![feature(btree_range)]
 #![feature(alloc)]
 #![feature(collections)]
-#![feature(unique)]
-#![feature(heap_api)]
 #![feature(stmt_expr_attributes)]
 #![feature(lang_items)]
 #![feature(const_fn)]
@@ -33,9 +31,7 @@ pub use map::Map;
 
 use std::marker::PhantomData;
 use std::fmt::{Debug, Display};
-use std::sync::atomic::{Ordering, AtomicUsize};
 
-use std::fmt;
 use std::mem;
 use std::slice;
 use std::str;

@@ -1,6 +1,7 @@
     extern bootstrap
 
     global _start
+    global _boot_stack
 
 	section .bss nobits
 _boot_stack_end:

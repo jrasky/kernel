@@ -1,8 +1,6 @@
-#![feature(unicode)]
 #![feature(const_fn)]
 #![no_std]
 extern crate core as std;
-extern crate rustc_unicode;
 extern crate constants;
 extern crate log_abi;
 
@@ -44,37 +42,29 @@ fn write_byte(byte: u8) {
     util::write_port_byte(COM1, byte)
 }
 
-pub fn read() -> char {
-    let mut buf = [0; 4];
-    buf[0] = read_byte();
-
-    let width = rustc_unicode::str::utf8_char_width(buf[0]);
-
-    if width == 1 { return buf[0] as char; }
-    if width == 0 { return rustc_unicode::char::REPLACEMENT_CHARACTER; }
-
-    let mut start = 1;
-    while start < width {
-        buf[start] = read_byte();
-        start += 1;
-    }
-
-    str::from_utf8(&buf[..width]).ok().and_then(|s| s.chars().next())
-        .unwrap_or(rustc_unicode::char::REPLACEMENT_CHARACTER)
-}
-
-pub fn write(ch: char) {
-    let mut buf = [0; 4];
-
-    for byte in ch.encode_utf8(&mut buf).as_bytes().iter() {
+pub fn write(buf: &[u8]) -> Result<usize, fmt::Error> {
+    for byte in buf.iter() {
         write_byte(*byte);
     }
+
+    Ok(buf.len())
+}
+
+pub fn read(buf: &mut [u8]) -> Result<usize, fmt::Error> {
+    for i in 0..buf.len() {
+        buf[i] = read_byte();
+    }
+
+    Ok(buf.len())
 }
 
 impl Write for Writer {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        for byte in s.bytes() {
-            write_byte(byte);
+        if let Ok(len) = write(s.as_bytes()) {
+            if len != s.as_bytes().len() {
+                // error if not all bytes were written
+                return Err(fmt::Error);
+            }
         }
 
         Ok(())

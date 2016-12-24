@@ -49,7 +49,7 @@ pub enum Chunks {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Relocation {
     pub size: Chunks, // how many bytes to fill in
-    pub ty: Strategy, // how to compute the value to fill in
+    pub strategy: Strategy, // how to compute the value to fill in
     pub offset: u64, // offset into text where to do the relocation
 }
 

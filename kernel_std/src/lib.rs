@@ -8,6 +8,8 @@
 #![feature(const_fn)]
 #![feature(asm)]
 #![feature(unwind_attributes)]
+#![cfg_attr(feature = "freestanding", feature(unique))]
+#![cfg_attr(feature = "freestanding", feature(heap_api))]
 #![no_std]
 extern crate core as std;
 #[cfg(feature = "freestanding")]
@@ -31,11 +33,15 @@ pub use map::Map;
 
 use std::marker::PhantomData;
 use std::fmt::{Debug, Display};
+#[cfg(feature = "freestanding")]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use std::mem;
 use std::slice;
 use std::str;
 use std::ptr;
+#[cfg(feature = "freestanding")]
+use std::fmt;
 
 use collections::{String, Vec};
 

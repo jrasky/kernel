@@ -15,7 +15,7 @@ pub enum Placement {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum Data {
-    Offset(u64), // Text follows after Module at this offset
+    Offset { partition: u64, offset: u64}, // Text is in a partition, at this offset
     Direct(Vec<u8>), // Text data as a byte vector
     Empty // Explicitly empty text data
 }
@@ -24,7 +24,7 @@ pub enum Data {
 pub enum Type {
     Code, // executable (not writable)
     Data { write: bool }, // read, and possibly write data (not executable)
-    Info { ty: Uuid } // information, not loaded into memory, with a Uuid type
+    Info { identity: Uuid } // information, not loaded into memory, with a unique type
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -49,7 +49,7 @@ pub enum Chunks {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Relocation {
     pub size: Chunks, // how many bytes to fill in
-    pub strategy: Strategy, // how to compute the value to fill in
+    pub ty: Strategy, // how to compute the value to fill in
     pub offset: u64, // offset into text where to do the relocation
 }
 
@@ -57,13 +57,13 @@ pub struct Relocation {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Port {
-    pub id: Uuid, // port type
+    pub identity: Uuid, // port type
     pub offset: u64, // offset into owning text
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Require {
-    pub id: Uuid, // port type required
+    pub identity: Uuid, // port type required
     pub places: Vec<Relocation>, // places to fill in this symbol
 }
 
@@ -85,7 +85,7 @@ pub struct Import {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Text {
-    pub id: Uuid, // unique ID for this text
+    pub id: u64, // unique ID for this text
     pub base: Placement, // how to place this text in memory
     pub size: u64, // length of this text
     pub ty: Type, // type of this text
@@ -101,6 +101,18 @@ pub struct Text {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Module {
     pub magic: Uuid, // 0af979b7-02c3-4ca6-b354-b709bec81199
-    pub id: Uuid, // unique ID for this module
+    pub identity: Uuid, // unique ID for this module
+    pub partitions: Vec<Partition>, // partitions in this module
     pub texts: Vec<Text> // texts provided by this module
+}
+
+// Partitions describe layouts within one byte stream
+
+// Exists because the real world of fixed offsets causes problems.
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Partition {
+    pub index: u64, // the index for this partition
+    pub align: u64, // memory alignment of this partition
+    pub size: u64 // the size of this partition
 }

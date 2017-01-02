@@ -23,6 +23,7 @@ extern crate corepack;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
+extern crate byteorder;
 
 use std::ptr::Shared;
 use std::str::FromStr;
@@ -38,10 +39,12 @@ use alloc::boxed::Box;
 
 use uuid::Uuid;
 
+use byteorder::ByteOrder;
+
 use constants::*;
 
 use kernel_std::*;
-use kernel_std::module::{Module, Data, Placement};
+use kernel_std::module::{Module, Data, Placement, Partition, Type};
 
 mod boot_c;
 
@@ -195,6 +198,8 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
         true, false, false, false
     )), "failed to add segment");
 
+    let mut entry = None;
+
     // parse modules
     for grub_module in info.modules.iter() {
         let bytes: &[u8] = unsafe {
@@ -207,41 +212,71 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
             panic!("Provided module had invalid magic number");
         }
 
-        debug!("Found module {}", module.id);
+        debug!("Found module {}", module.identity);
 
-        for header in module.headers.iter() {
-            debug!("Module declared text {}, 0x{:x} bytes", header.id, header.size);
+        for text in module.texts.iter() {
+            debug!("Module declared text {}, 0x{:x} bytes", text.id, text.size);
 
-            // look for a matching text
-            let mut text = None;
+            // get a base address. We don't support anything here but absolute placements.
+            let base = if let Placement::Absolute(addr) = text.base {
+                addr
+            } else {
+                unimplemented!()
+            };
 
-            for module_text in module.texts.iter() {
-                if module_text.id == header.id {
-                    text = Some(module_text);
-                    break;
+            // check to see if this module contains an entry point
+            for port in text.provides.iter() {
+                if port.identity == Uuid::parse_str("b3de1342-4d70-449d-9752-3122338aa864").unwrap() {
+                    debug!("Entry point found at 0x{:x}", base + port.offset);
+
+                    // make sure it's address works in 32 bit mode
+                    if base + port.offset > u32::max_value() as u64 {
+                        panic!("Kernel entry point too high: 0x{:x}", base + port.offset);
+                    }
+
+                    entry = Some(base + port.offset);
                 }
             }
 
-            let text = text.expect("Did not find text matching header");
-
-            let base;
-
-            if let Placement::Absolute(addr) = header.base {
-                base = addr;
-            } else {
-                unimplemented!();
-            }
-
+            // map the text data into our page tables
             match text.data {
-                Data::Offset(offset) => {
-                    trace!("Text data at offset 0x{:x}", offset);
+                Data::Offset { partition, offset: data_offset } => {
+                    trace!("Text data in partition {} at offset 0x{:x}", partition, data_offset);
+
+                    // figure out the actual address in memory for this partition
+                    let mut offset = grub_module.memory.base();
+
+                    for &Partition { index, size, align: part_align } in module.partitions.iter() {
+                        // align to the start of our partition
+                        offset = align(offset, part_align);
+
+                        if index < partition {
+                            // not our partition, keep going
+                            offset += size;
+                        } else {
+                            // we've found our target
+                            break;
+                        }
+                    }
+
+                    let write = if let Type::Data { write } = text.ty {
+                        write
+                    } else {
+                        false
+                    };
+
+                    let execute = if let Type::Code = text.ty {
+                        true
+                    } else {
+                        false
+                    };
 
                     // include region in page tables
                     let segment = paging::Segment::new(
-                        grub_module.memory.base() + offset,
+                        offset + data_offset,
                         base,
-                        header.size,
-                        header.write, false, header.execute, false
+                        text.size,
+                        write, false, execute, false
                     );
 
                     assert!(layout.insert(segment), "failed to insert segment");
@@ -255,6 +290,9 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     }
 
     /*****************LOAD KERNEL*****************/
+
+    // make sure we found an entry point
+    let entry = entry.expect("Kernel did not contain an entry point");
 
     // create the builder
     let mut builder = unsafe {
@@ -299,8 +337,10 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     setup_paging(page_tables as u32);
 
     /*****************JUMP TO KERNEL*****************/
-    // bogus target address 08:0x300000
-    let target: [u8; 6] = [0x00, 0x00, 0x30, 0x00, 0x08, 0x00];
+
+    // create the right address format for our ljmp instruction
+    let mut target: [u8; 6] = [0x00, 0x00, 0x00, 0x00, 0x08, 0x00];
+    byteorder::BigEndian::write_u32(&mut target, entry as u32);
 
     unsafe {
         // once we enable paging, the next instruction /must/ be the far jump

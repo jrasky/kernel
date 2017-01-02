@@ -2,7 +2,6 @@ OUTPUT_FORMAT("elf64-x86-64")
 
 MEMORY {
     boot (ax)        : ORIGIN = 1M, LENGTH = 0x80000
-    pages (a)        : ORIGIN = 0x180000, LENGTH = 1M - 0x180000
     identity (a)     : ORIGIN = 2M, LENGTH = 9M
     text (ax)        : ORIGIN = 2M - 0x80000000, LENGTH = 2M
     rodata (ar ! xw) : ORIGIN = 4M - 0x80000000, LENGTH = 2M

@@ -40,9 +40,9 @@ impl log::Output for LogOutput {
 fn load_stage1() -> Module {
     info!("Loading stage1 binary");
 
-    let elf_file = elf::File::open_path(STAGE1_ELF).expect("Failed to open stage1 binary");
+    let elf_file = elf::File::open_path(KERNEL_ELF).expect("Failed to open stage1 binary");
 
-    let mut file = File::open(STAGE1_ELF).expect("Failed to open stage1 file");
+    let mut file = File::open(KERNEL_ELF).expect("Failed to open stage1 file");
 
     let mut module = Module {
         magic: Uuid::parse_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap(),
@@ -91,9 +91,11 @@ fn load_stage1() -> Module {
 
             let data = if program_header.filesz == 0 {
                 // no data provided
+                trace!("Empty header");
                 Data::Empty
             } else {
                 // read out the section we care about
+                trace!("Header with data");
                 let mut buffer = vec![0; program_header.filesz as usize];
                 file.seek(SeekFrom::Start(program_header.offset)).expect("Failed to seek");
                 file.read_exact(buffer.as_mut_slice()).expect("Failed to read from file");
@@ -139,6 +141,7 @@ fn write_output(mut module: Module) {
         let index = module.partitions.len() as u64;
 
         // do this dance to avoid copying things around
+        debug!("Creating partition {}", index);
 
         // create the new data
         let mut new_data = Data::Offset { partition: index, offset: 0 };
@@ -186,6 +189,7 @@ fn write_output(mut module: Module) {
     for data in data.iter() {
         // TODO: find a more robust way to write these out
         offset = align(offset, 0x1000);
+        trace!("Writing partition data at 0x{:x}", offset);
         file.seek(SeekFrom::Start(offset)).expect("Failed to seek file");
         file.write_all(data.as_slice()).expect("Failed to write data");
         offset += data.len() as u64;

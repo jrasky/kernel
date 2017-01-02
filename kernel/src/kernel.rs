@@ -115,7 +115,7 @@ unsafe extern "C" fn test_task_2() -> ! {
     user::log(&request);
     user::exit();
 }
-
+/*
 #[cfg(not(test))]
 unsafe extern "C" fn serial_handler() -> ! {
     loop {
@@ -123,7 +123,7 @@ unsafe extern "C" fn serial_handler() -> ! {
         user::release();
     }
 }
-
+*/
 #[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
@@ -174,15 +174,15 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
     info!("Starting tasks");
 
     // start some tasks
-    //cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task,
-    //                                       cpu::stack::Stack::create(0x10000),
-    //                                       cpu::task::current()));
+    cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task,
+                                          cpu::stack::Stack::create(0x10000),
+                                          cpu::task::current()));
 
-    cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, serial_handler,
-                                           cpu::stack::Stack::create(0x10000),
-                                           cpu::task::current()));
+    // cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, serial_handler,
+    //                                        cpu::stack::Stack::create(0x10000),
+    //                                        cpu::task::current()));
 
-    //cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task_entry,
+    // cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task_entry
     //                                       cpu::stack::Stack::create(0x10000),
     //                                       cpu::task::current()));
 

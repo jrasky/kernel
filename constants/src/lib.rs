@@ -60,7 +60,7 @@ pub const TASK_SIZE: usize = 0x7fc00000;
 
 pub const PAGE_TABLES_OFFSET: usize = 0x180000;
 
-pub const STAGE1_ELF: &'static str = "target/stage1.elf";
+pub const KERNEL_ELF: &'static str = "target/kernel.elf";
 
 pub const RAW_OUTPUT: &'static str = "target/gen/page_tables.bin";
 pub const SEG_OUTPUT: &'static str = "target/gen/segments.bin";

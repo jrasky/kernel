@@ -40,42 +40,18 @@
     extern sysenter_handler
     extern SYSCALL_STACK
 
-    section .bss
+    section .bss nobits
     align 16
 _fxsave_int:    resb 0x200
     align 16
 _fxsave_trap:   resb 0x200
     align 16
 _fxsave_task:   resb 0x200
-    
-_long_stack_end:
-    resb 0xf000
-_long_stack:    
 
-    section .text
+    section .text exec
     bits 64
-_lstart:
-    ;; Target of far jump to long mode
 
-    ;; set up long mode stack
-    mov rsp, _long_stack
-
-    ;; setup SSE
-    call _setup_SSE
-
-    ;; boot_info argument
-    mov rdi, qword [_boot_info]
-    mov rsi, qword [_boot_info_size]
-
-    ;; align stack
-    and rsp, -16
-
-    ;; start kernel
-    call kernel_main
-
-    ;; kernel_main returned, error "X"
-    mov al, "X"
-    jmp _error
+;;; Internal utility functions
 
 _hang:
     cli
@@ -90,78 +66,7 @@ _error:
     mov [0xb8008], rbx
     mov byte [0xb800e], al
     jmp _hang
-
-_test_features:
-    ;; check for SSE
-    mov rax, 0x1
-    cpuid
-    test edx, 1<<25
-    jz .no_SSE
-    test edx, 1<<26
-    jz .no_SSE
-    test ecx, 1<<0
-    jz .no_SSE
-    test ecx, 1<<9
-    jz .no_SSE
-    test edx, 1<<19
-    jz .no_SSE
-
-    ;; check for MSR
-    test edx, 1<<5
-    jz .no_MSR
-
-    ;; check for SEP
-    test edx, 1<<11
-    jz .no_SEP
-
-    ;; check for FXSAVE/FXRSTOR
-    test edx, 1<<24
-    jz .no_FXSR
-
-    ;; done with checks
-    ret
     
-.no_SSE:
-    mov al, "a"
-    jmp _error
-
-.no_MSR:
-    mov al, "b"
-    jmp _error
-
-.no_SEP:
-    mov al, "c"
-    jmp _error
-
-.no_FXSR:
-    mov al, "d"
-    jmp _error
-
-_reload_segments:
-    push 0x08                   ;second selector is code selector
-    push .target
-    o64 retf
-.target:
-    mov ax, 0x10                ;third selector is data selector
-    mov ds, ax
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov ss, ax
-    ret
-
-_setup_SSE: 
-    ;; enable SSE
-    mov rax, cr0
-    and ax, 0xFFFB              ;clear coprocessor emulation CR0.EM
-    or ax, 0x2                  ;set coprocessor monitoring CR0.MP
-    mov cr0, rax
-    mov rax, cr4
-    or ax, 3 << 9               ;set CR4.OSFXSR and CR4.OSXMMEXCPT at the same time
-    mov cr4, rax
-
-    ret
-
 ;;; Interrupt handler macro
 
 %macro interrupt_handler 1

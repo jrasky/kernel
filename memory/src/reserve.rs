@@ -27,6 +27,7 @@ unsafe impl Sync for Memory {}
 
 struct MemoryInner {
     hint: usize,
+    // TODO: get the below to be 8 bytes aligned
     slab: [u64; RESERVE_SLAB_SIZE],
     map: [u8; (RESERVE_SLAB_SIZE + 7) / 8]
 }
@@ -91,12 +92,15 @@ impl MemoryInner {
                 // block is free
                 if acc > 0 {
                     acc += 1;
-                } else if align == 0 ||
-                   ((self.slab.as_ptr() as usize) +
-                    (((pos * 8) + subpos) * 8)) & (align - 1) == 0 {
-                    // address is aligned
-                    start = (pos * 8) + subpos;
-                    acc = 1;
+                } else {
+                    // figure out the address of this position
+                    let addr = self.slab.as_ptr() as usize + (((pos * 8) + subpos) * 8);
+
+                    if align == 0 || is_aligned(addr, align) {
+                        // address is aligned
+                        start = (pos * 8) + subpos;
+                        acc = 1;
+                    }
                 }
             } else if acc > 0 {
                 acc = 0;

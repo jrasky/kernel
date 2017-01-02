@@ -63,7 +63,7 @@ dependencies = [
  "memory 0.1.0",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde 0.8.21 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_derive 0.8.20 (git+https://github.com/jrasky/serde)",
+ "serde_derive 0.8.21 (git+https://github.com/jrasky/serde)",
  "serial 0.1.0",
  "uuid 0.3.1 (git+https://github.com/jrasky/uuid)",
 ]
@@ -146,11 +146,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "serde_codegen"
-version = "0.8.20"
-source = "git+https://github.com/jrasky/serde#2672741b8f2b780b57f2d9ba81dff5be15d46b28"
+version = "0.8.21"
+source = "git+https://github.com/jrasky/serde#4b93e3b5cd8cc696457d1e04de100f3e1fc54878"
 dependencies = [
  "quote 0.3.10 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde_codegen_internals 0.11.2 (git+https://github.com/jrasky/serde)",
+ "serde_codegen_internals 0.11.3 (git+https://github.com/jrasky/serde)",
  "syn 0.10.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -168,8 +168,8 @@ dependencies = [
 
 [[package]]
 name = "serde_codegen_internals"
-version = "0.11.2"
-source = "git+https://github.com/jrasky/serde#2672741b8f2b780b57f2d9ba81dff5be15d46b28"
+version = "0.11.3"
+source = "git+https://github.com/jrasky/serde#4b93e3b5cd8cc696457d1e04de100f3e1fc54878"
 dependencies = [
  "syn 0.10.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -184,10 +184,10 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
-version = "0.8.20"
-source = "git+https://github.com/jrasky/serde#2672741b8f2b780b57f2d9ba81dff5be15d46b28"
+version = "0.8.21"
+source = "git+https://github.com/jrasky/serde#4b93e3b5cd8cc696457d1e04de100f3e1fc54878"
 dependencies = [
- "serde_codegen 0.8.20 (git+https://github.com/jrasky/serde)",
+ "serde_codegen 0.8.21 (git+https://github.com/jrasky/serde)",
 ]
 
 [[package]]
@@ -311,11 +311,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fc874b127765f014d792f16763a81245ab80500e2ad921ed4ee9e82481ee08fe"
 "checksum rustc-serialize 0.3.22 (registry+https://github.com/rust-lang/crates.io-index)" = "237546c689f20bb44980270c73c3b9edd0891c1be49cc1274406134a66d3957b"
 "checksum serde 0.8.21 (registry+https://github.com/rust-lang/crates.io-index)" = "7b7c6bf11cf766473ea1d53eb4e3bc4e80f31f50082fc24077cf06f600279a66"
-"checksum serde_codegen 0.8.20 (git+https://github.com/jrasky/serde)" = "<none>"
+"checksum serde_codegen 0.8.21 (git+https://github.com/jrasky/serde)" = "<none>"
 "checksum serde_codegen 0.8.21 (registry+https://github.com/rust-lang/crates.io-index)" = "64e0d87d19ec28bf431ffa9bad1f1e4ea3b381cd616c6cc56dca9eedbc7f6ab8"
-"checksum serde_codegen_internals 0.11.2 (git+https://github.com/jrasky/serde)" = "<none>"
+"checksum serde_codegen_internals 0.11.3 (git+https://github.com/jrasky/serde)" = "<none>"
 "checksum serde_codegen_internals 0.11.3 (registry+https://github.com/rust-lang/crates.io-index)" = "afad7924a009f859f380e4a2e3a509a845c2ac66435fcead74a4d983b21ae806"
-"checksum serde_derive 0.8.20 (git+https://github.com/jrasky/serde)" = "<none>"
+"checksum serde_derive 0.8.21 (git+https://github.com/jrasky/serde)" = "<none>"
 "checksum serde_derive 0.8.21 (registry+https://github.com/rust-lang/crates.io-index)" = "6e7ad1e74679b92730ca39c361ea125e2846df337c5d94d084eb2f7837c1843d"
 "checksum spin 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)" = "1d16a26e2b789f86aabddbe91cb82ee2e822beb8a59840d631941b625ef77e53"
 "checksum syn 0.10.5 (registry+https://github.com/rust-lang/crates.io-index)" = "1a437f8b4353179418870f014113876cd4cd4f642e42dbc5ed4f328d5f808246"

@@ -17,27 +17,10 @@ SECTIONS {
     /* don't allocate before the end of the kernel image at all */
     _image_begin = 0;
 
-    /* multiboot2 header */
-    .boot ORIGIN(boot) : ALIGN(8) {
-        KEEP(asm/target/multiboot2.o (.multiboot2))
-        _boot_top = .;
-        * (.boot_text)
-        * (.boot_rodata)
-        * (.boot_data)
-        * (.gen_text)
-        * (.gen_data)
-        _boot_data = .;
-        * (.boot_bss)
+    /* boot stub */
+    .boot ORIGIN(boot) : ALIGN(4K) {
+        asm/target/long_stub.o (.text)
     } > boot :boot
-
-    . = .;
-
-    _boot_end = .;
-
-    /* generated page tables */
-    .pages ORIGIN(pages) : AT(ORIGIN(pages)) {
-        KEEP(* (.gen_pages))
-    } :boot
 
     INCLUDE lib/high.ld
 

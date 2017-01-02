@@ -3,15 +3,11 @@ extern "C" {
 
     pub static _image_begin: u8;
     pub static _image_end: u8;
-    pub static _gen_max_paddr: u64;
-    pub static _gen_segments_size: u64;
-    pub static _gen_page_tables: u64;
-    pub static _gen_segments: u8;
 
     pub static _kernel_top: u8;
     pub static _kernel_end: u8;
     pub static _bss_top: u8;
-    pub static _long_stack: u8;
+    pub static _early_stack: u8;
     pub static _rodata_top: u8;
     pub static _rodata_end: u8;
     pub static _data_top: u8;

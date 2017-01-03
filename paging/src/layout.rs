@@ -293,12 +293,12 @@ impl Layout {
     }
     
     pub fn insert(&mut self, segment: Segment) -> bool {
+        trace!("Inserting segment {:?}", &segment);
         if self.map.insert(segment.clone()) {
             let region = Region::new(segment.virtual_base(), segment.size());
             // may or may not already be allocated
             self.free.set_used(region);
 
-            trace!("Inserting segment {:?}", &segment);
             true
         } else {
             false

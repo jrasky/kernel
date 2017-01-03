@@ -27,6 +27,7 @@
     global _bp_early_handler
     global _gp_early_handler
     global _pf_early_handler
+    global _reserve_slab
 
     extern kernel_main
     extern _boot_info
@@ -47,6 +48,8 @@ _fxsave_int:    resb 0x200
 _fxsave_trap:   resb 0x200
     align 16
 _fxsave_task:   resb 0x200
+    align 8
+_reserve_slab:  resb 0x8000     ;must match constants.rs
 
     section .text exec
     bits 64

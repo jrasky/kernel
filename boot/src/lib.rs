@@ -183,7 +183,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     // - create the initial page tables
     let mut layout = paging::Layout::new();
 
-    // add the identity mapping
+    // add the identity mapping, because the CPU needs some TLC when switching to long mode
     assert!(layout.insert(paging::Segment::new(
         0x0, 0x0, IDENTITY_END as u64,
         true, false, true, false
@@ -279,7 +279,8 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
                         write, false, execute, false
                     );
 
-                    assert!(layout.insert(segment), "failed to insert segment");
+                    //assert!(layout.insert(segment), "failed to insert segment");
+                    layout.insert(segment);
                 }
                 Data::Empty => {
                     warn!("Empty sections not yet implemented");
@@ -340,20 +341,33 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
 
     // create the right address format for our ljmp instruction
     let mut target: [u8; 6] = [0x00, 0x00, 0x00, 0x00, 0x08, 0x00];
-    byteorder::BigEndian::write_u32(&mut target, entry as u32);
+    byteorder::NativeEndian::write_u32(&mut target, entry as u32);
+
+    // TODO: as it turns out, the processor switches first to compatability
+    // mode. This means we don't have to branch immediately to the 64 bit
+    // kernel, as I thought I had to. Silly intel and their at times cryptic
+    // documentation.
+
+    // Basically, once we enable paging with the LME bit set, we turn into a
+    // 32-bit process on a 64-bit system. Hmmm, this makes me think: could I
+    // launch the 64 bit kernel from a syscall?
 
     unsafe {
-        // once we enable paging, the next instruction /must/ be the far jump
-        // so get our cr0 ready now
         let mut cr0: u32;
         asm!("mov $0, cr0" : "=r"(cr0) ::: "intel");
         cr0 |= 1 << 31;
 
+        // asm!(concat!(
+        //     "mov edi, $0;", // first argument to kernel main is boot proto
+        //     "mov cr0, $1;", // come on (enable paging)
+        //     "ljmp $2" // and slam (far jump to kernel)
+        // ) :: "*m"(proto.deref()), "r"(cr0), "*m"(&target) : "edi" : "intel", "volatile");
+
         asm!(concat!(
             "mov edi, $0;", // first argument to kernel main is boot proto
-            "mov cr0, $1;", // come on (enable paging)
-            "ljmp $2" // and slam (far jump to kernel)
-        ) :: "*m"(proto.deref()), "r"(cr0), "*m"(&target) : "edi" : "intel", "volatile");
+            "mov cr0, $1;"//, // come on (enable paging)
+            //"ljmp 0x08, 0x100000" // and slam (far jump to kernel)
+        ) :: "*m"(proto.deref()), "r"(cr0) : "edi" : "intel", "volatile");
     }
 
     // leak gdt here to avoid trying to reclaim that space

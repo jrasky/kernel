@@ -175,8 +175,7 @@ fn write_output(mut module: Module) {
     let module_size = module_bytes.len();
 
     // create the file
-    let mut file = File::create(format!("{}/kernel.mod", MODULE_PREFIX))
-        .expect("Failed to create output file");
+    let mut file = File::create(KERNEL_MOD).expect("Failed to create output file");
 
     // write out module
     file.write_all(module_bytes.as_slice()).expect("Failed to write out module");

@@ -13,7 +13,7 @@ use std::slice;
 pub mod util;
 pub mod error;
 
-pub const RESERVE_SLAB_SIZE: usize = 0x1000; // four pages
+pub const RESERVE_SLAB_SIZE: usize = 0x1000; // eight pages, this is a count of u64s
 pub const RESERVE_MAGIC: u64 = 15297541685404970074;
 pub const VGA_BUFFER_WIDTH: usize = 80;
 pub const VGA_BUFFER_HEIGHT: usize = 25;
@@ -51,7 +51,7 @@ pub const FXSAVE_SIZE: usize = 0x200;
 pub const CORE_BEGIN: u64 = 0xffffffff80000000;
 pub const CORE_SIZE: usize = 0x80000000;
 pub const HEAP_BEGIN: u64 = 0xffffffff81000000;
-pub const IDENTITY_END: usize = 0x200000;
+pub const IDENTITY_END: usize = 0x400000;
 pub const OPTIMISTIC_HEAP: usize = 0x200000;
 pub const OPTIMISTIC_HEAP_SIZE: usize = 0x200000;
 
@@ -61,11 +61,7 @@ pub const TASK_SIZE: usize = 0x7fc00000;
 pub const PAGE_TABLES_OFFSET: usize = 0x180000;
 
 pub const KERNEL_ELF: &'static str = "target/kernel.elf";
-
-pub const RAW_OUTPUT: &'static str = "target/gen/page_tables.bin";
-pub const SEG_OUTPUT: &'static str = "target/gen/segments.bin";
-pub const ASM_OUTPUT: &'static str = "target/gen/page_tables.asm";
-pub const MODULE_PREFIX: &'static str = "target/modules";
+pub const KERNEL_MOD: &'static str = "target/kernel.mod";
 
 pub const CANONICAL_BITS: usize = 48;
 pub const PAGE_ADDR_MASK: u64 = ((1 << CANONICAL_BITS) - 1) & !((1 << 12) - 1);

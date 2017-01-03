@@ -2,11 +2,15 @@
 
     global _start
     global _boot_stack
+    global _reserve_slab
 
 	section .bss nobits
+    align 16
 _boot_stack_end:
-    resb 0xf000
+    resb 0x20000
 _boot_stack:
+    align 8
+_reserve_slab:  resb 0x8000     ;must match constants.rs
 
     section .text exec
 

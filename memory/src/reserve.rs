@@ -3,15 +3,21 @@ use std::cell::{UnsafeCell};
 
 use std::str;
 use std::ptr;
+use std::cmp;
 
 use constants::*;
 
 use super::MemoryError;
 
+extern "C" {
+    // extern because this needs to be 8 bytes aligned
+    static _reserve_slab: u8;
+}
+
 static RESERVE: Memory = Memory {
     inner: UnsafeCell::new(MemoryInner {
         hint: U64_BYTES * RESERVE_SLAB_SIZE,
-        slab: [0; RESERVE_SLAB_SIZE],
+        slab: unsafe { &_reserve_slab as *const u8 as *mut u64 },
         map: [0; (RESERVE_SLAB_SIZE + 7) / 8]
     }),
     borrowed: AtomicBool::new(false),
@@ -27,8 +33,7 @@ unsafe impl Sync for Memory {}
 
 struct MemoryInner {
     hint: usize,
-    // TODO: get the below to be 8 bytes aligned
-    slab: [u64; RESERVE_SLAB_SIZE],
+    slab: *mut u64,
     map: [u8; (RESERVE_SLAB_SIZE + 7) / 8]
 }
 
@@ -64,7 +69,7 @@ impl MemoryInner {
     #[inline]
     fn belongs(&self, ptr: *mut u8) -> bool {
         //trace!("{:?}, {:?}, {}", ptr, self.slab.as_ptr(), self.slab.len());
-        (ptr as usize) >= self.slab.as_ptr() as usize && (ptr as usize) < unsafe {self.slab.as_ptr().offset(self.slab.len() as isize)} as usize
+        (ptr as usize) >= self.slab as usize && (ptr as usize) < unsafe {self.slab.offset(RESERVE_SLAB_SIZE as isize)} as usize
     }
 
     #[inline]
@@ -72,92 +77,86 @@ impl MemoryInner {
         self.hint
     }
 
-    unsafe fn allocate(&mut self, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
-        // round up to the number of blocks we need to allocate
-        let blocks = (size + 7) / 8;
+    #[inline]
+    fn is_allocated(&self, position: usize) -> Result<bool, MemoryError> {
+        if position >= RESERVE_SLAB_SIZE {
+            // return here so we can wrap this in a try below
+            return Err(MemoryError::OutOfMemory);
+        }
 
-        let mut start: usize = 0;
-        let mut acc: usize = 0;
-        let mut pos: usize = 0;
-        let mut subpos: usize = 0;
-        loop {
-            // check for oom
-            if pos >= (RESERVE_SLAB_SIZE + 7) / 8 {
-                error!("Failed to allocate reserve memory");
-                return Err(MemoryError::OutOfMemory);
-            }
+        // each map entry has one bit for each u64 in the slab
+        let bit_position = position & 0x7;
+        let index = position >> 3;
 
-            // check for free blocks
-            if self.map[pos] & (1 << subpos) == 0 {
-                // block is free
-                if acc > 0 {
-                    acc += 1;
-                } else {
-                    // figure out the address of this position
-                    let addr = self.slab.as_ptr() as usize + (((pos * 8) + subpos) * 8);
+        let entry = self.map[index];
+        let bit = (entry >> bit_position) & 0x1;
 
-                    if align == 0 || is_aligned(addr, align) {
-                        // address is aligned
-                        start = (pos * 8) + subpos;
-                        acc = 1;
-                    }
-                }
-            } else if acc > 0 {
-                acc = 0;
-            }
+        // bit is set when that u64 is allocated
+        Ok(bit == 1)
+    }
 
-            // check if we've found enough blocks
-            if acc >= blocks {
-                // we've found blocks that work, mark them as used
-                pos = start / 8;
-                subpos = start % 8;
-                for _ in 0..blocks {
-                    if subpos >= 8 {
-                        subpos = 0;
-                        pos += 1;
-                    }
+    #[inline]
+    unsafe fn set_allocated(&mut self, base: usize, count: usize) {
+        for position in base..base + count {
+            // get the bit offset that we want
+            let bit_position = position & 0x7;
+            let index = position >> 3;
 
-                    self.map[pos] |= 1 << subpos;
-                    subpos += 1;
-                }
-
-                // create the header
-                let base = self.slab.get_mut(start).unwrap() as *mut _ as *mut u8;
-
-                // update our size hint
-                self.hint = U64_BYTES * (RESERVE_SLAB_SIZE - start - blocks);
-
-                // return the pointer of interest
-                return Ok(base);
-            }
-
-            // increment our position
-            subpos += 1;
-
-            if subpos >= 8 {
-                subpos = 0;
-                pos += 1;
-            }
+            // set the bit
+            self.map[index] |= 0x1 << bit_position;
         }
     }
 
-    unsafe fn release(&mut self, ptr: *mut u8, size: usize, _: usize) -> Result<usize, MemoryError> {
-        let blocks = (size + 7) / 8;
+    #[inline]
+    unsafe fn set_unallocated(&mut self, base: usize, count: usize) {
+        for position in base..base + count {
+            // get the bit offset that we want
+            let bit_position = position & 0x7;
+            let index = position >> 3;
 
-        let start = (ptr as usize) - (self.slab.as_ptr() as usize);
-
-        let mut pos = start / 64;
-        let mut subpos = (start / 8) % 8;
-
-        for _ in 0..blocks {
-            if subpos >= 8 {
-                subpos = 0;
-                pos += 1;
-            }
-
-            self.map[pos] &= !(1 << subpos);
-            subpos += 1;
+            // set the bit
+            self.map[index] &= !(0x1 << bit_position);
         }
+    }
+
+    #[inline]
+    fn get_position(&self, ptr: *mut u8) -> usize {
+        (ptr as usize - self.slab as usize) >> 3
+    }
+
+    unsafe fn allocate(&mut self, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
+        let count = get_count(size);
+
+        let mut base = 0usize;
+
+        for position in 0..RESERVE_SLAB_SIZE {
+            if try!(self.is_allocated(position)) {
+                // advance the base if we're reading an already allocated slot
+
+                // advance to the next correctly-aligned position
+
+                // alignment is right-shifted by three because position is
+                // address / 8, also avoid aligning to zero because overflow
+                base = ::constants::align(position, cmp::max(align >> 3, 1));
+            } else if base < position && position - base >= count {
+                // we've found our slot
+                self.set_allocated(base, count);
+
+                let pointer = self.slab.offset(base as isize * 8);
+
+                return Ok(pointer as *mut u8);
+            }
+        }
+
+        // oom
+        Err(MemoryError::OutOfMemory)
+    }
+
+    unsafe fn release(&mut self, ptr: *mut u8, size: usize, _: usize) -> Result<usize, MemoryError> {
+        let count = get_count(size);
+        let base = self.get_position(ptr);
+
+        self.set_unallocated(base, count);
 
         // successfully freed memory
         Ok(size)
@@ -169,24 +168,25 @@ impl MemoryInner {
             return Ok(());
         }
 
-        let start = (ptr as usize) - (self.slab.as_ptr() as usize);
-        let end = start + old_size;
-        let new_end = start + size;
+        let base = self.get_position(ptr);
 
-        let mut pos = new_end / 64;
-        let mut subpos = (new_end / 8) % 8;
+        let old_count = get_count(old_size);
+        let count = get_count(size);
 
-        for _ in new_end..end {
-            if subpos >= 8 {
-                subpos = 0;
-                pos += 1;
-            }
-
-            // mark the block as free
-            self.map[pos] &= !(1 << subpos);
-        }
+        self.set_unallocated(base + count, old_count - count);
 
         Ok(())
+    }
+
+    fn can_grow_inplace(&self, base: usize, old_count: usize, count: usize) -> bool {
+        for position in base + old_count..base + count {
+            if self.is_allocated(position).unwrap_or(true) {
+                // this position is allocated or invalid
+                return false;
+            }
+        }
+
+        true
     }
 
     unsafe fn grow(&mut self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<(), MemoryError> {
@@ -195,105 +195,53 @@ impl MemoryInner {
             return Ok(());
         }
 
-        let start = (ptr as usize) - (self.slab.as_ptr() as usize);
-        let end = start + old_size;
+        let base = self.get_position(ptr);
+        let old_count = get_count(old_size);
+        let count = get_count(size);
 
-        let mut pos = end / 64;
-        let mut subpos = (end / 8) % 8;
+        // see if we can just grow this allocation directly
+        if self.can_grow_inplace(base, old_count, count) {
+            // just set the new stuff as allocated and done
+            self.set_allocated(base + old_count, count - old_count);
 
-        for place in 0..size - old_size {
-            if subpos >= 8 {
-                subpos = 0;
-                pos += 1;
-            }
-
-            if self.map[pos] & (1 << subpos) == 0 {
-                // mark the next block as used
-                self.map[pos] |= 1 << subpos;
-            } else {
-                // rollback
-                pos = end / 64;
-                subpos = (end / 8) % 8;
-                for _ in 0..place {
-                    if subpos >= 8 {
-                        subpos = 0;
-                        pos += 1;
-                    }
-
-                    self.map[pos] &= !(1 << subpos);
-                    subpos += 1;
-                }
-
-                // failed to grow
-                return Err(MemoryError::OutOfSpace);
-            }
-
-            subpos += 1;
+            Ok(())
+        } else {
+            // no space to grow this allocation
+            Err(MemoryError::OutOfSpace)
         }
-
-        // successfully grew the allocation
-        Ok(())
     }
 
-    unsafe fn resize(&mut self,
-                     ptr: *mut u8,
-                     old_size: usize,
-                     size: usize,
-                     align: usize)
-                     -> Result<*mut u8, MemoryError> {
-
-        // TODO: actually treat errors in here separately
-        if size > granularity(old_size, align) {
-            if self.grow(ptr, old_size, size, align).is_ok() {
-                return Ok(ptr);
-            }
-        } else if granularity(old_size, align) < old_size {
-            if self.shrink(ptr, old_size, size, align).is_ok() {
-                return Ok(ptr);
-            }
+    unsafe fn resize(&mut self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
+        // try to resize in-place
+        if size > old_size && self.grow(ptr, old_size, size, align).is_ok() {
+            return Ok(ptr);
+        } else if self.shrink(ptr, old_size, size, align).is_ok() {
+            return Ok(ptr);
         }
 
-        // otherwise we need to create a new allocation
-        match self.release(ptr, old_size, align) {
-            Err(e) => {
-                error!("Failed to free pointer on resize: {}", e);
-                return Err(e);
-            }
-            Ok(_) => {}
+        // need to create a new allocation
+        let base = self.get_position(ptr);
+        let old_count = get_count(old_size);
+
+        self.set_unallocated(base, old_count);
+
+        if let Ok(new_ptr) = self.allocate(size, align) {
+            ptr::copy(ptr, new_ptr, old_size);
+
+            Ok(new_ptr)
+        } else {
+            // roll back
+            self.set_allocated(base, old_count);
+
+            // oom
+            Err(MemoryError::OutOfMemory)
         }
-
-        let new_ptr = match self.allocate(size, align) {
-            Err(_) => {
-                // roll back
-                let blocks = (old_size + 7) / 8;
-                let start = (ptr as usize) - (self.slab.as_ptr() as usize);
-                let mut pos = start / 64;
-                let mut subpos = (start / 8) % 8;
-
-                for _ in 0..blocks {
-                    if subpos >= 8 {
-                        subpos = 8;
-                        pos += 1;
-                    }
-
-                    self.map[pos] |= 1 << subpos;
-
-                    subpos += 1;
-                }
-
-                // fail, but original allocation is still intact
-                return Err(MemoryError::OutOfMemory);
-            }
-            Ok(new_ptr) => new_ptr,
-        };
-
-        // only one thread can ever be here at a time, so it's safe
-        // to keep using the old pointer
-        ptr::copy(ptr as *mut u8, new_ptr as *mut u8, old_size);
-
-        // success!
-        Ok(new_ptr)
     }
+}
+
+#[inline]
+fn get_count(size: usize) -> usize {
+    (size + 7) >> 3
 }
 
 #[inline]

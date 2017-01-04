@@ -1,6 +1,9 @@
+## Rust source directories
 BOOT_DIRS = ./boot ./log ./log_abi ./kernel_std ./serial ./constants ./paging ./memory
 KERNEL_DIRS = ./kernel ./log ./log_abi ./paging ./user ./constants ./serial ./memory ./kernel_std
 STAGE2_DIRS = ./stage2 ./paging ./constants ./kernel_std ./log ./log_abi
+
+## Other build directories
 
 ASM_DIR = ./asm
 LIB_DIR = ./lib
@@ -8,39 +11,59 @@ TARGET_DIR = ./target
 
 ISO_DIR = $(TARGET_DIR)/iso
 
+## Lists of all the source files for each target
+
 KERNEL_SOURCES = $(foreach dir,$(KERNEL_DIRS),$(wildcard $(dir)/src/*) $(dir)/Cargo.toml)
 BOOT_SOURCES = $(foreach dir,$(BOOT_DIRS),$(wildcard $(dir)/src/*) $(dir)/Cargo.toml)
 STAGE2_SOURCES = $(foreach dir,$(STAGE2_DIRS),$(wildcard $(dir)/src/*) $(dir)/Cargo.toml)
 ASM_SOURCES = $(wildcard $(ASM_DIR)/src/*)
 
-BOOT_TARGET = ./boot/target/i686-unknown-linux-gnu/debug/libboot.a
+## Boot target info
+
 BOOT = $(TARGET_DIR)/boot.elf
+BOOT_TARGET = ./boot/target/i686-unknown-linux-gnu/debug/libboot.a
 BOOT_LINK = $(LIB_DIR)/boot.ld
 BOOT_ASM = $(ASM_DIR)/target/multiboot2.o $(ASM_DIR)/target/short_boot.o
 
-KERNEL_TARGET = ./kernel/target/debug/libkernel.a
+## Kernel target info
+
 KERNEL = $(TARGET_DIR)/kernel.elf
 KERNEL_MOD = $(TARGET_DIR)/kernel.mod
+KERNEL_TARGET = ./kernel/target/debug/libkernel.a
 KERNEL_LINK = $(LIB_DIR)/link.ld
 KERNEL_ASM = $(ASM_DIR)/target/util.o $(ASM_DIR)/target/long_stub.o
 
+## Stage2 target info
+
 STAGE2 = ./stage2/target/debug/stage2
+
+## Grub source and output files
 
 GRUB_CFG = $(LIB_DIR)/grub.cfg
 GRUB_IMAGE = $(TARGET_DIR)/image.iso
+
+## Locations of output in the image
 
 ISO_GRUB_CFG = $(ISO_DIR)/boot/grub/grub.cfg
 ISO_KERNEL = $(ISO_DIR)/boot/kernel.mod
 ISO_BOOT = $(ISO_DIR)/boot/boot.elf
 
+## Assembler and linker flags for the kernel
+
 KERNEL_ASFLAGS = -f elf64
 KERNEL_LDFLAGS = --gc-sections -n
+
+## Assembler and linker flags for bootstrap
 
 BOOT_ASFLAGS = -f elf32
 BOOT_LDFLAGS = --gc-sections -n -m elf_i386
 
+## Flags for other utilities
+
 GRUB_RESCUE_FLAGS = -d /usr/lib/grub/x86_64-efi/
 VM_FLAGS = -enable-kvm -net none -m 1024 -drive file=/usr/share/ovmf/ovmf_x64.bin,format=raw,if=pflash,readonly -k en-us -serial stdio
+
+## Commands to use
 
 CD = cd
 CARGO = cargo
@@ -52,11 +75,11 @@ GRUB_RESCUE = grub-mkrescue
 CP = cp
 VM = qemu-system-x86_64
 
-build: directories $(KERNEL)
+## Phony targets
 
-image: directories $(GRUB_IMAGE)
+build: directories $(GRUB_IMAGE)
 
-run: image
+run: build
 	$(VM) $(VM_FLAGS) -cdrom $(GRUB_IMAGE)
 
 clean:
@@ -65,29 +88,34 @@ clean:
 	$(CD) ./kernel && cargo clean
 	$(CD) ./boot && cargo clean
 
+directories: $(TARGET_DIR) $(ASM_DIR)/target $(ISO_DIR) $(ISO_DIR)/boot $(ISO_DIR)/boot/grub
+
+# creates the directories that we need for building
+$(TARGET_DIR) $(ASM_DIR)/target $(ISO_DIR) $(ISO_DIR)/boot $(ISO_DIR)/boot/grub:
+	$(MKDIR) -p $@
+
+## Grub image targets
+
+$(GRUB_IMAGE): $(ISO_GRUB_CFG) $(ISO_KERNEL) $(ISO_BOOT)
+	$(GRUB_RESCUE) $(GRUB_RESCUE_FLAGS) -o $(GRUB_IMAGE) $(ISO_DIR)
+
 $(ISO_GRUB_CFG): $(GRUB_CFG)
 	$(CP) $< $@
 
 $(ISO_KERNEL): $(KERNEL_MOD)
 	$(CP) $< $@
 
-$(GRUB_IMAGE): $(ISO_GRUB_CFG) $(ISO_KERNEL)
-	$(GRUB_RESCUE) $(GRUB_RESCUE_FLAGS) -o $(GRUB_IMAGE) $(ISO_DIR)
+$(ISO_BOOT): $(BOOT)
+	$(CP) $< $@
 
-$(BOOT_TARGET): $(BOOT_SOURCES)
-	$(CD) ./boot && $(CARGO) build
+# The kernel gets re-packed by stage2 so boot can load it
 
-$(KERNEL_TARGET): $(KERNEL_SOURCES)
-	$(CD) ./kernel && $(CARGO) build
+$(KERNEL_MOD): $(KERNEL) $(STAGE2)
+	$(STAGE2)
 
-$(KERNEL_ASM): $(ASM_DIR)/target/%.o : $(ASM_DIR)/src/%.asm
-	$(AS) $(KERNEL_ASFLAGS) -o $@ $<
+## Linker targets
 
-$(BOOT_ASM): $(ASM_DIR)/target/%.o : $(ASM_DIR)/src/%.asm
-	$(AS) $(BOOT_ASFLAGS) -o $@ $<
-
-$(STAGE2): $(STAGE2_SOURCES)
-	$(CD) ./stage2 && $(CARGO) build
+# Stage2's binary is linked by cargo
 
 $(BOOT): $(BOOT_TARGET) $(BOOT_ASM) $(BOOT_LINK)
 	$(LD) $(BOOT_LDFLAGS) -T $(BOOT_LINK) -o $@ $(BOOT_ASM) $(BOOT_TARGET)
@@ -95,12 +123,23 @@ $(BOOT): $(BOOT_TARGET) $(BOOT_ASM) $(BOOT_LINK)
 $(KERNEL): $(KERNEL_TARGET) $(KERNEL_ASM) $(KERNEL_LINK)
 	$(LD) $(KERNEL_LDFLAGS) -T $(KERNEL_LINK) -o $@ $(KERNEL_ASM) $(KERNEL_TARGET)
 
-$(KERNEL_MOD): $(KERNEL) $(STAGE2)
-	$(STAGE2)
+## Rust targets
 
-$(TARGET_DIR) $(ASM_DIR)/target $(ISO_DIR) $(ISO_DIR)/boot $(ISO_DIR)/boot/grub:
-	$(MKDIR) -p $@
+$(STAGE2): $(STAGE2_SOURCES)
+	$(CD) ./stage2 && $(CARGO) build
 
-directories: $(TARGET_DIR) $(ASM_DIR)/target $(ISO_DIR) $(ISO_DIR)/boot $(ISO_DIR)/boot/grub
+$(BOOT_TARGET): $(BOOT_SOURCES)
+	$(CD) ./boot && $(CARGO) build --target i686-unknown-linux-gnu
 
-.PHONY: build image run clean directories
+$(KERNEL_TARGET): $(KERNEL_SOURCES)
+	$(CD) ./kernel && $(CARGO) build
+
+## Assembly targets
+
+$(KERNEL_ASM): $(ASM_DIR)/target/%.o : $(ASM_DIR)/src/%.asm
+	$(AS) $(KERNEL_ASFLAGS) -o $@ $<
+
+$(BOOT_ASM): $(ASM_DIR)/target/%.o : $(ASM_DIR)/src/%.asm
+	$(AS) $(BOOT_ASFLAGS) -o $@ $<
+
+.PHONY: build run clean directories

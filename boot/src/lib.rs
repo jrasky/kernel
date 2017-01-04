@@ -229,11 +229,8 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
                 if port.identity == Uuid::parse_str("b3de1342-4d70-449d-9752-3122338aa864").unwrap() {
                     debug!("Entry point found at 0x{:x}", base + port.offset);
 
-                    // make sure it's address works in 32 bit mode
-                    if base + port.offset > u32::max_value() as u64 {
-                        panic!("Kernel entry point too high: 0x{:x}", base + port.offset);
-                    }
-
+                    // Since we're using an interrupt to jump to the kernel, its
+                    // entry can be above 4 GB
                     entry = Some(base + port.offset);
                 }
             }
@@ -337,43 +334,32 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     assert!(page_tables >> 32 == 0, "Page tables built above 4 gigabytes, somehow");
     setup_paging(page_tables as u32);
 
-    /*****************JUMP TO KERNEL*****************/
-
-    // create the right address format for our ljmp instruction
-    let mut target: [u8; 6] = [0x00, 0x00, 0x00, 0x00, 0x08, 0x00];
-    byteorder::NativeEndian::write_u32(&mut target, entry as u32);
-
-    // TODO: as it turns out, the processor switches first to compatability
-    // mode. This means we don't have to branch immediately to the 64 bit
-    // kernel, as I thought I had to. Silly intel and their at times cryptic
-    // documentation.
-
-    // Basically, once we enable paging with the LME bit set, we turn into a
-    // 32-bit process on a 64-bit system. Hmmm, this makes me think: could I
-    // launch the 64 bit kernel from a syscall?
-
-    unsafe {
-        let mut cr0: u32;
-        asm!("mov $0, cr0" : "=r"(cr0) ::: "intel");
-        cr0 |= 1 << 31;
-
-        // asm!(concat!(
-        //     "mov edi, $0;", // first argument to kernel main is boot proto
-        //     "mov cr0, $1;", // come on (enable paging)
-        //     "ljmp $2" // and slam (far jump to kernel)
-        // ) :: "*m"(proto.deref()), "r"(cr0), "*m"(&target) : "edi" : "intel", "volatile");
-
-        asm!(concat!(
-            "mov edi, $0;", // first argument to kernel main is boot proto
-            "mov cr0, $1;"//, // come on (enable paging)
-            //"ljmp 0x08, 0x100000" // and slam (far jump to kernel)
-        ) :: "*m"(proto.deref()), "r"(cr0) : "edi" : "intel", "volatile");
-    }
+    // enter long mode
+    enable_long_mode();
 
     // leak gdt here to avoid trying to reclaim that space
     mem::forget(gdt);
 
     unreachable!("bootstrap tried to return");
+}
+
+fn enable_long_mode() {
+    unsafe {
+        let mut cr0: u32;
+        asm!("mov $0, cr0" : "=r"(cr0) ::: "intel");
+        cr0 |= 1 << 31;
+
+        asm!(concat!(
+            "mov cr0, $0;" // enable paging
+        ) :: "r"(cr0) :: "intel", "volatile");
+
+        // check EFER to make sure LMA has been set
+        let efer_msr = util::read_msr(EFER_MSR);
+
+        assert!((efer_msr >> 10) & 0x1 == 0x1, "long mode was not enabled");
+
+        debug!("entered long mode");
+    }
 }
 
 fn setup_paging(page_tables: u32) {

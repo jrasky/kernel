@@ -1,4 +1,18 @@
-use include::*;
+use super::{FrameSize, PageSize};
+
+use std::ptr::Shared;
+
+use collections::{Vec, BTreeMap, BTreeSet};
+
+use alloc::boxed::Box;
+
+use std::mem;
+use std::cmp;
+use std::ptr;
+
+use constants::*;
+
+use kernel_std::*;
 
 use segment::Segment;
 use table::{Info, Table, Base, Level};
@@ -163,17 +177,17 @@ impl Layout {
 
     fn build_edge(&mut self, builder: &mut Base, table: &mut Table, base: u64, size: FrameSize,
                              idx: usize, vbase: u64, segment: &Segment) -> bool {
-        trace!("0x{:x}, 0x{:x}, {:?}", idx, vbase, size);
+        //trace!("0x{:x}, 0x{:x}, {:?}", idx, vbase, size);
 
         if let Some(next) = size.get_next() {
             let subframe_base = base + (idx as u64 * size.get_pagesize().get_size());
+
+            let page_start_idx = segment.virtual_base() >> next.get_pagesize().get_shift();
+            let page_end_idx = (segment.virtual_base() + segment.size()) >> next.get_pagesize().get_shift();
+
             trace!("c 0x{:x}, 0x{:x}", subframe_base, vbase);
             if !is_aligned(segment.get_physical_subframe(subframe_base), size.get_pagesize().into())
-                || (vbase >= subframe_base && vbase - subframe_base >= next.get_pagesize().into())
-                || subframe_base - vbase >= next.get_pagesize().into()
-                || ((subframe_base + size.get_pagesize().get_size()) > segment.virtual_base() + segment.size()
-                    && (subframe_base + size.get_pagesize().get_size() - segment.virtual_base() - segment.size())
-                    > next.get_pagesize().get_size())
+                || page_start_idx > 0 || page_end_idx < 0x1ff
             {
                 // build a new table here
                 let new_table = unsafe {self.get_or_create(builder, table, idx, match next {
@@ -243,6 +257,20 @@ impl Layout {
 
             builder.to_physical(*root as u64)
                 .expect("Root table had no physical mapping")
+        }
+    }
+
+    pub fn build(&mut self, builder: &mut Base) -> u64 {
+        let root = unsafe { builder.new_table() };
+
+        for segment in self.map.iter() {
+            let first = segment.virtual_base();
+            let last = start + segment.size() - 1; // adjust here for the last valid address
+
+            let start = (first >> 39 & 0x1ff, first >> 30 & 0x1ff, first >> 21 & 0x1ff, first >> 12 & 0x1ff);
+            let end = (last >> 39 & 0x1ff, last >> 30 & 0x1ff, last >> 21 & 0x1ff, last >> 12 & 0x1ff);
+
+            
         }
     }
 
@@ -341,7 +369,6 @@ impl Layout {
 
 #[cfg(test)]
 mod tests {
-    use include::*;
     use segment::Segment;
 
     use std::io::{Write};
@@ -508,14 +535,14 @@ mod tests {
         let next_idx = (next_addr - 0x180000) / 0x8;
 
         // 3rd entry
-        let next_entry = tables[next_idx as usize + 3];
+        let next_entry = tables[next_idx as usize + 4];
         assert!(next_entry & 0x1 == 0x1, "No 3rd entry");
         assert!(next_entry & 0x80 == 0, "3rd entry was a frame");
         let next_addr = next_entry & (((1 << 41) - 1) << 12);
         let next_idx = (next_addr - 0x180000) / 0x8;
 
         // 4th
-        let next_entry = tables[next_idx as usize + 4];
+        let next_entry = tables[next_idx as usize + 0];
         assert!(next_entry & 0x1 == 0x1, "No 4th entry");
         let frame_addr = next_entry & (((1 << 41) - 1) << 12);
         assert!(frame_addr == 0x23f000, "Frame was not at the right address: 0x{:x}", frame_addr);
@@ -538,7 +565,7 @@ mod tests {
         layout.insert(Segment::new(0x23f000, 0xffff80800000, 0x17648,
                                    true, false, false, false));
         layout.insert(Segment::new(0x400000, 0x400000, 0x400000,
-                                       true, true, true, false));
+                                   true, true, true, false));
 
         let (addr, mut buffer) = layout.build_relative(0x180000);
         let ptr = buffer.as_mut_ptr();
@@ -575,9 +602,11 @@ mod tests {
         let next_idx = (next_addr - 0x180000) / 0x8;
 
         // 4th
-        let next_entry = tables[next_idx as usize + 4];
+        let next_entry = tables[next_idx as usize + 0];
         assert!(next_entry & 0x1 == 0x1, "No 4th entry");
         let frame_addr = next_entry & (((1 << 41) - 1) << 12);
-        assert!(frame_addr == 0x23f000, "Frame was not at the right address: 0x{:x}", frame_addr);
+        assert!(frame_addr == 0x23b000, "Frame was not at the right address: 0x{:x}", frame_addr);
+
+        panic!("test");
     }
 }

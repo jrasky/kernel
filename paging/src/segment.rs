@@ -1,4 +1,13 @@
-use include::*;
+use super::PageSize;
+
+use std::cmp::{PartialEq, Eq, Ord, PartialOrd, Ordering};
+
+use alloc::raw_vec::RawVec;
+use alloc::boxed::Box;
+
+use std::mem;
+
+use constants::*;
 
 /// Uniform linear address transformation
 #[derive(Debug, Clone)]

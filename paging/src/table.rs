@@ -1,4 +1,9 @@
-use include::*;
+use std::fmt::{Debug, Formatter};
+use std::ptr::Shared;
+
+use std::fmt;
+
+use constants::*;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Level {
@@ -43,9 +48,8 @@ pub trait Base {
 impl Clone for Table {
     fn clone(&self) -> Table {
         let mut new = Table::new();
-        unsafe {
-            ptr::copy(self.entries.as_ptr(), new.entries.as_mut_ptr(), 0x200);
-        }
+        new.entries = self.entries;
+
         new
     }
 }

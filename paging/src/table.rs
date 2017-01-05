@@ -24,6 +24,7 @@ pub struct Table {
     entries: [Entry; 0x200]
 }
 
+#[derive(Debug, Clone)]
 pub struct Info {
     pub page: bool,
     pub write: bool,
@@ -164,7 +165,7 @@ impl Debug for Entry {
 
 impl Entry {
     pub fn address(&self, level: Level) -> u64 {
-        if self.is_page(level) {
+        if self.is_page(level) && level != Level::PTE {
             canonicalize((self.entry & PAGE_ADDR_MASK & !(1 << 12)) as u64)
         } else {
             canonicalize((self.entry & PAGE_ADDR_MASK) as u64)
@@ -200,7 +201,7 @@ impl Entry {
             Level::PML4E => false,
             Level::PTE => true,
             _ => {
-                self.entry & 1 << 7 == 0
+                self.entry & 1 << 7 == 1
             }
         }
     }

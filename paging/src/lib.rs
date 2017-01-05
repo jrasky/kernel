@@ -3,6 +3,7 @@
 #![feature(const_fn)]
 #![feature(collections)]
 #![feature(alloc)]
+#![feature(inclusive_range_syntax)]
 #![cfg_attr(not(test), no_std)]
 #[cfg(not(test))]
 extern crate core as std;
@@ -17,13 +18,15 @@ extern crate kernel_std;
 
 pub use layout::Layout;
 pub use segment::{Segment, raw_segment_size};
-pub use table::{Entry, Table, Base};
+pub use table::{Entry, Table, Base, Level, Info};
+pub use builder::{Builder, build_layout_relative};
 
 use std::cmp::{Ord, PartialOrd, Ordering};
 
 mod table;
 mod segment;
 mod layout;
+mod builder;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameSize {
@@ -122,6 +125,24 @@ impl PageSize {
     #[inline]
     pub fn get_shift(self) -> u64 {
         self.get_size().trailing_zeros() as u64
+    }
+
+    #[inline]
+    pub fn get_level(self) -> Level {
+        match self {
+            PageSize::Huge => Level::PDPTE,
+            PageSize::Big => Level::PDE,
+            PageSize::Page => Level::PTE
+        }
+    }
+
+    #[inline]
+    pub fn get_next(self) -> Option<PageSize> {
+        match self {
+            PageSize::Huge => Some(PageSize::Big),
+            PageSize::Big => Some(PageSize::Page),
+            PageSize::Page => None
+        }
     }
 
     #[inline]

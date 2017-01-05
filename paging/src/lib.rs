@@ -123,4 +123,13 @@ impl PageSize {
     pub fn get_shift(self) -> u64 {
         self.get_size().trailing_zeros() as u64
     }
+
+    #[inline]
+    pub fn get_framesize(self) -> FrameSize {
+        match self {
+            PageSize::Huge => FrameSize::Giant,
+            PageSize::Big => FrameSize::Huge,
+            PageSize::Page => FrameSize::Big
+        }
+    }
 }

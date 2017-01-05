@@ -260,17 +260,63 @@ impl Layout {
         }
     }
 
+    fn create_page(segment: &Segment, level: Level, subframe: u64) -> Info {
+        Info {
+            page: true,
+            write: segment.write(),
+            execute: segment.execute(),
+            user: segment.user(),
+            global: segment.global(),
+            write_through: false,
+            cache_disable: false,
+            attribute_table: false,
+            protection_key: 0,
+            level: level,
+            address: segment.get_physical_subframe(subframe)
+        }
+    }
+
+    fn is_segment_aligned(segment: &Segment, size: PageSize) -> bool {
+        let start = segment.physical_base();
+        let end = segment.physical_base() + segment.size();
+        let aligned_end = align(end, size.get_size());
+
+        is_aligned(start, size.get_size()) && is_aligned(segment.virtual_base(), size.get_size())
+            && size.next().map(|next| aligned_end - end < next.get_size()).unwrap_or(true)
+    }
+
+    fn generate_table(subframe: u64, size: FrameSize) -> Shared<Table> {
+        // stuff
+    }
+
+    fn generate_pages(segment: &Segment, level: Level, size: PageSize) -> Vec<Info> {
+        let mut pages = vec![];
+
+        let start = segment.virtual_base() >> size.get_shift();
+        let end = (segment.virual_base() + segment.size() - 1) >> size.get_shift();
+
+        for idx in start...end {
+            let subframe = segment.virtual_base() + size.get_size() * idx;
+            let info = Layout::create_page(segment, level, subframe);
+            
+        }
+
+        pages
+    }
+
     pub fn build(&mut self, builder: &mut Base) -> u64 {
-        let root = unsafe { builder.new_table() };
+        let mut pages = vec![];
+
+        // generate all the pages
 
         for segment in self.map.iter() {
-            let first = segment.virtual_base();
-            let last = start + segment.size() - 1; // adjust here for the last valid address
-
-            let start = (first >> 39 & 0x1ff, first >> 30 & 0x1ff, first >> 21 & 0x1ff, first >> 12 & 0x1ff);
-            let end = (last >> 39 & 0x1ff, last >> 30 & 0x1ff, last >> 21 & 0x1ff, last >> 12 & 0x1ff);
-
-            
+            if Layout::is_segment_aligned(segment, PageSize::Huge) {
+                pages.extend(Layout::generate_pages(segment, Level::PDPTE, PageSize::Huge));
+            } else if Layout::is_segment_aligned(segment, PageSize::Big) {
+                pages.extend(Layout::generate_pages(segment, Level::PDE, PageSize::Big));
+            } else {
+                pages.extend(Layout::generate_pages(segment, Level::PTE, PageSize::Page));
+            }
         }
     }
 

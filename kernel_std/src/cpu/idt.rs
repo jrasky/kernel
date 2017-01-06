@@ -3,7 +3,7 @@ use alloc::raw_vec::RawVec;
 use std::str;
 use std::ptr;
 
-use collections::Vec;
+use collections::btree_map::BTreeMap;
 
 #[repr(packed)]
 #[derive(Debug)]
@@ -21,8 +21,8 @@ pub struct Descriptor {
 }
 
 pub struct Table {
-    buffer: RawVec<u8>,
-    descriptors: Vec<Descriptor>,
+    buffer: RawVec<u64>,
+    descriptors: BTreeMap<u8, Descriptor>
 }
 
 pub unsafe extern "C" fn _dummy_target() {
@@ -65,8 +65,8 @@ impl Descriptor {
         // if possible
 
         let lower = ((self.target as u64 & (0xffff << 16)) << 32) | (self.target as u64 & 0xffff) |
-                    ((self.segment as u64) << 16) |
-                    ((self.stack as u64) << 32) | (1 << 47) | (0x0e << 40); // present, interrupt gate
+        ((self.segment as u64) << 16) |
+        ((self.stack as u64) << 32) | (1 << 47) | (0x0e << 40); // present, interrupt gate
 
         trace!("0x{:x}, 0x{:x}", lower, self.target as u64 >> 32);
 
@@ -75,11 +75,15 @@ impl Descriptor {
 }
 
 impl Table {
-    pub fn new(descriptors: Vec<Descriptor>) -> Table {
+    pub fn new() -> Table {
         Table {
             buffer: RawVec::new(),
-            descriptors: descriptors,
+            descriptors: BTreeMap::new(),
         }
+    }
+
+    pub fn insert(&mut self, vector: u8, descriptor: Descriptor) -> Option<Descriptor> {
+        self.descriptors.insert(vector, descriptor)
     }
 
     pub unsafe fn install(&mut self) {
@@ -105,46 +109,19 @@ impl Table {
              :: "intel", "volatile");
     }
 
-    pub unsafe fn early_install(descriptors: &[Descriptor], mut idt: *mut u64) {
-        let len = descriptors.len();
-        let top = idt as u64;
-
-        if len == 0 {
-            // do nothing
-            return;
-        }
-
-        // copy data
-        for desc in descriptors.iter() {
-            ptr::copy(desc.as_entry().as_ptr(), idt, 2);
-            idt = idt.offset(2);
-        }
-
-        static mut REGISTER: Register = Register { size: 0, base: 0 };
-
-        // save register info
-        REGISTER.size = (idt as u64 - top - 1) as u16;
-        REGISTER.base = top;
-
-        // install IDT
-        #[cfg(not(test))]
-        asm!("lidt $0"
-             :: "m"(&REGISTER)
-             :: "intel", "volatile");
-    }
-
     unsafe fn save(&mut self) -> Register {
-        let len = self.descriptors.len();
+        // ordered sets are good
+        let len = self.descriptors.keys().max().unwrap_or(0);
 
         if len == 0 {
             // do nothing if we have no descriptors
             return Register {
                 size: 0,
-                base: self.buffer.ptr() as u64,
+                base: self.buffer.ptr(),
             };
         }
 
-        self.buffer.reserve(0, 36 * len);
+        self.buffer.reserve(0, 4 * len);
 
         // copy data
         let ptr = self.buffer.ptr();
@@ -154,12 +131,12 @@ impl Table {
         idtr
     }
 
-    unsafe fn copy_to(&self, idt: *mut u8) -> Register {
+    unsafe fn copy_to(&self, mut idt: *mut u64) -> Register {
         let top = idt as u64;
-        let mut idt = idt as *mut u64;
 
-        for desc in self.descriptors.iter() {
+        for (vector, desc) in self.descriptors.iter() {
             trace!("{:?}", desc);
+            debug_assert!(vector < self.buffer.cap(), "Buffer was not big enough to contain descriptor");
             ptr::copy(desc.as_entry().as_ptr(), idt, 2);
             idt = idt.offset(2);
         }
@@ -169,4 +146,32 @@ impl Table {
             base: top,
         }
     }
+}
+
+pub unsafe fn early_install(descriptors: &[Descriptor], mut idt: *mut u64) {
+    let len = descriptors.len();
+    let top = idt as u64;
+
+    if len == 0 {
+        // do nothing
+        return;
+    }
+
+    // copy data
+    for desc in descriptors.iter() {
+        ptr::copy(desc.as_entry().as_ptr(), idt, 2);
+        idt = idt.offset(2);
+    }
+
+    static mut REGISTER: Register = Register { size: 0, base: 0 };
+
+    // save register info
+    REGISTER.size = (idt as u64 - top - 1) as u16;
+    REGISTER.base = top;
+
+    // install IDT
+    #[cfg(not(test))]
+    asm!("lidt $0"
+         :: "m"(&REGISTER)
+         :: "intel", "volatile");
 }

@@ -13,9 +13,9 @@ ISO_DIR = $(TARGET_DIR)/iso
 
 ## Lists of all the source files for each target
 
-KERNEL_SOURCES = $(foreach dir,$(KERNEL_DIRS),$(wildcard $(dir)/src/*) $(dir)/Cargo.toml)
-BOOT_SOURCES = $(foreach dir,$(BOOT_DIRS),$(wildcard $(dir)/src/*) $(dir)/Cargo.toml)
-STAGE2_SOURCES = $(foreach dir,$(STAGE2_DIRS),$(wildcard $(dir)/src/*) $(dir)/Cargo.toml)
+KERNEL_SOURCES = $(foreach dir,$(KERNEL_DIRS),$(wildcard $(dir)/src/*) $(dir)/Cargo.toml) ./kernel/Cargo.lock
+BOOT_SOURCES = $(foreach dir,$(BOOT_DIRS),$(wildcard $(dir)/src/*) $(dir)/Cargo.toml) ./boot/Cargo.lock
+STAGE2_SOURCES = $(foreach dir,$(STAGE2_DIRS),$(wildcard $(dir)/src/*) $(dir)/Cargo.toml) ./stage2/Cargo.lock
 ASM_SOURCES = $(wildcard $(ASM_DIR)/src/*)
 
 ## Boot target info

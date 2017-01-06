@@ -62,7 +62,7 @@ unsafe extern "C" fn _pf_early_handler() {
 pub unsafe fn early_setup() {
     // no logging or memory at this point
 
-    idt::Table::early_install(&EARLY_IDT, EARLY_IDT_BUFFER.as_mut_ptr());
+    idt::early_install(&EARLY_IDT, EARLY_IDT_BUFFER.as_mut_ptr());
 }
 
 pub fn setup_done() -> bool {

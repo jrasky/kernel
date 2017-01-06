@@ -183,9 +183,11 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     // - create the initial page tables
     let mut layout = paging::Layout::new();
 
-    // add the identity mapping, because the CPU needs some TLC when switching to long mode
+    debug_assert!(boot_c::get_image_end() < HEAP_BEGIN, "Boot image is larger than two megabytes");
+
+    // map our image in so we can safely enable paging
     assert!(layout.insert(paging::Segment::new(
-        0x0, 0x0, IDENTITY_END as u64,
+        0x0, 0x0, boot_c::get_image_end(),
         true, false, true, false
 
     )), "failed to add segment");
@@ -293,12 +295,11 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     let entry = entry.expect("Kernel did not contain an entry point");
 
     // create the builder
-    let mut builder = unsafe {
-        WatermarkBuilder::new(pages.base())
-    };
+    let mut base = unsafe { WatermarkBuilder::new(pages.base()) };
+    let builder = unsafe { paging::Builder::new(&mut base) };
 
     // build things out
-    let page_tables = layout.build(&mut builder);
+    let page_tables = unsafe { builder.build(&mut layout) };
 
     debug!("built page tables at 0x{:x}", page_tables);
 

@@ -23,7 +23,8 @@ SECTIONS {
         * (.bss*)
     }
 
-    _end = .;
+	. = .;
+    _boot_end = .;
 
     /DISCARD/ : {
         * (.gcc_except_table)

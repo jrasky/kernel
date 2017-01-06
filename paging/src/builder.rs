@@ -145,7 +145,7 @@ impl<'a> Builder<'a> {
 
     #[inline]
     unsafe fn write_page(table: Shared<Table>, info: Info, idx: usize) {
-        trace!("New page {:?}, 0x{:x}, 0x{:x}", info.level, idx, info.address);
+        //trace!("New page {:?}, 0x{:x}, 0x{:x}", info.level, idx, info.address);
         let result = table.as_mut().unwrap().write(info.into(), idx);
 
         debug_assert!(!result.present(), "Overwrote a present entry: 0x{:x}", result.address(Level::PTE));
@@ -154,7 +154,7 @@ impl<'a> Builder<'a> {
     unsafe fn get_or_create(&mut self, table: Shared<Table>, idx: usize, level: Level) -> Shared<Table> {
         let entry = table.as_mut().unwrap().read(idx);
         if entry.present() {
-            trace!("Found table {:?}, 0x{:x}, 0x{:x}", level, idx, entry.address(level));
+            //trace!("Found table {:?}, 0x{:x}, 0x{:x}", level, idx, entry.address(level));
             Shared::new(
                 self.base.to_virtual(entry.address(level))
                     .expect("Failed to translate physical address to table address")
@@ -176,7 +176,7 @@ impl<'a> Builder<'a> {
                     .expect("Failed to translate table address to physical address")
             };
 
-            trace!("New table {:?}, 0x{:x}, 0x{:x}", level, idx, info.address);
+            //trace!("New table {:?}, 0x{:x}, 0x{:x}", level, idx, info.address);
             table.as_mut().unwrap().write(info.into(), idx);
             new_table
         }
@@ -188,14 +188,14 @@ impl<'a> Builder<'a> {
 
         for idx in start...end {
             let subframe = idx << size.get_shift();
-            debug!("Processing subframe 0x{:x} 0x{:x} 0x{:x}", subframe, size.get_size(), idx);
+            //debug!("Processing subframe 0x{:x} 0x{:x} 0x{:x}", subframe, size.get_size(), idx);
             let info = Builder::create_page(segment, size.get_level(), subframe);
             self.place_page(info, subframe);
         }
     }
 
     unsafe fn place_page(&mut self, info: Info, subframe: u64) {
-        trace!("Placing page at subframe 0x{:x}", subframe);
+        //trace!("Placing page at subframe 0x{:x}", subframe);
         let pml4e_idx = subframe >> 39 & 0x1ff;
         let pdpte_idx = subframe >> 30 & 0x1ff;
         let pde_idx = subframe >> 21 & 0x1ff;

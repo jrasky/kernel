@@ -55,6 +55,9 @@ mod c {
     extern "C" {
         static mut error_message: *const u8;
 
+        // marker variable for the end of our image
+        static _boot_end: u8;
+
         fn parse_multiboot_info(info: *const c_void, kernel_info: *mut boot_info_inner) -> i32;
     }
 
@@ -131,12 +134,22 @@ mod c {
             }
         }
     }
+
+    #[inline]
+    pub fn get_image_end() -> u64 {
+        unsafe { &_boot_end as *const u8 as u64 }
+    }
 }
 
 
 #[derive(Debug, Clone, Copy)]
 enum CommandItem {
     LogLevel
+}
+
+#[inline]
+pub fn get_image_end() -> u64 {
+    c::get_image_end()
 }
 
 fn parse_command_line(cmdline: &[u8]) -> Option<usize> {

@@ -124,6 +124,28 @@ unsafe extern "C" fn serial_handler() -> ! {
     }
 }
 */
+
+#[no_mangle]
+pub unsafe extern "c" fn entry_stub() -> ! {
+    // cooperative interrupt entry stub
+
+    // our stack should already be in shape
+    asm!(concat!(
+        "xchg rdi, rsp;", // save the previous stack pointer into the first argument
+        "mov rsp, _early_stack;",
+        "and rsp, -16;",
+        "call interrupt_entry;"
+    ) : : : "intel, volatile" );
+
+    // error out if the interrupt handler returns
+    unreachable!("Interrupt handler returned");
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn interrupt_entry(rsp: u64) -> ! {
+    
+}
+
 #[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn kernel_main(boot_proto: u64) -> ! {

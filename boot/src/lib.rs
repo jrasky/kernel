@@ -44,6 +44,7 @@ use byteorder::ByteOrder;
 use constants::*;
 
 use kernel_std::*;
+use kernel_std::cpu::idt;
 use kernel_std::module::{Module, Data, Placement, Partition, Type};
 
 mod boot_c;
@@ -338,8 +339,18 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     // enter long mode
     enable_long_mode();
 
-    // leak gdt here to avoid trying to reclaim that space
+    // Load an initial interrupt table
+    let mut idt = idt::Table::new();
+
+    idt.insert(0x50, idt::Descriptor::new(entry, 0));
+
+    unsafe { idt.install() };
+
+    debug!("installed idt");
+
+    // leak gdt and idt here to avoid trying to reclaim that space
     mem::forget(gdt);
+    mem::forget(idt);
 
     unreachable!("bootstrap tried to return");
 }

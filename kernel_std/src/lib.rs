@@ -8,6 +8,7 @@
 #![feature(const_fn)]
 #![feature(asm)]
 #![feature(unwind_attributes)]
+#![cfg_attr(feature = "freestanding", feature(shared))]
 #![cfg_attr(feature = "freestanding", feature(unique))]
 #![cfg_attr(feature = "freestanding", feature(heap_api))]
 #![no_std]

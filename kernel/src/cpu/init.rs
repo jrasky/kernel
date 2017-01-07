@@ -7,24 +7,6 @@ use kernel_std::cpu::{gdt, tss, idt, stack};
 use cpu;
 use c;
 
-static EARLY_IDT: [idt::Descriptor; 15] = [
-    idt::Descriptor::placeholder(), // 0
-    idt::Descriptor::placeholder(), // 1
-    idt::Descriptor::placeholder(), // 2
-    idt::Descriptor::new(c::_bp_early_handler, 0), // 3
-    idt::Descriptor::placeholder(), // 4
-    idt::Descriptor::placeholder(), // 5
-    idt::Descriptor::placeholder(), // 6
-    idt::Descriptor::placeholder(), // 7
-    idt::Descriptor::placeholder(), // 8
-    idt::Descriptor::placeholder(), // 9
-    idt::Descriptor::placeholder(), // 10
-    idt::Descriptor::placeholder(), // 11
-    idt::Descriptor::placeholder(), // 12
-    idt::Descriptor::new(c::_gp_early_handler, 0), // 13
-    idt::Descriptor::new(c::_pf_early_handler, 0), // 14
-];
-
 static mut EARLY_IDT_BUFFER: [u64; 2 * 15 * U64_BYTES] = [0; 2 * 15 * U64_BYTES];
 
 static SETUP_DONE: AtomicBool = AtomicBool::new(false);
@@ -62,7 +44,25 @@ unsafe extern "C" fn _pf_early_handler() {
 pub unsafe fn early_setup() {
     // no logging or memory at this point
 
-    idt::early_install(&EARLY_IDT, EARLY_IDT_BUFFER.as_mut_ptr());
+    let early_idt = [
+        idt::Descriptor::placeholder(), // 0
+        idt::Descriptor::placeholder(), // 1
+        idt::Descriptor::placeholder(), // 2
+        idt::Descriptor::new(c::_bp_early_handler as u64, 0), // 3
+        idt::Descriptor::placeholder(), // 4
+        idt::Descriptor::placeholder(), // 5
+        idt::Descriptor::placeholder(), // 6
+        idt::Descriptor::placeholder(), // 7
+        idt::Descriptor::placeholder(), // 8
+        idt::Descriptor::placeholder(), // 9
+        idt::Descriptor::placeholder(), // 10
+        idt::Descriptor::placeholder(), // 11
+        idt::Descriptor::placeholder(), // 12
+        idt::Descriptor::new(c::_gp_early_handler as u64, 0), // 13
+        idt::Descriptor::new(c::_pf_early_handler as u64, 0), // 14
+    ];
+
+    idt::early_install(&early_idt, EARLY_IDT_BUFFER.as_mut_ptr());
 }
 
 pub fn setup_done() -> bool {
@@ -91,25 +91,11 @@ pub unsafe fn setup() -> (gdt::Table, idt::Table, stack::Stack) {
 
     debug!("Set new task");
 
-    let mut descriptors = vec![];
+    let mut idt = idt::Table::new();
 
-    descriptors.push(idt::Descriptor::placeholder()); // 0
-    descriptors.push(idt::Descriptor::placeholder()); // 1
-    descriptors.push(idt::Descriptor::placeholder()); // 2
-    descriptors.push(idt::Descriptor::new(c::_bp_handler, 0)); // 3
-    descriptors.push(idt::Descriptor::placeholder()); // 4
-    descriptors.push(idt::Descriptor::placeholder()); // 5
-    descriptors.push(idt::Descriptor::placeholder()); // 6
-    descriptors.push(idt::Descriptor::placeholder()); // 7
-    descriptors.push(idt::Descriptor::placeholder()); // 8
-    descriptors.push(idt::Descriptor::placeholder()); // 9
-    descriptors.push(idt::Descriptor::placeholder()); // 10
-    descriptors.push(idt::Descriptor::placeholder()); // 11
-    descriptors.push(idt::Descriptor::placeholder()); // 12
-    descriptors.push(idt::Descriptor::new(c::_gp_handler, 0)); // 13
-    descriptors.push(idt::Descriptor::new(c::_pf_handler, 0)); // 14
-
-    let mut idt = idt::Table::new(descriptors);
+    idt.insert(0x3, idt::Descriptor::new(c::_bp_handler as u64, 0));
+    idt.insert(0xd, idt::Descriptor::new(c::_gp_handler as u64, 0));
+    idt.insert(0xe, idt::Descriptor::new(c::_pf_handler as u64, 0));
 
     idt.install();
 

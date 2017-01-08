@@ -1,4 +1,5 @@
 #![feature(shared)]
+#![feature(naked_functions)]
 #![feature(lang_items)]
 #![feature(const_fn)]
 #![feature(unique)]
@@ -28,6 +29,9 @@ extern crate serial;
 extern crate memory;
 
 use alloc::boxed::Box;
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::ptr::Unique;
 
 use std::mem;
 
@@ -126,31 +130,34 @@ unsafe extern "C" fn serial_handler() -> ! {
 */
 
 #[no_mangle]
-pub unsafe extern "c" fn entry_stub() -> ! {
-    // cooperative interrupt entry stub
+#[naked]
+pub unsafe extern "C" fn _start() -> ! {
+    // entry point for the kernel
 
-    // our stack should already be in shape
     asm!(concat!(
-        "xchg rdi, rsp;", // save the previous stack pointer into the first argument
-        "mov rsp, _early_stack;",
+        // rdi should already have the right argument
         "and rsp, -16;",
-        "call interrupt_entry;"
-    ) : : : "intel, volatile" );
+        "call start_kernel;"
+    ) : : "{rsp}"(&c::_entry_stack) : : "intel", "volatile" );
 
     // error out if the interrupt handler returns
-    unreachable!("Interrupt handler returned");
+    unreachable!("Entry handler returned");
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn interrupt_entry(rsp: u64) -> ! {
-    
+pub unsafe extern "C" fn start_kernel(boot_proto: u64) -> ! {
+    // set up logging immediately
+    kernel_std::early_setup();
+
+    trace!("reached kernel");
+
+    kernel_main(boot_proto)
 }
 
 #[cfg(not(test))]
 #[no_mangle]
 pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
     // kernel main
-    kernel_std::early_setup();
 
     // set up early data structures
     unsafe {cpu::init::early_setup()};

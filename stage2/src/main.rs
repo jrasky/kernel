@@ -47,6 +47,7 @@ fn load_stage1() -> Module {
     let mut module = Module {
         magic: Uuid::parse_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap(),
         identity: Uuid::new_v4(),
+        size: 0, // this will be filled in later
         partitions: vec![],
         texts: vec![]
     };
@@ -170,9 +171,19 @@ fn write_output(mut module: Module) {
     info!("Creating output");
 
     // serialize the module
-    let module_bytes = corepack::to_bytes(&module).expect("Failed to serialize module");
+    let mut module_bytes;
 
-    let module_size = module_bytes.len();
+    loop {
+        module_bytes = corepack::to_bytes(&module).expect("Failed to serialize module");
+
+        let new_module_size = module_bytes.len() as u64;
+
+        if new_module_size == module.size {
+            break;
+        }
+
+        module.size = new_module_size;
+    }
 
     // create the file
     let mut file = File::create(KERNEL_MOD).expect("Failed to create output file");
@@ -180,7 +191,7 @@ fn write_output(mut module: Module) {
     // write out module
     file.write_all(module_bytes.as_slice()).expect("Failed to write out module");
 
-    let mut offset: u64 = align(module_size as u64, 0x1000);
+    let mut offset: u64 = align(module.size, 0x1000);
 
     file.seek(SeekFrom::Start(offset)).expect("Failed to seek");
 

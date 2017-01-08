@@ -44,7 +44,6 @@ use byteorder::ByteOrder;
 use constants::*;
 
 use kernel_std::*;
-use kernel_std::cpu::idt;
 use kernel_std::module::{Module, Data, Placement, Partition, Type};
 
 mod boot_c;
@@ -113,71 +112,20 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
 
     /*****************PARSE MEMORY*****************/
 
-    // find the optimistic heap
-    let mut heap: Option<Region> = None;
-    let mut pages = None;
-
-    // figure out a base address for the optimistic heap
-    // place it at at least OPTIMISTC_HEAP
-    let mut base = OPTIMISTIC_HEAP as u64;
-
-    for module in info.modules.iter() {
-        // don't place optimistic heap under any modules
-        base = cmp::max(base, align(module.memory.end(), 0x1000));
-    }
+    let mut available = Allocator::new();
 
     for region in info.memory.available.iter() {
-        if let Some(heap) = heap {
-            // clamp and align the endpoints
-
-            // don't place the start under the end of the already chosen optimistic heap
-            let start = align(cmp::max(heap.end(), region.base()), 0x1000);
-            let end = align_back(region.end(), 0x1000);
-
-            // ensure we still have a valid region
-            if start > end {
-                // skip this region
-                continue;
-            }
-
-            // variants are ensured above
-            let size = end - start;
-
-            if size >= OPTIMISTIC_HEAP_SIZE as u64 {
-                // save as the place we'll build the page tables
-                pages = Some(Region::new(start, OPTIMISTIC_HEAP_SIZE as u64));
-
-                // and we're done!
-                break;
-            } 
-        } else {
-            // we have to consider a modified region, that's clamped and aligned to our requirements
-
-            // clamp and align the start
-            let start = align(cmp::max(base, region.base()), 0x1000);
-            let end = align_back(region.end(), 0x1000);
-
-            // start might end up being before end if the region ends before OPTIMISTC_HEAP
-            if start > end {
-                // skip this region
-                continue;
-            }
-
-            // we've already ensured that end is >= start
-            let size = end - start;
-
-            if size >= OPTIMISTIC_HEAP_SIZE as u64 {
-                // use OPTIMISTIC_HEAP_SIZE instead of size because we only care to use that much
-                heap = Some(Region::new(start, OPTIMISTIC_HEAP_SIZE as u64));
-            }
-        }
+        // register this region with our layout
+        available.register(*region);
     }
 
-    let heap = heap.expect("Could not place optimistic heap");
-    let pages = pages.expect("Could not place page tables");
+    for module in info.modules.iter() {
+        // don't allocate over any modules
+        available.forget(module.memory);
+    }
 
-    debug!("Initial heap: {:?}", heap);
-    debug!("Page tables: {:?}", pages);
+    // don't allocate anything below 0x200000
+    available.forget(Region::new(0x0, 0x200000));
 
     /*****************PARSE MODULES*****************/
 
@@ -186,21 +134,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
 
     debug_assert!(boot_c::get_image_end() < HEAP_BEGIN, "Boot image is larger than two megabytes");
 
-    // map our image in so we can safely enable paging
-    assert!(layout.insert(paging::Segment::new(
-        0x0, 0x0, boot_c::get_image_end(),
-        true, false, true, false
-
-    )), "failed to add segment");
-
-    trace!("0x{:x}", HEAP_BEGIN);
-
-    // add the optimistic heap
-    assert!(layout.insert(paging::Segment::new(
-        heap.base(), HEAP_BEGIN, OPTIMISTIC_HEAP_SIZE as u64,
-        true, false, false, false
-    )), "failed to add segment");
-
+    
     let mut entry = None;
 
     // parse modules
@@ -244,7 +178,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
                     trace!("Text data in partition {} at offset 0x{:x}", partition, data_offset);
 
                     // figure out the actual address in memory for this partition
-                    let mut offset = grub_module.memory.base();
+                    let mut offset = grub_module.memory.base() + module.size;
 
                     for &Partition { index, size, align: part_align } in module.partitions.iter() {
                         // align to the start of our partition
@@ -279,16 +213,55 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
                         write, false, execute, false
                     );
 
-                    //assert!(layout.insert(segment), "failed to insert segment");
-                    layout.insert(segment);
+                    assert!(layout.insert(segment), "failed to insert segment");
                 }
                 Data::Empty => {
-                    warn!("Empty sections not yet implemented");
+                    let place = available.allocate(text.size, 0x1000).expect("Could not allocate space for empty region");
+
+                    let write = if let Type::Data { write } = text.ty {
+                        write
+                    } else {
+                        false
+                    };
+
+                    let execute = if let Type::Code = text.ty {
+                        true
+                    } else {
+                        false
+                    };
+
+                    let segment = paging::Segment::new(
+                        place.base(), base, text.size,
+                        write, false, execute, false
+                    );
+
+                    assert!(layout.insert(segment), "failed to insert segment");
                 }
                 _ => unimplemented!()
             }
         }
     }
+
+    let heap = available.allocate(OPTIMISTIC_HEAP_SIZE as u64, 0x1000).expect("Could not place optimistic heap");
+    let pages = available.allocate(OPTIMISTIC_HEAP_SIZE as u64, 0x1000).expect("Could not place page tables");
+        
+    debug!("Initial heap: {:?}", heap);
+    debug!("Page tables: {:?}", pages);
+
+    // map our image in so we can safely enable paging
+    assert!(layout.insert(paging::Segment::new(
+        0x0, 0x0, boot_c::get_image_end(),
+        true, false, true, false
+
+    )), "failed to add segment");
+
+    trace!("0x{:x}", HEAP_BEGIN);
+
+    // add the optimistic heap
+    assert!(layout.insert(paging::Segment::new(
+        heap.base(), HEAP_BEGIN, OPTIMISTIC_HEAP_SIZE as u64,
+        true, false, false, false
+    )), "failed to add segment");
 
     /*****************LOAD KERNEL*****************/
 
@@ -304,17 +277,28 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
 
     debug!("built page tables at 0x{:x}", page_tables);
 
+    // set up paging
+    assert!(page_tables >> 32 == 0, "Page tables built above 4 gigabytes, somehow");
+    setup_paging(page_tables as u32);
+
     // create the boot proto
     let proto = Box::new(BootProto::create(info, heap.base()));
 
     // create a starting gdt
-    let mut gdt = cpu::gdt::Table::new(vec![]);
+    let tss = cpu::tss::Segment::new([None, None, None, None, None, None, None],
+                                     [None, None, None], 0);
+
+    let mut gdt = cpu::gdt::Table::new(vec![tss]);
+
+    // enter long mode
+    enable_long_mode();
 
     unsafe {
-        // enable paging
-
         // load 64-bit GDT
         gdt.install();
+
+        // set the new task
+        gdt.set_task(0);
 
         trace!("installed gdt");
 
@@ -332,21 +316,23 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
         trace!("updated selectors");
     }
 
-    // set up paging
-    assert!(page_tables >> 32 == 0, "Page tables built above 4 gigabytes, somehow");
-    setup_paging(page_tables as u32);
-
-    // enter long mode
-    enable_long_mode();
-
     // Load an initial interrupt table
-    let mut idt = idt::Table::new();
+    let mut idt = cpu::idt::Table::new();
 
-    idt.insert(0x50, idt::Descriptor::new(entry, 0));
+    idt.insert(0x50, cpu::idt::Descriptor::new(entry, 0));
 
     unsafe { idt.install() };
 
     debug!("installed idt");
+
+    unsafe {
+        // pull the trigger
+        asm!(concat!(
+            "sti;",
+            "nop;",
+            "int 0x50;"
+        ) :: "{edi}"(Box::into_raw(proto)) :: "intel", "volatile");
+    }
 
     // leak gdt and idt here to avoid trying to reclaim that space
     mem::forget(gdt);

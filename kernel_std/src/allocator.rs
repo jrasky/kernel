@@ -97,6 +97,8 @@ impl Allocator {
     }
 
     pub fn set_used(&mut self, region: Region) -> bool {
+        trace!("{:?}", region);
+
         if self.free.contains(&region) {
             return false;
         }
@@ -182,6 +184,7 @@ impl Allocator {
     }
 
     pub fn forget(&mut self, region: Region) -> bool {
+        trace!("{:?}", region);
         let mut pre_region = None;
         let mut post_region = None;
 
@@ -192,7 +195,7 @@ impl Allocator {
 
             if old.base() + old.size() > region.base() + region.size() {
                 post_region =
-                    Some(Region::new(old.base() + old.size(),
+                    Some(Region::new(region.base() + region.size(),
                                      (old.base() + old.size()) - (region.base() + region.size())));
             }
         }
@@ -200,6 +203,7 @@ impl Allocator {
         if !self.free.remove(&region) {
             false
         } else {
+            trace!("{:?}, {:?}", pre_region, post_region);
             if let Some(pre) = pre_region {
                 self.free.insert(pre);
             }

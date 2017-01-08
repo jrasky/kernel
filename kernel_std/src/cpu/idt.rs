@@ -7,11 +7,13 @@ use std::ptr;
 
 use collections::btree_map::BTreeMap;
 
+use constants::*;
+
 #[repr(packed)]
 #[derive(Debug)]
 struct Register {
     size: u16,
-    base: usize,
+    base: u64,
 }
 
 #[derive(Debug)]
@@ -91,8 +93,6 @@ impl Table {
     }
 
     pub unsafe fn install(&mut self) {
-        static mut REGISTER: Register = Register { size: 0, base: 0 };
-
         // write out IDT
         let res = self.save();
 
@@ -101,15 +101,11 @@ impl Table {
             return;
         }
 
-        // save info in register
-        REGISTER.size = res.size;
-        REGISTER.base = res.base;
-
-        trace!("aoe: {:?}", REGISTER);
+        trace!("aoe: {:?}", res);
 
         #[cfg(not(test))]
         asm!("lidt $0"
-             :: "m"(&REGISTER)
+             :: "*m"(&res)
              :: "intel", "volatile");
     }
 
@@ -123,7 +119,7 @@ impl Table {
         }
 
         // There should be a max if it isn't empty
-        let len = *self.descriptors.keys().max().unwrap() as usize;
+        let len = *self.descriptors.keys().max().unwrap() as usize + 1;
 
         // initialize everything to zero
         let mut buffer = vec![0; len * 2];
@@ -143,15 +139,15 @@ impl Table {
 
         // produce idt register
         Register {
-            size: len as u16 * 2 - 1,
-            base: *ptr as *mut u64 as usize
+            size: len as u16 * U64_BYTES as u16 * 2 - 1,
+            base: *ptr as *mut u64 as u64
         }
     }
 }
 
 pub unsafe fn early_install(descriptors: &[Descriptor], mut idt: *mut u64) {
     let len = descriptors.len();
-    let top = idt as usize;
+    let top = idt as u64;
 
     if len == 0 {
         // do nothing
@@ -164,15 +160,11 @@ pub unsafe fn early_install(descriptors: &[Descriptor], mut idt: *mut u64) {
         idt = idt.offset(2);
     }
 
-    static mut REGISTER: Register = Register { size: 0, base: 0 };
-
-    // save register info
-    REGISTER.size = (idt as usize - top - 1) as u16;
-    REGISTER.base = top;
+    let register = Register { size: (idt as u64 - top - 1) as u16, base: top };
 
     // install IDT
     #[cfg(not(test))]
     asm!("lidt $0"
-         :: "m"(&REGISTER)
+         :: "*m"(&register)
          :: "intel", "volatile");
 }

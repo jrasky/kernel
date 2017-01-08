@@ -7,7 +7,7 @@ extern "C" {
     pub static _kernel_top: u8;
     pub static _kernel_end: u8;
     pub static _bss_top: u8;
-    pub static _early_stack: u8;
+    pub static _entry_stack: u8;
     pub static _rodata_top: u8;
     pub static _rodata_end: u8;
     pub static _data_top: u8;

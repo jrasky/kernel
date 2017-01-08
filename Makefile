@@ -31,7 +31,7 @@ KERNEL = $(TARGET_DIR)/kernel.elf
 KERNEL_MOD = $(TARGET_DIR)/kernel.mod
 KERNEL_TARGET = ./kernel/target/debug/libkernel.a
 KERNEL_LINK = $(LIB_DIR)/link.ld
-KERNEL_ASM = $(ASM_DIR)/target/util.o $(ASM_DIR)/target/long_stub.o
+KERNEL_ASM = $(ASM_DIR)/target/util.o
 
 ## Stage2 target info
 
@@ -61,7 +61,8 @@ BOOT_LDFLAGS = --gc-sections -n -m elf_i386
 ## Flags for other utilities
 
 GRUB_RESCUE_FLAGS = -d /usr/lib/grub/x86_64-efi/
-VM_FLAGS = -enable-kvm -net none -m 1024 -drive file=/usr/share/ovmf/ovmf_x64.bin,format=raw,if=pflash,readonly -k en-us -serial stdio
+VM_FLAGS = -enable-kvm -net none -m 1024 -drive file=/usr/share/ovmf/ovmf_x64.bin,format=raw,if=pflash,readonly -k en-us -serial stdio -d cpu_reset,unimp,guest_errors
+VM_DEBUG_FLAGS = $(VM_FLAGS) -s -S
 
 ## Commands to use
 
@@ -81,6 +82,9 @@ build: directories $(GRUB_IMAGE)
 
 run: build
 	$(VM) $(VM_FLAGS) -cdrom $(GRUB_IMAGE)
+
+debug: build
+	$(VM) $(VM_DEBUG_FLAGS) -cdrom $(GRUB_IMAGE)
 
 clean:
 	$(RM) -rf $(TARGET_DIR) $(ASM_DIR)/target
@@ -142,4 +146,4 @@ $(KERNEL_ASM): $(ASM_DIR)/target/%.o : $(ASM_DIR)/src/%.asm
 $(BOOT_ASM): $(ASM_DIR)/target/%.o : $(ASM_DIR)/src/%.asm
 	$(AS) $(BOOT_ASFLAGS) -o $@ $<
 
-.PHONY: build run clean directories
+.PHONY: build run debug clean directories

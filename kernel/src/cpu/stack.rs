@@ -34,7 +34,7 @@ impl Stack {
     // TODO: get rid of this and create an new stack for the kernel once ram is set up
     pub unsafe fn kernel() -> Stack {
         Stack {
-            buffer: Unique::new(&c::_early_stack as *const _ as *mut _),
+            buffer: Unique::new(&c::_entry_stack as *const _ as *mut _),
             size: STACK_SIZE,
             drop: false,
         }

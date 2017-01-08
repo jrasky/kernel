@@ -1,16 +1,18 @@
 use super::PageSize;
 
+use std::fmt::Debug;
 use std::cmp::{PartialEq, Eq, Ord, PartialOrd, Ordering};
 
 use alloc::raw_vec::RawVec;
 use alloc::boxed::Box;
 
 use std::mem;
+use std::fmt;
 
 use constants::*;
 
 /// Uniform linear address transformation
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Segment {
     physical_base: u64,
     virtual_base: u64,
@@ -33,6 +35,12 @@ struct RawSegment {
 
 pub fn raw_segment_size() -> usize {
     mem::size_of::<RawSegment>()
+}
+
+impl Debug for Segment {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "Segment {{ physical_base: 0x{:x}, virtual_base: 0x{:x} size: 0x{:x}, allocate: {:?}, write: {:?}, user: {:?}, execute: {:?}, global: {:?} }}", self.physical_base, self.virtual_base, self.size, self.allocate, self.write, self.user, self.execute, self.global)
+    }
 }
 
 // Overlap concerns virtual address only

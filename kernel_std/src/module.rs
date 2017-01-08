@@ -102,13 +102,12 @@ pub struct Text {
 pub struct Module {
     pub magic: Uuid, // 0af979b7-02c3-4ca6-b354-b709bec81199
     pub identity: Uuid, // unique ID for this module
+    pub size: u64, // the size of this module
     pub partitions: Vec<Partition>, // partitions in this module
     pub texts: Vec<Text> // texts provided by this module
 }
 
 // Partitions describe layouts within one byte stream
-
-// Exists because the real world of fixed offsets causes problems.
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Partition {

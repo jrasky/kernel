@@ -67,15 +67,16 @@ impl Table {
         #[cfg(target_pointer_width = "64")]
         asm!(concat!(
             "push 0x08;",
-            "push .target;",
-            "retf;",
+            "lea rax, .target;",
+            "push rax;", // there is no push 64 bit immediate
+            "retfq;",
             ".target:",
             "mov ax, 0x10;",
             "mov ds, ax;",
             "mov es, ax;",
             "mov fs, ax;",
             "mov gs, ax;",
-            "mov ss, ax;") ::: "ax" : "intel");
+            "mov ss, ax;") ::: "rax" : "intel", "volatile");
 
         // no change in code or data selector from setup in bootstrap
         // so no far jump to reload selector

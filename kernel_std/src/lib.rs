@@ -86,11 +86,13 @@ pub struct BootInfo {
     pub modules: Vec<ModuleInfo>
 }
 
+#[repr(packed)]
 pub struct ModuleProto {
     command_line: BootSlice<u8>,
     memory: Region
 }
 
+#[repr(packed)]
 pub struct MemoryProto {
     available: BootSlice<Region>,
     reserved: BootSlice<Region>,
@@ -99,14 +101,17 @@ pub struct MemoryProto {
     bad: BootSlice<Region>
 }
 
+#[repr(packed)]
 pub struct BootProto {
     magic: u64,
-    log_level: Option<u64>,
+    log_level_present: u8,
+    log_level: u64,
     optimistic_heap: u64,
     memory: MemoryProto,
     modules: BootSlice<ModuleProto>
 }
 
+#[repr(packed)]
 struct BootSlice<T> {
     address: u64,
     size: u64,
@@ -337,7 +342,8 @@ impl BootProto {
 
         BootProto {
             magic: BOOT_INFO_MAGIC,
-            log_level: info.log_level.map(|level| level as u64),
+            log_level_present: if info.log_level.is_some() { 1 } else { 0 },
+            log_level: info.log_level.unwrap_or(0) as u64,
             optimistic_heap: optimistic_heap,
             memory: memory,
             modules: modules
@@ -355,7 +361,11 @@ impl BootProto {
     }
 
     pub fn log_level(&self) -> Option<usize> {
-        self.log_level.map(|level| level as usize)
+        if self.log_level_present == 1 {
+            Some(self.log_level as usize)
+        } else {
+            None
+        }
     }
 
     pub fn optimistic_heap(&self) -> u64 {

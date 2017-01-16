@@ -6,20 +6,138 @@ use std::cmp;
 use std::str;
 
 use collections::BTreeSet;
-use collections::Bound::{Unbounded, Excluded};
+use collections::Bound::{Unbounded, Excluded, Included};
 
 use constants;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub struct Region {
     base: u64,
     size: u64
+}
+
+struct AddressSpace {
+    by_base: BTreeMap<u64, Region>,
+    by_end: BTreeMap<u64, Region>
 }
 
 #[derive(Debug, Clone)]
 pub struct Allocator {
     free: BTreeSet<Region>,
     used: BTreeSet<Region>
+}
+
+impl AddressSpace {
+    fn new() -> AddressSpace {
+        AddressSpace {
+            by_base: BTreeMap::new(),
+            by_end: BTreeMap::new()
+        }
+    }
+
+    fn check_overlap(&self, region: Region) -> bool {
+        if self.by_base.range(Included(region.base()), Excluded(region.end())).next().is_some()
+            || self.by_end.range(Included(region.base()), Excluded(region.end())).next().is_some() {
+                // return early if we find any region that begins or ends in our range
+                return true;
+            }
+
+        // one case left to consider: a region that entirely contains our region
+        if let Some((_, containing_region)) = self.by_base.range(Unbounded, Included(region.base())).last() {
+            if containing_region.end() > region.base() {
+                // this region overlaps
+                return true;
+            }
+        }
+
+        // otherwise no overlaps
+        false
+    }
+
+    fn remove(&mut self, region: Region) -> bool {
+        // exact remove region
+        if let Some(base_region) = self.by_base.get(&region.base()) {
+            if let Some(end_region) = self.by_end.get(&(region.end() - 1)) {
+                if base_region != end_region {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        // getting to this point means we can remove the region
+        assert!(self.by_base.remove(&region.base()));
+        assert!(self.by_end.remove(&(region.end() - 1)));
+
+        true
+    }
+
+    fn insert(&mut self, region: Region) -> bool {
+        if self.check_overlap(region) {
+            // can't insert, this region overlaps
+            return false;
+        }
+
+        // add an entry in both the base and end list
+        assert!(self.by_base.insert(region.base(), region));
+        // - 1 for the last addressable byte in this region
+        assert!(self.by_end.insert(region.base() + region.end() - 1, region));
+
+        true
+    }
+
+    fn remove_all(&mut self, region: Region) {
+        // remove all regions that overlap with the given region
+        let mut base_insert = None;
+        let mut end_insert = None;
+
+        let mut to_remove = vec![];
+
+        {
+            let mut base_range = self.by_base.range(Unbounded, Excluded(region.end()));
+
+            if let Some((key, base_region)) = base_range.next_back() {
+                base_insert = Some(base_region);
+
+                to_remove.push(key);
+            }
+
+            for (key, _) in base_range {
+                to_remove.push(key);
+            }
+        }
+
+        for key in to_remove {
+            assert!(self.by_base.remove(&key));
+        }
+
+        let mut to_remove = vec![];
+
+        {
+            let mut end_range = self.by_end.range(Included(region.base()), Unbounded);
+
+            if let Some((key, end_region)) = end_range.next() {
+                end_insert = Some(end_region);
+
+                to_remove.push(key);
+            }
+
+            for (key, _) in end_range {
+                to_remove.push(key);
+            }
+        }
+
+        for key in to_remove {
+            assert!(self.by_base.remove(&key));
+        }
+
+        if !base_insert.is_none() && base_insert == end_insert {
+            // TODO keep working on this
+        }
+    }
 }
 
 impl Debug for Region {
@@ -61,32 +179,6 @@ impl Region {
         other.base + other.size == self.base
     }
 }
-
-impl Ord for Region {
-    fn cmp(&self, other: &Region) -> cmp::Ordering {
-        if self.base + self.size <= other.base || self.base >= other.base + other.size {
-            self.base.cmp(&other.base)
-        } else {
-            cmp::Ordering::Equal
-        }
-    }
-}
-
-impl PartialOrd for Region {
-    #[inline]
-    fn partial_cmp(&self, other: &Region) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for Region {
-    #[inline]
-    fn eq(&self, other: &Region) -> bool {
-        self.cmp(other) == cmp::Ordering::Equal
-    }
-}
-
-impl Eq for Region {}
 
 impl Allocator {
     pub fn new() -> Allocator {
@@ -312,18 +404,36 @@ impl Allocator {
 }
 
 #[cfg(test)]
-#[test]
-fn test_allocator() {
-    let mut allocator = Allocator::new();
+mod tests {
+    use super::*;
 
-    assert!(allocator.register(Region::new(0x200000, 0x200000)));
-    assert!(allocator.allocate(0x1000, 0x1000).is_some());
-}
+    #[test]
+    fn test_allocator() {
+        let mut allocator = Allocator::new();
 
-#[cfg(test)]
-#[test]
-fn test_allocator_limit() {
-    let mut allocator = Allocator::new();
+        assert!(allocator.register(Region::new(0x200000, 0x200000)));
+        assert!(allocator.allocate(0x1000, 0x1000).is_some());
+    }
 
-    assert!(allocator.register(Region::new(0xfffffff810000000, 0x7f0000000)));
+    #[test]
+    fn test_allocator_limit() {
+        let mut allocator = Allocator::new();
+
+        assert!(allocator.register(Region::new(0xfffffff810000000, 0x7f0000000)));
+    }
+
+    #[test]
+    fn test_multiple_overlap() {
+        let mut allocator = Allocator::new();
+
+        assert!(allocator.register(Region::new(0x0, 0x1000)));
+        assert!(allocator.register(Region::new(0x2000, 0x3000)));
+        assert!(allocator.register(Region::new(0x4000, 0x5000)));
+        assert!(allocator.register(Region::new(0x6000, 0x7000)));
+        assert!(allocator.register(Region::new(0x8000, 0x9000)));
+
+        assert!(allocator.forget(Region::new(0x0, 0x10000)));
+
+        assert!(allocator.allocate(0x1, 0x1).is_none());
+    }
 }

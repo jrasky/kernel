@@ -24,6 +24,7 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate byteorder;
+extern crate xmas_elf;
 
 use std::ptr::Shared;
 use std::str::FromStr;
@@ -40,6 +41,8 @@ use alloc::boxed::Box;
 use uuid::Uuid;
 
 use byteorder::ByteOrder;
+
+use xmas_elf::{ElfFile, program};
 
 use constants::*;
 
@@ -133,7 +136,6 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     let mut layout = paging::Layout::new();
 
     debug_assert!(boot_c::get_image_end() < HEAP_BEGIN, "Boot image is larger than two megabytes");
-
     
     let mut entry = None;
 
@@ -143,103 +145,11 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
             slice::from_raw_parts(grub_module.memory.base() as *const u8, grub_module.memory.size() as usize)
         };
 
-        let module: Module = corepack::from_bytes(bytes).expect("Failed to decode module");
+        let module = ElfFile::new(bytes);
 
-        if module.magic != Uuid::from_str("0af979b7-02c3-4ca6-b354-b709bec81199").unwrap() {
-            panic!("Provided module had invalid magic number");
-        }
+        let entry = Some(module.header.pt2.unwrap().entry_point());
 
-        debug!("Found module {}", module.identity);
-
-        for text in module.texts.iter() {
-            debug!("Module declared text {}, 0x{:x} bytes", text.id, text.size);
-
-            // get a base address. We don't support anything here but absolute placements.
-            let base = if let Placement::Absolute(addr) = text.base {
-                addr
-            } else {
-                unimplemented!()
-            };
-
-            // check to see if this module contains an entry point
-            for port in text.provides.iter() {
-                if port.identity == Uuid::parse_str("b3de1342-4d70-449d-9752-3122338aa864").unwrap() {
-                    debug!("Entry point found at 0x{:x}", base + port.offset);
-
-                    // Since we're using an interrupt to jump to the kernel, its
-                    // entry can be above 4 GB
-                    entry = Some(base + port.offset);
-                }
-            }
-
-            // map the text data into our page tables
-            match text.data {
-                Data::Offset { partition, offset: data_offset } => {
-                    trace!("Text data in partition {} at offset 0x{:x}", partition, data_offset);
-
-                    // figure out the actual address in memory for this partition
-                    let mut offset = grub_module.memory.base() + module.size;
-
-                    for &Partition { index, size, align: part_align } in module.partitions.iter() {
-                        // align to the start of our partition
-                        offset = align(offset, part_align);
-
-                        if index < partition {
-                            // not our partition, keep going
-                            offset += size;
-                        } else {
-                            // we've found our target
-                            break;
-                        }
-                    }
-
-                    let write = if let Type::Data { write } = text.ty {
-                        write
-                    } else {
-                        false
-                    };
-
-                    let execute = if let Type::Code = text.ty {
-                        true
-                    } else {
-                        false
-                    };
-
-                    // include region in page tables
-                    let segment = paging::Segment::new(
-                        offset + data_offset,
-                        base,
-                        text.size,
-                        write, false, execute, false
-                    );
-
-                    assert!(layout.insert(segment), "failed to insert segment");
-                }
-                Data::Empty => {
-                    let place = available.allocate(text.size, 0x1000).expect("Could not allocate space for empty region");
-
-                    let write = if let Type::Data { write } = text.ty {
-                        write
-                    } else {
-                        false
-                    };
-
-                    let execute = if let Type::Code = text.ty {
-                        true
-                    } else {
-                        false
-                    };
-
-                    let segment = paging::Segment::new(
-                        place.base(), base, text.size,
-                        write, false, execute, false
-                    );
-
-                    assert!(layout.insert(segment), "failed to insert segment");
-                }
-                _ => unimplemented!()
-            }
-        }
+        load_module(module, grub_module.memory.base(), &mut available, &mut layout);
     }
 
     let heap = available.allocate(OPTIMISTIC_HEAP_SIZE as u64, 0x1000).expect("Could not place optimistic heap");
@@ -339,6 +249,44 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
     mem::forget(idt);
 
     unreachable!("bootstrap tried to return");
+}
+
+fn load_module(module: ElfFile, grub_base: u64, available: &mut Allocator, layout: &mut paging::Layout) {
+    for program_header in module.program_iter() {
+        if program_header.get_type().unwrap() != program::Type::Load {
+            // don't process any non-loadable headers here
+            continue;
+        }
+
+        let vm_base = program_header.virtual_addr();
+
+        let p_base;
+
+        if program_header.file_size() > 0 {
+            // data has been included
+            assert!(program_header.file_size() == program_header.mem_size(),
+                    "Can't handle partially-empty sections yet");
+
+            p_base = grub_base + program_header.offset();
+        } else {
+            let place = available.allocate(program_header.mem_size(), program_header.align())
+                .expect("Could not allocate space for empty region");
+
+            p_base = place.base();
+        }
+
+        assert!(program_header.flags() & program::FLAG_R == program::FLAG_R, "Loadable region was not readable");
+        let write = program_header.flags() & program::FLAG_W == program::FLAG_W;
+        let execute = program_header.flags() & program::FLAG_X == program::FLAG_X;
+
+        // insert this segment
+        let segment = paging::Segment::new(
+            p_base, vm_base, program_header.mem_size(),
+            write, false, execute, false
+        );
+
+        assert!(layout.insert(segment), "failed to insert segment");
+    }
 }
 
 fn enable_long_mode() {

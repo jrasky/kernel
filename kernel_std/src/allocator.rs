@@ -47,7 +47,7 @@ impl AddressSpace {
             }
 
         // one case left to consider: a region that entirely contains our region
-        if let Some((_, containing_region)) = self.by_base.range(Unbounded, Included(&region.base())).last() {
+        if let Some((_, containing_region)) = self.by_base.range(Unbounded, Excluded(&region.base())).last() {
             if containing_region.end() > region.base() {
                 // this region overlaps
                 return true;
@@ -97,8 +97,8 @@ impl AddressSpace {
         // remove/truncate all overlapping regions
         self.remove_contained(region);
 
-        let last_before = self.by_base.range(Unbounded, Excluded(&region.end())).last().map(|(_, v)| *v);
-        let first_after = self.by_end.range(Included(&region.base()), Unbounded).nth(0).map(|(_, v)| *v);
+        let last_before = self.by_base.range(Unbounded, Excluded(&region.base())).last().map(|(_, v)| *v);
+        let first_after = self.by_end.range(Included(&region.end()), Unbounded).nth(0).map(|(_, v)| *v);
 
         if last_before.is_some() && last_before == first_after {
             self.split_region(last_before.unwrap(), region);
@@ -167,6 +167,17 @@ impl Region {
         Region {
             base: base,
             size: size
+        }
+    }
+
+    #[inline]
+    pub fn aligned_size(&self, align: u64) -> u64 {
+        let aligned_base = constants::align(self.base, align);
+
+        if aligned_base > self.end() {
+            0
+        } else {
+            self.end() - aligned_base
         }
     }
 
@@ -249,7 +260,7 @@ impl Allocator {
         let mut selected_region = None;
 
         for region in self.free.iter() {
-            if region.size() >= size {
+            if region.aligned_size(align) >= size {
                 selected_region = Some(region.clone());
                 break;
             }
@@ -271,10 +282,11 @@ impl Allocator {
     pub fn release(&mut self, region: Region) -> bool {
         if !self.used.contains(region) {
             return false;
-        } else {
-            assert!(self.used.remove(region));
-            self.free.insert(region)
         }
+
+        assert!(self.used.remove(region));
+
+        self.free.insert(region)
     }
 }
 
@@ -311,4 +323,6 @@ mod tests {
 
         assert!(allocator.allocate(0x1, 0x1).is_none());
     }
+
+    // TODO test allocate zero
 }

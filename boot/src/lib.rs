@@ -253,7 +253,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
 
 fn load_module(module: ElfFile, grub_base: u64, available: &mut Allocator, layout: &mut paging::Layout) {
     for program_header in module.program_iter() {
-        if program_header.get_type().unwrap() != program::Type::Load {
+        if program_header.get_type().unwrap() != program::Type::Load || program_header.mem_size() == 0 {
             // don't process any non-loadable headers here
             continue;
         }

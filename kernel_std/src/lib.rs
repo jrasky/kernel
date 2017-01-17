@@ -1,4 +1,3 @@
-#![feature(proc_macro)]
 #![feature(collections_bound)]
 #![feature(btree_range)]
 #![feature(alloc)]
@@ -30,7 +29,6 @@ extern crate serde_derive;
 extern crate uuid;
 
 pub use allocator::{Region, Allocator};
-pub use map::Map;
 
 use std::marker::PhantomData;
 use std::fmt::{Debug, Display};
@@ -52,7 +50,6 @@ use constants::*;
 pub mod cpu;
 
 mod allocator;
-mod map;
 
 pub mod module;
 

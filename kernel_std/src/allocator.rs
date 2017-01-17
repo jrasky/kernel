@@ -2,10 +2,9 @@ use std::fmt::Debug;
 use std::iter::Iterator;
 
 use std::fmt;
-use std::cmp;
 use std::str;
 
-use collections::BTreeSet;
+use collections::BTreeMap;
 use collections::Bound::{Unbounded, Excluded, Included};
 
 use constants;
@@ -16,6 +15,7 @@ pub struct Region {
     size: u64
 }
 
+#[derive(Debug, Clone)]
 struct AddressSpace {
     by_base: BTreeMap<u64, Region>,
     by_end: BTreeMap<u64, Region>
@@ -23,8 +23,8 @@ struct AddressSpace {
 
 #[derive(Debug, Clone)]
 pub struct Allocator {
-    free: BTreeSet<Region>,
-    used: BTreeSet<Region>
+    free: AddressSpace,
+    used: AddressSpace
 }
 
 impl AddressSpace {
@@ -35,15 +35,19 @@ impl AddressSpace {
         }
     }
 
-    fn check_overlap(&self, region: Region) -> bool {
-        if self.by_base.range(Included(region.base()), Excluded(region.end())).next().is_some()
-            || self.by_end.range(Included(region.base()), Excluded(region.end())).next().is_some() {
+    fn iter(&self) -> ::collections::btree_map::Values<u64, Region> {
+        self.by_base.values()
+    }
+
+    fn contains(&self, region: Region) -> bool {
+        if self.by_base.range(Included(&region.base()), Excluded(&region.end())).next().is_some()
+            || self.by_end.range(Included(&region.base()), Excluded(&region.end())).next().is_some() {
                 // return early if we find any region that begins or ends in our range
                 return true;
             }
 
         // one case left to consider: a region that entirely contains our region
-        if let Some((_, containing_region)) = self.by_base.range(Unbounded, Included(region.base())).last() {
+        if let Some((_, containing_region)) = self.by_base.range(Unbounded, Included(&region.base())).last() {
             if containing_region.end() > region.base() {
                 // this region overlaps
                 return true;
@@ -57,7 +61,7 @@ impl AddressSpace {
     fn remove(&mut self, region: Region) -> bool {
         // exact remove region
         if let Some(base_region) = self.by_base.get(&region.base()) {
-            if let Some(end_region) = self.by_end.get(&(region.end() - 1)) {
+            if let Some(end_region) = self.by_end.get(&region.end()) {
                 if base_region != end_region {
                     return false;
                 }
@@ -69,73 +73,85 @@ impl AddressSpace {
         }
 
         // getting to this point means we can remove the region
-        assert!(self.by_base.remove(&region.base()));
-        assert!(self.by_end.remove(&(region.end() - 1)));
+        assert!(self.by_base.remove(&region.base()).is_some());
+        assert!(self.by_end.remove(&region.end()).is_some());
 
         true
     }
 
     fn insert(&mut self, region: Region) -> bool {
-        if self.check_overlap(region) {
+        if self.contains(region) {
             // can't insert, this region overlaps
             return false;
         }
 
         // add an entry in both the base and end list
-        assert!(self.by_base.insert(region.base(), region));
+        assert!(self.by_base.insert(region.base(), region).is_none());
         // - 1 for the last addressable byte in this region
-        assert!(self.by_end.insert(region.base() + region.end() - 1, region));
+        assert!(self.by_end.insert(region.end(), region).is_none());
 
         true
     }
 
     fn remove_all(&mut self, region: Region) {
-        // remove all regions that overlap with the given region
-        let mut base_insert = None;
-        let mut end_insert = None;
+        // remove/truncate all overlapping regions
+        self.remove_contained(region);
+
+        let last_before = self.by_base.range(Unbounded, Excluded(&region.end())).last().map(|(_, v)| *v);
+        let first_after = self.by_end.range(Included(&region.base()), Unbounded).nth(0).map(|(_, v)| *v);
+
+        if last_before.is_some() && last_before == first_after {
+            self.split_region(last_before.unwrap(), region);
+        } else {
+            if let Some(last_before) = last_before {
+                self.shrink_before_region(last_before, region);
+            }
+
+            if let Some(first_after) = first_after {
+                self.shrink_after_region(first_after, region);
+            }
+        }
+    }
+
+    fn shrink_before_region(&mut self, container: Region, region: Region) {
+        // shrink a region to before the given region
+        let piece = Region::new(container.base(), region.base() - container.base());
+
+        assert!(self.remove(container));
+        assert!(self.insert(piece));
+    }
+
+    fn shrink_after_region(&mut self, container: Region, region: Region) {
+        // truncate a region to being after the given region
+        let piece = Region::new(region.end(), container.end() - region.end());
+
+        assert!(self.remove(container));
+        assert!(self.insert(piece));
+    }
+
+    fn split_region(&mut self, container: Region, region: Region) {
+        // split container into two peices around region
+        let piece_before = Region::new(container.base(), region.base() - container.base());
+        let piece_after = Region::new(region.end(), container.end() - region.end());
+
+        assert!(self.remove(container));
+        assert!(self.insert(piece_before));
+        assert!(self.insert(piece_after));
+    }
+
+    fn remove_contained(&mut self, region: Region) {
+        // remove all regions that are completely contained by the given region
 
         let mut to_remove = vec![];
 
-        {
-            let mut base_range = self.by_base.range(Unbounded, Excluded(region.end()));
-
-            if let Some((key, base_region)) = base_range.next_back() {
-                base_insert = Some(base_region);
-
-                to_remove.push(key);
-            }
-
-            for (key, _) in base_range {
-                to_remove.push(key);
+        for (_, other_region) in self.by_base.range(Included(&region.base()), Excluded(&region.end())) {
+            if region.contains(other_region) {
+                to_remove.push(*other_region);
             }
         }
 
-        for key in to_remove {
-            assert!(self.by_base.remove(&key));
-        }
-
-        let mut to_remove = vec![];
-
-        {
-            let mut end_range = self.by_end.range(Included(region.base()), Unbounded);
-
-            if let Some((key, end_region)) = end_range.next() {
-                end_insert = Some(end_region);
-
-                to_remove.push(key);
-            }
-
-            for (key, _) in end_range {
-                to_remove.push(key);
-            }
-        }
-
-        for key in to_remove {
-            assert!(self.by_base.remove(&key));
-        }
-
-        if !base_insert.is_none() && base_insert == end_insert {
-            // TODO keep working on this
+        for region in to_remove {
+            assert!(self.remove(region));
         }
     }
 }
@@ -152,6 +168,11 @@ impl Region {
             base: base,
             size: size
         }
+    }
+
+    #[inline]
+    pub fn contains(&self, other: &Region) -> bool {
+        other.base() >= self.base() && other.end() <= self.end()
     }
 
     #[inline]
@@ -183,48 +204,19 @@ impl Region {
 impl Allocator {
     pub fn new() -> Allocator {
         Allocator {
-            free: BTreeSet::new(),
-            used: BTreeSet::new()
+            free: AddressSpace::new(),
+            used: AddressSpace::new()
         }
     }
 
     pub fn set_used(&mut self, region: Region) -> bool {
         trace!("{:?}", region);
 
-        if self.free.contains(&region) {
+        if self.free.contains(region) {
             return false;
         }
 
-        let mut last_region = None;
-        let mut next_region = None;
-
-        if let Some(last) = self.used.range(Unbounded, Excluded(&region)).next_back() {
-            if region.after(&last) {
-                last_region = Some(last.clone());
-            }
-        }
-        
-        if let Some(next) = self.used.range(Excluded(&region), Unbounded).next() {
-            if region.before(&next) {
-                next_region = Some(next.clone());
-            }
-        }
-
-        let base = if let Some(ref last) = last_region {
-            assert!(self.used.remove(last));
-            last.base()
-        } else {
-            region.base()
-        };
-
-        let size = if let Some(ref next) = next_region {
-            assert!(self.used.remove(next));
-            next.size() + (next.base() - base)
-        } else {
-            region.size() + (region.base() - base)
-        };
-
-        assert!(self.used.insert(Region::new(base, size)));
+        assert!(self.used.insert(region));
 
         true
     }
@@ -232,80 +224,25 @@ impl Allocator {
     pub fn register(&mut self, region: Region) -> bool {
         trace!("{:?}", region);
 
-        if self.used.contains(&region) {
+        if self.used.contains(region) {
             return false;
         }
 
-        let mut last_region = None;
-        let mut next_region = None;
-
-        // try to connect segments together
-        if let Some(last) = self.free.range(Unbounded, Excluded(&region)).next_back() {
-            trace!("{:?}", last);
-            if region.after(&last) {
-                // combine with last segment
-                last_region = Some(last.clone());
-            }
-        }
-
-        if let Some(next) = self.free.range(Excluded(&region), Unbounded).next() {
-            trace!("{:?}", next);
-            if region.before(&next) {
-                // combine with next segment
-                next_region = Some(next.clone());
-            }
-        }
-
-        let base = if let Some(ref last) = last_region {
-            assert!(self.free.remove(last));
-            last.base()
-        } else {
-            region.base()
-        };
-
-        let size = if let Some(ref next) = next_region {
-            assert!(self.used.remove(next));
-            next.size() + (next.base() - base)
-        } else {
-            region.size() + (region.base() - base)
-        };
-
-        assert!(self.free.insert(Region::new(base, size)));
+        assert!(self.free.insert(region));
 
         true
     }
 
     pub fn forget(&mut self, region: Region) -> bool {
         trace!("{:?}", region);
-        let mut pre_region = None;
-        let mut post_region = None;
 
-        if let Some(old) = self.free.get(&region) {
-            if old.base() < region.base() {
-                pre_region = Some(Region::new(old.base(), region.base() - old.base()));
-            }
-
-            if old.base() + old.size() > region.base() + region.size() {
-                post_region =
-                    Some(Region::new(region.base() + region.size(),
-                                     (old.base() + old.size()) - (region.base() + region.size())));
-            }
+        if !self.free.contains(region) {
+            return false;
         }
 
-        if !self.free.remove(&region) {
-            false
-        } else {
-            trace!("{:?}, {:?}", pre_region, post_region);
-            if let Some(pre) = pre_region {
-                self.free.insert(pre);
-            }
+        self.free.remove_all(region);
 
-            if let Some(post) = post_region {
-                self.free.insert(post);
-            }
-
-            true
-        }
+        true
     }
 
     pub fn allocate(&mut self, size: u64, align: u64) -> Option<Region> {
@@ -319,16 +256,12 @@ impl Allocator {
         }
 
         if let Some(region) = selected_region {
-            assert!(self.free.remove(&region));
             let aligned_base = constants::align(region.base(), align);
-            if aligned_base - region.base() > 0 {
-                assert!(self.free.insert(Region::new(region.base(), aligned_base - region.base())));
-            }
-
             let new_region = Region::new(aligned_base, size);
 
             assert!(self.used.insert(new_region));
-            assert!(self.free.insert(Region::new(region.base() + size, region.size() - size)));
+            self.free.remove_all(new_region);
+
             Some(new_region)
         } else {
             None
@@ -336,69 +269,11 @@ impl Allocator {
     }
 
     pub fn release(&mut self, region: Region) -> bool {
-        if !self.used.remove(&region) {
+        if !self.used.contains(region) {
             return false;
         } else {
-            self.register(region)
-        }
-    }
-
-    pub fn grow(&mut self, region: Region, size: u64) -> bool {
-        debug_assert!(size > region.size(), "Size was not greater than on grow");
-
-        let mut next_region = None;
-
-        if let Some(next) = self.free.range(Excluded(&region), Unbounded).next() {
-            if next.size() >= size - region.size() {
-                next_region = Some(next.clone());
-            }
-        } else {
-            return false;
-        }
-
-        if let Some(next) = next_region {
-            assert!(self.free.remove(&next));
-
-            let new_region = Region::new(region.base() + region.size(),
-                                         region.size() + next.size() - size);
-
-            assert!(self.free.insert(new_region));
-
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn shrink(&mut self, region: Region, size: u64) -> bool {
-        debug_assert!(size < region.size(), "Size was not smaller than on shrink");
-
-        self.register(Region::new(region.base() + size, region.size() - size));
-
-        true
-    }
-
-    pub fn resize(&mut self, region: Region, size: u64, align: u64) -> Option<Region> {
-        if region.size() == size {
-            return Some(region);
-        }
-
-        if size < region.size() && self.shrink(region, size) {
-            return Some(Region::new(region.base(), size));
-        } else if self.grow(region, size) {
-            return Some(Region::new(region.base(), size));
-        }
-
-        if !self.release(region) {
-            return None;
-        }
-
-        if let Some(new_region) = self.allocate(size, align) {
-            Some(new_region)
-        } else {
-            assert!(self.forget(region));
-            assert!(self.used.insert(region));
-            None
+            assert!(self.used.remove(region));
+            self.free.insert(region)
         }
     }
 }
@@ -419,7 +294,7 @@ mod tests {
     fn test_allocator_limit() {
         let mut allocator = Allocator::new();
 
-        assert!(allocator.register(Region::new(0xfffffff810000000, 0x7f0000000)));
+        assert!(allocator.register(Region::new(0xfffffff810000000, 0x7e0000000)));
     }
 
     #[test]
@@ -427,10 +302,10 @@ mod tests {
         let mut allocator = Allocator::new();
 
         assert!(allocator.register(Region::new(0x0, 0x1000)));
-        assert!(allocator.register(Region::new(0x2000, 0x3000)));
-        assert!(allocator.register(Region::new(0x4000, 0x5000)));
-        assert!(allocator.register(Region::new(0x6000, 0x7000)));
-        assert!(allocator.register(Region::new(0x8000, 0x9000)));
+        assert!(allocator.register(Region::new(0x2000, 0x1000)));
+        assert!(allocator.register(Region::new(0x4000, 0x1000)));
+        assert!(allocator.register(Region::new(0x6000, 0x1000)));
+        assert!(allocator.register(Region::new(0x8000, 0x1000)));
 
         assert!(allocator.forget(Region::new(0x0, 0x10000)));
 

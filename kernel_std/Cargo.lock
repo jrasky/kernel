@@ -19,20 +19,11 @@ version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "log_abi"
-version = "0.1.0"
-dependencies = [
- "constants 0.1.0",
- "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "spin 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "memory"
 version = "0.1.0"
 dependencies = [
  "constants 0.1.0",
- "log_abi 0.1.0",
+ "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "spin 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 

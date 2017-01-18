@@ -26,6 +26,15 @@ pub struct Allocator {
     used: AddressSpace
 }
 
+fn end_plus_one(address: u64) -> u64 {
+    let (result, overflow) = address.overflowing_add(1);
+    if overflow {
+        u64::max_value()
+    } else {
+        result
+    }
+}
+
 impl AddressSpace {
     fn new() -> AddressSpace {
         AddressSpace {
@@ -39,8 +48,11 @@ impl AddressSpace {
     }
 
     fn contains(&self, region: Region) -> bool {
+        // extra case below because tree ranges don't support inclusive ranges
+
         if self.by_base.range(region.base()..region.end()).next().is_some()
-            || self.by_end.range(region.base() + 1..region.end() + 1).next().is_some() {
+            || self.by_end.range(region.base() + 1..end_plus_one(region.end())).next().is_some()
+            || self.by_end.contains_key(&u64::max_value()) {
                 // return early if we find any region that begins or ends in our range
                 return true;
             }
@@ -192,7 +204,12 @@ impl Region {
 
     #[inline]
     pub fn end(&self) -> u64 {
-        self.base + self.size
+        let (result, overflow) = self.base.overflowing_add(self.size);
+        if overflow {
+            u64::max_value()
+        } else {
+            result
+        }
     }
 
     #[inline]
@@ -307,7 +324,7 @@ mod tests {
     fn test_allocator_limit() {
         let mut allocator = Allocator::new();
 
-        assert!(allocator.register(Region::new(0xfffffff810000000, 0x7e0000000)));
+        assert!(allocator.register(Region::new(0xfffffff810000000, 0x7f0000000)));
     }
 
     #[test]

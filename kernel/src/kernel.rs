@@ -161,7 +161,7 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
 
     // set up allocator
     unsafe {
-        memory::register(proto.optimistic_heap() as *mut u8, OPTIMISTIC_HEAP_SIZE)
+        memory::register(HEAP_BEGIN as *mut u8, OPTIMISTIC_HEAP_SIZE)
             .expect("Failed to register optimistic heap");
     }
 

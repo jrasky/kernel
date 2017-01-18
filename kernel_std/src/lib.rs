@@ -26,7 +26,9 @@ extern crate collections;
 pub use allocator::{Region, Allocator};
 
 use std::marker::PhantomData;
-use std::fmt::{Write, Debug, Display};
+#[cfg(feature = "freestanding")]
+use std::fmt::{Write};
+use std::fmt::{Debug, Display};
 #[cfg(feature = "freestanding")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 

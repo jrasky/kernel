@@ -1,4 +1,3 @@
-#![feature(proc_macro)]
 #![feature(plugin)]
 #![feature(shared)]
 #![feature(alloc)]
@@ -18,19 +17,10 @@ extern crate paging;
 #[macro_use]
 extern crate collections;
 extern crate memory;
-extern crate uuid;
-extern crate corepack;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate byteorder;
 extern crate xmas_elf;
 
 use std::ptr::Shared;
-use std::str::FromStr;
-use std::ops::Deref;
 
-use std::cmp;
 use std::mem;
 use std::slice;
 use std::ptr;
@@ -38,16 +28,11 @@ use std::str;
 
 use alloc::boxed::Box;
 
-use uuid::Uuid;
-
-use byteorder::ByteOrder;
-
 use xmas_elf::{ElfFile, program};
 
 use constants::*;
 
 use kernel_std::*;
-use kernel_std::module::{Module, Data, Placement, Partition, Type};
 
 mod boot_c;
 

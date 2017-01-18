@@ -22,10 +22,6 @@ extern crate serial;
 extern crate alloc;
 #[macro_use]
 extern crate collections;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate uuid;
 
 pub use allocator::{Region, Allocator};
 
@@ -50,7 +46,6 @@ pub mod cpu;
 
 mod allocator;
 
-pub mod module;
 
 pub trait Error: Debug + Display {
     fn descripton(&self) -> &str;

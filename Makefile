@@ -1,6 +1,6 @@
 ## Rust source directories
-BOOT_DIRS = ./boot ./log ./log_abi ./kernel_std ./serial ./constants ./paging ./memory
-KERNEL_DIRS = ./kernel ./log ./log_abi ./paging ./user ./constants ./serial ./memory ./kernel_std
+BOOT_DIRS = ./boot ./kernel_std ./serial ./constants ./paging ./memory
+KERNEL_DIRS = ./kernel ./paging ./user ./constants ./serial ./memory ./kernel_std
 
 ## Other build directories
 

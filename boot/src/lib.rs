@@ -147,7 +147,7 @@ pub extern "C" fn bootstrap(magic: u32, boot_info: *const c_void) -> ! {
 
         let module = ElfFile::new(bytes);
 
-        let entry = Some(module.header.pt2.unwrap().entry_point());
+        entry = Some(module.header.pt2.unwrap().entry_point());
 
         load_module(module, grub_module.memory.base(), &mut available, &mut layout);
     }

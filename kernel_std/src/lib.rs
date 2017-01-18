@@ -1,4 +1,3 @@
-#![feature(collections_bound)]
 #![feature(btree_range)]
 #![feature(alloc)]
 #![feature(collections)]

@@ -5,7 +5,6 @@ use std::fmt;
 use std::str;
 
 use collections::BTreeMap;
-use collections::Bound::{Unbounded, Excluded, Included};
 
 use constants;
 
@@ -40,14 +39,14 @@ impl AddressSpace {
     }
 
     fn contains(&self, region: Region) -> bool {
-        if self.by_base.range(Included(&region.base()), Excluded(&region.end())).next().is_some()
-            || self.by_end.range(Included(&region.base()), Excluded(&region.end())).next().is_some() {
+        if self.by_base.range(region.base()..region.end()).next().is_some()
+            || self.by_end.range(region.base() + 1..region.end() + 1).next().is_some() {
                 // return early if we find any region that begins or ends in our range
                 return true;
             }
 
         // one case left to consider: a region that entirely contains our region
-        if let Some((_, containing_region)) = self.by_base.range(Unbounded, Excluded(&region.base())).last() {
+        if let Some((_, containing_region)) = self.by_base.range(..region.base()).last() {
             if containing_region.end() > region.base() {
                 // this region overlaps
                 return true;
@@ -97,8 +96,8 @@ impl AddressSpace {
         // remove/truncate all overlapping regions
         self.remove_contained(region);
 
-        let last_before = self.by_base.range(Unbounded, Excluded(&region.base())).last().map(|(_, v)| *v);
-        let first_after = self.by_end.range(Included(&region.end()), Unbounded).nth(0).map(|(_, v)| *v);
+        let last_before = self.by_base.range(..region.base()).last().map(|(_, v)| *v);
+        let first_after = self.by_end.range(region.end()..).nth(0).map(|(_, v)| *v);
 
         if last_before.is_some() && last_before == first_after {
             self.split_region(last_before.unwrap(), region);
@@ -144,7 +143,7 @@ impl AddressSpace {
 
         let mut to_remove = vec![];
 
-        for (_, other_region) in self.by_base.range(Included(&region.base()), Excluded(&region.end())) {
+        for (_, other_region) in self.by_base.range(region.base()..region.end()) {
             if region.contains(other_region) {
                 to_remove.push(*other_region);
             }
@@ -257,6 +256,7 @@ impl Allocator {
     }
 
     pub fn allocate(&mut self, size: u64, align: u64) -> Option<Region> {
+        trace!("size 0x{:x}, align 0x{:x}", size, align);
         let mut selected_region = None;
 
         for region in self.free.iter() {
@@ -295,10 +295,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_allocator() {
+    fn test_allocate() {
         let mut allocator = Allocator::new();
 
         assert!(allocator.register(Region::new(0x200000, 0x200000)));
+        assert!(allocator.allocate(0x1000, 0x1000).is_some());
         assert!(allocator.allocate(0x1000, 0x1000).is_some());
     }
 
@@ -323,6 +324,4 @@ mod tests {
 
         assert!(allocator.allocate(0x1, 0x1).is_none());
     }
-
-    // TODO test allocate zero
 }

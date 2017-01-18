@@ -152,7 +152,7 @@ pub fn get_image_end() -> u64 {
     c::get_image_end()
 }
 
-fn parse_command_line(cmdline: &[u8]) -> Option<usize> {
+fn parse_command_line(cmdline: &[u8]) -> log::LogLevelFilter {
     let line = match str::from_utf8(cmdline) {
         Ok(s) => s,
         Err(e) => {
@@ -162,7 +162,7 @@ fn parse_command_line(cmdline: &[u8]) -> Option<usize> {
 
     debug!("Boot command line: {}", line);
 
-    let mut log_level = None;
+    let mut log_level = log::LogLevelFilter::Trace;
 
     let mut acc = String::new();
     let mut item = None;
@@ -177,7 +177,7 @@ fn parse_command_line(cmdline: &[u8]) -> Option<usize> {
                 if let Some(item) = item {
                     match item {
                         CommandItem::LogLevel => {
-                            if let Ok(level) = log::to_level(acc.as_ref()) {
+                            if let Ok(level) = log_string_to_level(acc.as_ref()) {
                                 log_level = level;
                             } else {
                                 error!("Invalid log level: {}", acc);
@@ -304,7 +304,7 @@ pub fn parse_multiboot_info(multiboot_info: *const c_void) -> BootInfo {
         parse_command_line(
             unsafe {slice::from_raw_parts(info.command_line, info.command_line_size)})
     } else {
-        None
+        log::LogLevelFilter::Off
     };
 
     trace!("parsed command line");

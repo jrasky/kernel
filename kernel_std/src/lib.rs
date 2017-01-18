@@ -26,7 +26,7 @@ extern crate collections;
 pub use allocator::{Region, Allocator};
 
 use std::marker::PhantomData;
-use std::fmt::{Debug, Display};
+use std::fmt::{Write, Debug, Display};
 #[cfg(feature = "freestanding")]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -72,7 +72,7 @@ pub struct ModuleInfo {
 
 #[derive(Debug)]
 pub struct BootInfo {
-    pub log_level: Option<usize>,
+    pub log_level: log::LogLevelFilter,
     pub memory: MemoryInfo,
     pub modules: Vec<ModuleInfo>
 }
@@ -95,7 +95,6 @@ pub struct MemoryProto {
 #[repr(packed)]
 pub struct BootProto {
     magic: u64,
-    log_level_present: u8,
     log_level: u64,
     optimistic_heap: u64,
     memory: MemoryProto,
@@ -116,14 +115,33 @@ struct PanicInfo {
     line: u32
 }
 
+pub fn log_string_to_level(name: &str) -> Result<log::LogLevelFilter, ()> {
+    match name {
+        "any" | "ANY" => Ok(log::LogLevelFilter::Off),
+        "error" | "ERROR" => Ok(log::LogLevelFilter::Error),
+        "warn" | "WARN" => Ok(log::LogLevelFilter::Warn),
+        "info" | "INFO" => Ok(log::LogLevelFilter::Info),
+        "debug" | "DEBUG" => Ok(log::LogLevelFilter::Debug),
+        "trace" | "TRACE" => Ok(log::LogLevelFilter::Trace),
+        _ => Err(())
+    }
+}
+
 #[cfg(feature = "freestanding")]
 pub fn early_setup() {
     // set up the serial line
     serial::setup_serial();
 
     // set up the reserve logger
-    static RESERVE: &'static (Fn(&log::Location, &Display, &Display) + Send + Sync) = &serial::reserve_log;
-    log::set_reserve(Some(RESERVE));
+    static RESERVE: serial::ReserveLogger = serial::ReserveLogger::new();
+
+    unsafe {
+        assert!(log::set_logger_raw(|max_log_level| {
+            max_log_level.set(log::LogLevelFilter::Trace);
+
+            &RESERVE
+        }).is_ok());
+    }
 }
 
 #[cfg(all(not(test), feature = "freestanding"))]
@@ -178,13 +196,7 @@ fn panic_fmt(msg: fmt::Arguments, file: &'static str, line: u32) -> ! {
     // enter reserve memory
     memory::enter_reserved();
 
-    let loc = log::Location {
-        module_path: module_path!(),
-        file: file,
-        line: line
-    };
-
-    log::log(0, &loc, &module_path!(), &msg);
+    error!("PANIC at {}({}): {}", file, line, msg);
 
     panic_halt();
 }
@@ -196,16 +208,14 @@ fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, l
     // disable memory
     memory::disable();
 
-    let loc = log::Location {
-        module_path: module_path!(),
-        file: file,
-        line: line
-    };
+    static mut RESERVE: serial::ReserveLogger = serial::ReserveLogger::new();
 
-    log::reserve_log(&loc, &module_path!(),
-        &format_args!("Double panic: {}\nWhile processing panic at {}({}): {}",
-                      msg, original.file, original.line,
-                      original.msg.unwrap_or(format_args!("No message"))));
+    unsafe {
+        let _ = writeln!(RESERVE, "Double panic at {}({}): {}\nWhile processing panic at {}({}): {}",
+                         file, line, msg,
+                         original.file, original.line,
+                         original.msg.unwrap_or(format_args!("No message")));
+    }
 
     panic_halt();
 }
@@ -214,16 +224,12 @@ fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, l
 #[cold]
 #[inline(never)]
 fn triple_panic(file: &'static str, line: u32) -> ! {
-    // disable memory
-    memory::disable();
+    // just try to make some output
+    static mut RESERVE: serial::ReserveLogger = serial::ReserveLogger::new();
 
-    static LOCATION: log::Location = log::Location {
-        module_path: module_path!(),
-        file: file!(),
-        line: line!()
-    };
-
-    log::reserve_log(&LOCATION, &module_path!(), &format_args!("Triple panic at {}({})", file, line));
+    unsafe {
+        let _ = writeln!(RESERVE, "Triple panic at {}({})", file, line);
+    }
 
     panic_halt();
 }
@@ -333,8 +339,7 @@ impl BootProto {
 
         BootProto {
             magic: BOOT_INFO_MAGIC,
-            log_level_present: if info.log_level.is_some() { 1 } else { 0 },
-            log_level: info.log_level.unwrap_or(0) as u64,
+            log_level: info.log_level as u64,
             optimistic_heap: optimistic_heap,
             memory: memory,
             modules: modules
@@ -351,11 +356,15 @@ impl BootProto {
         }
     }
 
-    pub fn log_level(&self) -> Option<usize> {
-        if self.log_level_present == 1 {
-            Some(self.log_level as usize)
-        } else {
-            None
+    pub fn log_level(&self) -> log::LogLevelFilter {
+        match self.log_level {
+            0 => log::LogLevelFilter::Off,
+            1 => log::LogLevelFilter::Error,
+            2 => log::LogLevelFilter::Warn,
+            3 => log::LogLevelFilter::Info,
+            4 => log::LogLevelFilter::Debug,
+            5 => log::LogLevelFilter::Trace,
+            _ => unreachable!("LogLevelFilter was not valid")
         }
     }
 

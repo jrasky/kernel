@@ -10,7 +10,7 @@ crate-type = ["staticlib"]
 
 [dependencies]
 rlibc = "*"
-log = { path = "../log" }
+log = { version = "*", default-features = false, features = ["nightly"]}
 kernel_std = { path = "../kernel_std", features = ["freestanding"] }
 serial = { path = "../serial" }
 constants = { path = "../constants" }

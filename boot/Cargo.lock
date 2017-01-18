@@ -5,7 +5,7 @@ dependencies = [
  "constants 0.1.0",
  "gcc 0.3.41 (registry+https://github.com/rust-lang/crates.io-index)",
  "kernel_std 0.1.0",
- "log 0.1.0",
+ "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "memory 0.1.0",
  "paging 0.1.0",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -27,7 +27,7 @@ name = "kernel_std"
 version = "0.1.0"
 dependencies = [
  "constants 0.1.0",
- "log 0.1.0",
+ "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "memory 0.1.0",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serial 0.1.0",
@@ -35,29 +35,15 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.1.0"
-dependencies = [
- "constants 0.1.0",
- "log_abi 0.1.0",
- "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "spin 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "log_abi"
-version = "0.1.0"
-dependencies = [
- "constants 0.1.0",
- "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "spin 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
-]
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "memory"
 version = "0.1.0"
 dependencies = [
  "constants 0.1.0",
- "log_abi 0.1.0",
+ "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "spin 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -67,7 +53,7 @@ version = "0.1.0"
 dependencies = [
  "constants 0.1.0",
  "kernel_std 0.1.0",
- "log 0.1.0",
+ "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -81,7 +67,7 @@ name = "serial"
 version = "0.1.0"
 dependencies = [
  "constants 0.1.0",
- "log_abi 0.1.0",
+ "log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -104,6 +90,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [metadata]
 "checksum gcc 0.3.41 (registry+https://github.com/rust-lang/crates.io-index)" = "3689e1982a563af74960ae3a4758aa632bb8fd984cfc3cc3b60ee6109477ab6e"
+"checksum log 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)" = "ab83497bf8bf4ed2a74259c1c802351fcd67a65baa86394b6ba73c36f4838054"
 "checksum rlibc 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fc874b127765f014d792f16763a81245ab80500e2ad921ed4ee9e82481ee08fe"
 "checksum spin 0.4.5 (registry+https://github.com/rust-lang/crates.io-index)" = "1d16a26e2b789f86aabddbe91cb82ee2e822beb8a59840d631941b625ef77e53"
 "checksum xmas-elf 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "53c92a93b42ac52388febac8dc749c920b4b075c5a0bfb811fa6d26b447a60c0"

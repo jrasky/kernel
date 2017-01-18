@@ -257,6 +257,11 @@ fn load_module(module: ElfFile, grub_base: u64, available: &mut Allocator, layou
             let place = available.allocate(program_header.mem_size(), program_header.align())
                 .expect("Could not allocate space for empty region");
 
+            // zero-out the region
+            unsafe {
+                ptr::write_bytes(place.base() as usize as *mut u8, 0, place.size() as usize);
+            }
+
             p_base = place.base();
         }
 

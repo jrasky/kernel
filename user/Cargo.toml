@@ -5,7 +5,7 @@ authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
 build = "build.rs"
 
 [dependencies]
-log = {path = "../log"}
+log = { version = "*", default-features = false, features = ["nightly"] }
 
 [build-dependencies]
 nasm-rs = { git = "https://github.com/jrasky/nasm-rs" }

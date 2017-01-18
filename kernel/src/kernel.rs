@@ -88,35 +88,20 @@ unsafe extern "C" fn test_task() -> ! {
 
 #[cfg(not(test))]
 unsafe extern "C" fn test_task_2() -> ! {
-    let mut request = log::Request {
-        level: 3,
-        location: log::Location {
-            module_path: module_path!(),
-            file: file!(),
-            line: line!()
-        },
-        target: module_path!().into(),
-        message: "".into()
-    };
+    info!("Hello from another task!");
 
-    request.message = format!("Hello from another task!");
-    user::log(&request);
-
-    request.message = format!("Waiting...");
-    user::log(&request);
+    info!("Waiting...");
 
     user::wait();
 
     info!("Unblocked!");
 
     for x2 in 0..5 {
-        request.message = format!("x2: {}", x2);
-        user::log(&request);
-        user::release();
+        info!("x2: {}", x2);
     }
 
-    request.message = format!("Task 2 done!");
-    user::log(&request);
+    info!("Task 2 done!");
+
     user::exit();
 }
 /*
@@ -165,15 +150,11 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
     // enable memory
     memory::enable();
 
-    // create our tracing frame
-    frame!(traces);
-
     // set up logging
-    log::set_output(Some(Box::new(logging::Logger::new(serial::Writer::new()))));
+    //log::set_output(Some(Box::new(logging::Logger::new(serial::Writer::new()))));
 
     // say hello
     info!("Hello!");
-    point!(traces, "set up logging");
 
     // get boot proto out
     let proto = BootProto::parse(boot_proto).expect("Did not receive boot proto");
@@ -187,13 +168,9 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
     // exit reserve memory
     memory::exit_reserved();
 
-    point!(traces, "out of reserve memory");
-
     // set up cpu data structures and other settings
     // keep references around so we don't break things
     let (gdt, idt, syscall_stack) = unsafe {cpu::init::setup()};
-
-    point!(traces, "set up cpu structures");
 
     // explicity leak gdt and idt and the syscall stack and the kernel page map
     mem::forget(gdt);
@@ -204,8 +181,8 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
 
     // start some tasks
     cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task,
-                                          cpu::stack::Stack::create(0x10000),
-                                          cpu::task::current()));
+                                           cpu::stack::Stack::create(0x10000),
+                                           cpu::task::current()));
 
     // cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, serial_handler,
     //                                        cpu::stack::Stack::create(0x10000),
@@ -214,8 +191,6 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
     // cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task_entry
     //                                       cpu::stack::Stack::create(0x10000),
     //                                       cpu::task::current()));
-
-    point!(traces, "created tasks");
 
     loop {
         match cpu::task::run_next() {

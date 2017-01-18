@@ -4,7 +4,7 @@
 #![no_std]
 extern crate core as std;
 #[macro_use]
-extern crate log_abi;
+extern crate log;
 extern crate constants;
 extern crate spin;
 
@@ -285,7 +285,7 @@ pub extern "C" fn __rust_allocate(size: usize, align: usize) -> *mut u8 {
             ptr as *mut _
         },
         Err(error) => {
-            critical!("Could not allocate: {}", error);
+            error!("Could not allocate: {}", error);
             ptr::null_mut()
         }
     }
@@ -299,7 +299,7 @@ pub extern "C" fn __rust_deallocate(ptr: *mut u8, size: usize, align: usize) {
     }
 
     if let Err(e) = unsafe {release(ptr as *mut _, size, align)} {
-        critical!("Failed to release pointer {:?}: {}", ptr, e);
+        error!("Failed to release pointer {:?}: {}", ptr, e);
     }
 }
 
@@ -316,7 +316,7 @@ pub extern "C" fn __rust_reallocate(ptr: *mut u8, old_size: usize, size: usize, 
             new_ptr as *mut _
         },
         Err(e) => {
-            critical!("Failed to reallocate: {}", e);
+            error!("Failed to reallocate: {}", e);
             ptr::null_mut()
         }
     }
@@ -331,14 +331,14 @@ pub extern "C" fn __rust_reallocate_inplace(ptr: *mut u8, old_size: usize, size:
 
     if size > old_size {
         if let Err(e) = unsafe {grow(ptr as *mut _, old_size, size, align)} {
-            critical!("Failed to reallocate inplace: {}", e);
+            error!("Failed to reallocate inplace: {}", e);
             granularity(old_size, align)
         } else {
             granularity(size, align)
         }
     } else if size < old_size {
         if let Err(e) = unsafe {shrink(ptr as *mut _, old_size, size, align)} {
-            critical!("Failed to reallocate inplace: {}", e);
+            error!("Failed to reallocate inplace: {}", e);
             granularity(old_size, align)
         } else {
             granularity(size, align)

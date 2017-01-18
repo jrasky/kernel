@@ -83,6 +83,7 @@ pub unsafe extern "C" fn sysenter_handler(rsp: u64, branch: u64, argument: u64) 
                 }
             }
         },
+        /*
         1 => {
             // log
             // argument is pointer to log::Request structure
@@ -92,6 +93,7 @@ pub unsafe extern "C" fn sysenter_handler(rsp: u64, branch: u64, argument: u64) 
             // done
             c::_sysenter_return(rsp, 1)
         },
+         */
         _ => {
             error!("Unknown branch: {}", branch);
             c::_sysenter_return(rsp, 0);

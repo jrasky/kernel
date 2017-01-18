@@ -10,7 +10,7 @@ crate-type = ["staticlib"]
 [dependencies]
 rlibc = "*"
 spin = "*"
-log = { path = "../log" }
+log = { version = "*", default-features = false, features = ["nightly"] }
 paging = { path = "../paging" }
 user = { path = "../user" }
 constants = { path = "../constants" }

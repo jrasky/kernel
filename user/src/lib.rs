@@ -31,9 +31,6 @@ pub fn wait() {
     }
 }
 
-pub fn log(request: &log::Request) {
-    trace!("log");
-    unsafe {
-        _syscall_launch(1, request as *const _ as u64);
-    }
+pub fn log() {
+    unimplemented!();
 }

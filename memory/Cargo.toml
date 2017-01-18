@@ -6,4 +6,4 @@ authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
 [dependencies]
 spin = "*"
 constants = { path = "../constants" }
-log_abi = { path = "../log_abi" }
+log = { version = "*", default-features = false, features = ["nightly"]}

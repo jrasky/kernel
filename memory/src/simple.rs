@@ -42,347 +42,144 @@ impl Manager {
         self.hint
     }
 
-    unsafe fn register(&mut self, ptr: *mut u8, size: usize) -> Result<usize, MemoryError> {
-        debug_assert!(!ptr.is_null(), "Tried to register a null block");
+    unsafe fn find_around(&self, around: *mut u8) -> (*mut Block, *mut Block) {
+        // walk until we find the last free block before and the first free block after
+        let mut pointer = self.free;
 
-        trace!("Registering block at {:#x} of size {:#x}", ptr as usize, size);
+        if pointer as usize > around as usize {
+            // the free list is entirely past around
+            return (ptr::null_mut(), pointer);
+        }
 
+        while !pointer.is_null() {
+            if pointer as usize <= around as usize {
+                let next = pointer.as_ref().unwrap().next;
+
+                if next as usize > around as usize || next.is_null() {
+                    return (pointer, pointer.as_mut().unwrap().next);
+                }
+            }
+
+            pointer = pointer.as_ref().unwrap().next;
+        }
+
+        (ptr::null_mut(), ptr::null_mut())
+    }
+
+    unsafe fn insert_between(&mut self, before: *mut Block, after: *mut Block, new: *mut Block) {
         if self.free.is_null() {
-            if size < mem::size_of::<Block>() {
-                warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
-                return Err(MemoryError::TinyBlock);
-            }
-            self.free = ptr as *mut _;
-            *self.free.as_mut().unwrap() = Block {
-                base: self.free.offset(1) as *mut _,
-                end: (self.free as *mut u8).offset(size as isize) as *mut _,
-                next: ptr::null_mut(),
-                last: ptr::null_mut()
-            };
+            self.free = new;
 
-            trace!("{:?}", self.free.as_mut().unwrap().base);
-            trace!("{:?}", self.free.as_mut().unwrap().end);
-            trace!("{:?}", self.free.as_mut().unwrap().next);
-            trace!("{:?}", self.free.as_mut().unwrap().last);
+            let free = self.free.as_mut().unwrap();
+            free.last = ptr::null_mut();
+            free.next = ptr::null_mut();
 
-            self.hint += size;
-            return Ok(size);
+            return;
         }
 
-        let base = (ptr as *mut Block).offset(1) as *mut u8;
-        let end = (ptr as *mut u8).offset(size as isize) as *mut u8;
-        let mut block = self.free.as_mut().unwrap();
+        debug_assert!(!new.is_null());
 
-        trace!("Registration ends at 0x{:x}", end as u64);
-
-        trace!("{:?}, {:?}, {:?}", base, end, self.free);
-
-        if end < self.free as *mut _ {
-            // insert element before the first free element
-            trace!("before");
-            if size < mem::size_of::<Block>() {
-                warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
-                return Err(MemoryError::TinyBlock);
-            }
-            self.free = ptr as *mut _;
-            *self.free.as_mut().unwrap() = Block {
-                base: base,
-                end: end,
-                next: block,
-                last: ptr::null_mut()
-            };
-
-            self.hint += size;
-            return Ok(size);
-        } else if end == self.free as *mut _ {
-            // extend the first element backwards
-            trace!("a: {:?}", base);
-            let new_block = ptr as *mut Block;
-            *new_block.as_mut().unwrap() = Block {
-                base: base,
-                end: block.end,
-                next: block.next,
-                last: ptr::null_mut()
-            };
-
-            if let Some(next) = block.next.as_mut() {
-                next.last = new_block;
-            }
-
-            self.free = new_block;
-
-            self.hint += size;
-            return Ok(size);
+        if let Some(before) = before.as_mut() {
+            before.next = new;
+        } else {
+            self.free = new;
         }
 
-        // search in the list for a place to insert this block
-        loop {
-            trace!("{:?}", block);
-            if block.next.is_null() {
-                // insert here
-                if ptr > block.end {
-                    if size < mem::size_of::<Block>() {
-                        warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
-                        return Err(MemoryError::TinyBlock);
-                    }
-                    block.next = ptr as *mut Block;
-                    *block.next.as_mut().unwrap() = Block {
-                        base: base,
-                        end: end,
-                        next: ptr::null_mut(),
-                        last: block
-                    };
+        let new = new.as_mut().unwrap();
 
-                    self.hint += size;
-                    return Ok(size);
-                } else if ptr == block.end {
-                    // extend the last block
-                    block.end = end;
+        new.last = before;
+        new.next = after;
 
-                    self.hint += size;
-                    return Ok(size);
-                } else {
-                    error!("Unable to register block, likely overlapping");
-                    return Err(MemoryError::NoPlace);
-                }
-            }
-
-            let next = block.next.as_mut().unwrap();
-
-            if ptr > block.end && end < block.next as *mut _ {
-                // insert between block and next
-                block.next = ptr as *mut Block;
-                next.last = ptr as *mut Block;
-                if size < mem::size_of::<Block>() {
-                    warn!("Cannot register a memory block smaller than {}", mem::size_of::<Block>());
-                    return Err(MemoryError::TinyBlock);
-                }
-                *block.next.as_mut().unwrap() = Block {
-                    base: base,
-                    end: end,
-                    next: next,
-                    last: block
-                };
-
-                self.hint += size;
-                return Ok(size);
-            } else if ptr == block.end && end == block.next as *mut _ {
-                // join the two elements together
-                block.end = next.end;
-                block.next = next.next;
-
-                self.hint += size;
-                return Ok(size);
-            } else if ptr == block.end && end < block.next as *mut _ {
-                // extend block
-                block.end = end;
-
-                self.hint += size;
-                return Ok(size);
-            } else if ptr > block.end && end == block.next as *mut _ {
-                // extend next
-                block.next = ptr as *mut Block;
-                *block.next.as_mut().unwrap() = Block {
-                    base: base,
-                    end: next.end,
-                    next: next.next,
-                    last: block
-                };
-
-                self.hint += size;
-                return Ok(size);
-            } else {
-                // advance
-                block = block.next.as_mut().unwrap();
-            }
+        if let Some(after) = after.as_mut() {
+            after.last = new;
         }
+    }
+
+    unsafe fn register(&mut self, ptr: *mut u8, size: usize) -> Result<usize, MemoryError> {
+        // find the blocks around the given area
+        let (before, after) = self.find_around(ptr);
+
+        // TODO check_invariants
+
+        let new_block = (ptr as *mut Block).as_mut().unwrap();
+
+        new_block.base = ptr;
+        new_block.end = ptr.offset(size as isize);
+
+        self.insert_between(before, after, new_block);
+
+        // TODO coalesce
+
+        self.hint += size;
+
+        Ok(size)
     }
 
     unsafe fn forget(&mut self, ptr: *mut u8, size: usize) -> Result<usize, MemoryError> {
-        let mut block = match self.free.as_mut() {
-            None => {
-                warn!("Tried to forget memory, but nothing was registered");
-                return Err(MemoryError::OutOfMemory);
-            },
-            Some(block) => block
-        };
+        let (before, _) = self.find_around(ptr);
 
-        if size == 0 {
-            return Err(MemoryError::TinyBlock);
+        let (last, after) = self.find_around(ptr.offset(size as isize));
+
+        if last.is_null() {
+            // do nothing
+            return Err(MemoryError::NoPlace);
         }
 
-        trace!("Forgetting at {:#x} size {:#x}", ptr as usize, size);
+        if (last.as_ref().unwrap().end as usize) < ptr as usize + size {
+            // no block overlaps our region
+            let before = before.as_mut().unwrap();
+            let after = after.as_mut().unwrap();
 
-        let end = (ptr as *mut u8).offset(size as isize) as *mut u8;
+            before.end = ptr;
+            before.next = after;
+            after.last = before;
+        } else {
+            // save values before they might get clobbered
+            let before = before.as_mut().unwrap();
 
-        let mut forgotten_size: usize = 0;
+            let maybe_last = before.last;
+            let end = last.as_ref().unwrap().end;
 
-        loop {
-            trace!("{:?}", block);
-            if block.base >= ptr && end >= block.end {
-                // block is in the section, remove it
-                trace!("Removing block");
-                forgotten_size += block.end as usize - block.base as usize;
+            // truncate before and last and hook them up
+            let new_block = (ptr.offset(size as isize) as *mut Block).as_mut().unwrap();
 
-                if let Some(last) = block.last.as_mut() {
-                    last.next = block.next;
-                }
+            new_block.base = ptr.offset(size as isize);
+            new_block.end = end;
 
-                if let Some(next) = block.next.as_mut() {
-                    next.last = block.last;
-                }
-            } else if ptr > block.base && ptr < block.end && end >= block.end {
-                // shorten the block
-                trace!("shortening block");
-                forgotten_size += block.end as usize - ptr as usize;
-                block.end = ptr;
-            } else if block.base >= ptr && end >= block.base && block.end > end {
-                // truncate the front of the block
-                trace!("truncating block");
-                forgotten_size += end as usize - block.base as usize;
+            if before as *mut Block as usize != ptr as usize {
+                before.end = ptr;
 
-                let new_block = (end as *mut Block).as_mut().unwrap();
-                *new_block = Block {
-                    base: (end as *mut Block).offset(1) as *mut u8,
-                    end: block.end,
-                    next: block.next,
-                    last: block.last
-                };
-
-                if let Some(last) = block.last.as_mut() {
-                    last.next = new_block;
-                }
-
-                if let Some(next) = block.next.as_mut() {
-                    next.last = new_block;
-                }
-            } else if ptr > block.base && block.end > end {
-                // section is entirely in the block, split it in two
-                trace!("splitting section");
-                let new_block = (end as *mut Block).as_mut().unwrap();
-                *new_block = Block {
-                    base: (end as *mut Block).offset(1) as *mut u8,
-                    end: block.end,
-                    next: block.next,
-                    last: block as *mut _
-                };
-
-                block.end = ptr;
-
-                if let Some(next) = block.next.as_mut() {
-                    next.last = new_block;
-                }
-
-                block.next = new_block;
-
-                return Ok(size);
-            }
-
-            if let Some(next_block) = block.next.as_mut() {
-                block = next_block;
+                self.insert_between(before, after, new_block);
             } else {
-                // done!
-                if forgotten_size > 0 {
-                    self.hint -= forgotten_size;
-                    return Ok(forgotten_size);
-                } else {
-                    return Err(MemoryError::NoPlace);
-                }
+                self.insert_between(maybe_last, after, new_block);
             }
         }
+
+        // TODO maybe improve this
+        self.hint -= size;
+
+        Ok(size)
     }
 
     unsafe fn allocate(&mut self, size: usize, align: usize) -> Result<*mut u8, MemoryError> {
-        let mut block = self.free;
-
         let size = granularity(size, align);
 
-        let mut aligned_base;
+        let mut pointer = self.free;
 
-        trace!("Allocating size 0x{:x} align 0x{:x}", size, align);
+        while !pointer.is_null() {
+            let aligned_base = constants::align(pointer as usize, align);
+            let block_end = pointer.as_ref().unwrap().end as usize;
 
-        loop {
-            if let Some(block_ref) = block.as_mut() {
-                trace!("{:?}", block_ref);
-                aligned_base = constants::align(block as u64, align as u64) as *mut u8;
-                let end = (aligned_base as *mut u8).offset(size as isize) as *mut u8;
-                if aligned_base < block_ref.end &&
-                    block_ref.end as usize - aligned_base as usize >= size
-                {
-                    // we've found a spot!
-                    trace!("Allocating at 0x{:x} to 0x{:x}", aligned_base as u64, end as u64);
-                    trace!("{:?}", block_ref);
-                    // truncate the block
-                    if aligned_base as *mut u8 <= block_ref.base {
-                        if ((end as *mut Block).offset(1) as *mut u8) <= block_ref.end {
-                            // move the block forward
-                            trace!("Moving forward");
-                            let new_block = Block {
-                                base: (end as *mut Block).offset(1) as *mut u8,
-                                end: block_ref.end,
-                                next: block_ref.next,
-                                last: block_ref.last
-                            };
-                            
-                            if let Some(next) = new_block.next.as_mut() {
-                                next.last = end as *mut Block;
-                            }
-
-                            if let Some(last) = new_block.last.as_mut() {
-                                last.next = end as *mut Block;
-                            } else {
-                                self.free = end as *mut Block;
-                            }
-
-                            *(end as *mut Block).as_mut().unwrap() = new_block;
-                        } else {
-                            // delete the block
-                            trace!("deleting block");
-
-                            if let Some(next) = block_ref.next.as_mut() {
-                                next.last = block_ref.last;
-                            }
-
-                            if let Some(last) = block_ref.last.as_mut() {
-                                last.next = block_ref.next;
-                            } else {
-                                self.free = block_ref.next;
-                            }
-                        }
-                    } else {
-                        // split block in two
-                        trace!("Splitting in two");
-                        let new_block = (end as *mut Block).as_mut().unwrap();
-                        *new_block = Block {
-                            base: (end as *mut Block).offset(1) as *mut u8,
-                            end: block_ref.end,
-                            next: block_ref.next,
-                            last: block_ref
-                        };
-
-                        if let Some(next) = new_block.next.as_mut() {
-                            next.last = new_block;
-                        }
-
-                        block_ref.next = new_block;
-                        block_ref.end = aligned_base as *mut u8;
-                    }
-
-                    // done
-                    break;
-                } else {
-                    // advance
-                    block = block_ref.next;
-                }
-            } else {
-                // oom
-                return Err(MemoryError::OutOfMemory);
+            if block_end > aligned_base && block_end - aligned_base >= size {
+                self.hint -= size;
+                return self.forget(constants::align(pointer as usize, align) as *mut u8, size)
+                    .map(|_| constants::align(pointer as usize, align) as *mut u8)
             }
+
+            pointer = pointer.as_ref().unwrap().next;
         }
 
-        // produce pointer
-        self.hint -= size;
-        Ok(aligned_base)
+        Err(MemoryError::OutOfMemory)
     }
 
     unsafe fn release(&mut self, ptr: *mut u8, size: usize, align: usize) -> Result<usize, MemoryError> {
@@ -398,75 +195,23 @@ impl Manager {
         }
     }
 
-    unsafe fn grow(&mut self, ptr: *mut u8, old_size: usize, mut size: usize, align: usize) -> Result<(), MemoryError> {
-        // adjust size, alignment does not matter in this case
-        size = granularity(size, align);
+    unsafe fn grow(&mut self, ptr: *mut u8, old_size: usize, size: usize, align: usize) -> Result<(), MemoryError> {
+        let size = granularity(size, align);
+        let old_size = granularity(old_size, align);
 
-        if size <= old_size {
-            // done
-            return Ok(());
+        let (before, _) = self.find_around(ptr.offset(old_size as isize));
+
+        if before as usize != ptr as usize {
+            return Err(MemoryError::OutOfSpace)
         }
 
-        let end = (ptr as *mut u8).offset(old_size as isize) as *mut u8;
-        let new_end = (ptr as *mut u8).offset(size as isize) as *mut u8;
+        let before = before.as_mut().unwrap();
 
-        trace!("Trying to grow at 0x{:x} from 0x{:x} to 0x{:x}", ptr as u64, end as u64, new_end as u64);
-
-        let mut block = self.free;
-
-        loop {
-            trace!("{:?}", block);
-            if let Some(block_ref) = block.as_mut() {
-                trace!("{:?}", block_ref);
-                if block as *mut u8 == end && block_ref.end >= new_end {
-                    // we can grow this allocation
-                    trace!("grow to {}", size);
-                    if block_ref.end > new_end {
-                        // shorten the block
-                        let new_block = Block {
-                            base: (new_end as *mut Block).offset(1) as *mut u8,
-                            end: block_ref.end,
-                            last: block_ref.last,
-                            next: block_ref.next
-                        };
-
-                        // update the previous block
-                        if let Some(last) = new_block.last.as_mut() {
-                            last.next = new_end as *mut Block;
-                        } else {
-                            // we've moved the first block
-                            self.free = new_end as *mut Block;
-                        }
-
-                        trace!("{:?}, {:?}", new_end, new_block);
-                        *(new_end as *mut Block).as_mut().unwrap() = new_block;
-                        self.hint -= size - old_size;
-                        return Ok(());
-                    } else {
-                        // delete the block
-                        if let Some(last) = block_ref.last.as_mut() {
-                            last.next = block_ref.next;
-                        } else {
-                            // change free
-                            self.free = block_ref.next;
-                        }
-
-                        if let Some(next) = block_ref.next.as_mut() {
-                            next.last = block_ref.last;
-                        }
-
-                        self.hint -= size - old_size;
-                        return Ok(());
-                    }
-                } else {
-                    // advance
-                    block = block_ref.next;
-                }
-            } else {
-                // we cannot grow this allocation
-                return Err(MemoryError::OutOfSpace);
-            }
+        if before.end < ptr.offset(size as isize) {
+            return Err(MemoryError::OutOfSpace)
         }
+
+        self.forget(ptr.offset(old_size as isize), size - old_size).map(|_| ())
     }
 
     unsafe fn shrink(&mut self, ptr: *mut u8, old_size: usize, mut size: usize, align: usize) -> Result<(), MemoryError> {
@@ -541,60 +286,13 @@ impl Manager {
             Ok(new_ptr)
         } else {
             // roll back
-            let end = (ptr as *mut u8).offset(old_size as isize) as *mut u8;
-            let mut block = self.free;
-            loop {
-                if let Some(block_ref) = block.as_mut() {
-                    if block_ref.base <= ptr && end <= block_ref.end {
-                        if ptr > block_ref.base {
-                            // truncate the block
-                            if end < block_ref.end {
-                                // split the block into two
-                                let new_block = (end as *mut Block).as_mut().unwrap();
-                                new_block.base = end;
-                                new_block.end = block_ref.end;
-                                new_block.next = block_ref.next;
-                                new_block.last = block_ref;
-                                block_ref.next = new_block;
-                                if let Some(next_block) = new_block.next.as_mut() {
-                                    next_block.last = new_block;
-                                }
-                            }
-
-                            block_ref.end = ptr;
-
-                            // done
-                            break;
-                        } else {
-                            if end < block_ref.end {
-                                // truncate the beginning of the block
-                                block_ref.base = end;
-
-                                // done
-                                break;
-                            } else {
-                                // allocate the entire block
-                                if let Some(last) = block_ref.last.as_mut() {
-                                    last.next = block_ref.next;
-                                }
-
-                                if let Some(next) = block_ref.next.as_mut() {
-                                    next.last = block_ref.last;
-                                }
-
-                                // done
-                                break;
-                            }
-                        }
-                    } else {
-                        block = block_ref.next;
-                    }
-                } else {
-                    // could not find the old block?
-                    panic!("Couldn't roll-back resize");
-                }
+            if old_size > size {
+                // this should really rarely happen
+                assert!(self.register(ptr.offset(size as isize), old_size - size).is_ok());
+            } else {
+                assert!(self.forget(ptr.offset(old_size as isize), size - old_size).is_ok());
             }
-
+            
             // failed
             Err(MemoryError::OutOfMemory)
         }

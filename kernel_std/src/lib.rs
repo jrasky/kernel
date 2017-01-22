@@ -42,6 +42,8 @@ use std::ptr;
 #[cfg(feature = "freestanding")]
 use std::fmt;
 
+use alloc::boxed::Box;
+
 use collections::{String, Vec};
 
 use constants::*;
@@ -142,6 +144,30 @@ pub fn early_setup() {
     }
 }
 
+fn get_logger_instance() -> Result<&'static mut logging::MultiLogger, ()> {
+    unsafe {
+        if let Some(ref mut instance) = LOGGER {
+            Ok(instance)
+        } else {
+            Err(())
+        }
+    }
+}
+
+#[cfg(feature = "freestanding")]
+pub fn set_logger(logger: Box<log::Log>) -> Result<(), ()> {
+    try!(get_logger_instance()).set_logger(logger);
+
+    Ok(())
+}
+
+#[cfg(feature = "freestanding")]
+pub fn set_max_level(level: log::LogLevelFilter) -> Result<(), ()> {
+    try!(get_logger_instance()).set_max_level(level);
+
+    Ok(())
+}
+
 #[cfg(all(not(test), feature = "freestanding"))]
 #[cold]
 #[inline(never)]
@@ -206,14 +232,10 @@ fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, l
     // disable memory
     memory::disable();
 
-    static mut RESERVE: ReserveLogger = ReserveLogger::new();
-
-    unsafe {
-        let _ = writeln!(RESERVE, "Double panic at {}({}): {}\nWhile processing panic at {}({}): {}",
-                         file, line, msg,
-                         original.file, original.line,
-                         original.msg.unwrap_or(format_args!("No message")));
-    }
+    let _ = writeln!(serial::Writer, "Double panic at {}({}): {}\nWhile processing panic at {}({}): {}",
+                     file, line, msg,
+                     original.file, original.line,
+                     original.msg.unwrap_or(format_args!("No message")));
 
     panic_halt();
 }
@@ -223,11 +245,7 @@ fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, l
 #[inline(never)]
 fn triple_panic(file: &'static str, line: u32) -> ! {
     // just try to make some output
-    static mut RESERVE: ReserveLogger = ReserveLogger::new();
-
-    unsafe {
-        let _ = writeln!(RESERVE, "Triple panic at {}({})", file, line);
-    }
+    let _ = writeln!(serial::Writer, "Triple panic at {}({})", file, line);
 
     panic_halt();
 }

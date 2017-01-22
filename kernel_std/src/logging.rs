@@ -17,39 +17,16 @@ pub struct MultiLogger {
     inner: RwLock<Option<Box<log::Log>>>
 }
 
-impl Write for ReserveLogger {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        if let Ok(len) = serial::write(s.as_bytes()) {
-            if len != s.as_bytes().len() {
-                // error if not all bytes were written
-                return Err(fmt::Error);
-            }
-        }
-
-        Ok(())
-    }
-}
-
-impl ReserveLogger {
-    pub const fn new() -> ReserveLogger {
-        ReserveLogger
-    }
-}
-
 impl log::Log for ReserveLogger {
     fn enabled(&self, _: &log::LogMetadata) -> bool {
         true
     }
 
     fn log(&self, record: &log::LogRecord) {
-        static mut LOGGER: ReserveLogger = ReserveLogger::new();
-
-        unsafe {
-            let _ = writeln!(
-                LOGGER, "{} RESERVE at {}({}): {}", record.target(), 
-                record.location().file(), record.location().line(),
-                record.args());
-        }
+        let _ = writeln!(
+            serial::Writer, "{} RESERVE at {}({}): {}", record.target(), 
+            record.location().file(), record.location().line(),
+            record.args());
     }
 }
 
@@ -78,26 +55,22 @@ impl MultiLogger {
 
 impl log::Log for MultiLogger {
     fn enabled(&self, metadata: &log::LogMetadata) -> bool {
-        static RESERVE: ReserveLogger = ReserveLogger::new();
-
         let inner = self.inner.read();
 
         if let Some(ref logger) = *inner {
             logger.enabled(metadata)
         } else {
-            RESERVE.enabled(metadata)
+            ReserveLogger.enabled(metadata)
         }
     }
 
     fn log(&self, record: &log::LogRecord) {
-        static RESERVE: ReserveLogger = ReserveLogger::new();
-
         let inner = self.inner.read();
 
         if let Some(ref logger) = *inner {
             logger.log(record)
         } else {
-            RESERVE.log(record)
+            ReserveLogger.log(record)
         }
     }
 }

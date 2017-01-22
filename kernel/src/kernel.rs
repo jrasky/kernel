@@ -1,4 +1,5 @@
 #![feature(shared)]
+#![feature(box_syntax)]
 #![feature(naked_functions)]
 #![feature(lang_items)]
 #![feature(const_fn)]
@@ -28,11 +29,6 @@ extern crate constants;
 extern crate serial;
 extern crate memory;
 
-use alloc::boxed::Box;
-
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::ptr::Unique;
-
 use std::mem;
 
 use kernel_std::BootProto;
@@ -40,6 +36,7 @@ use constants::*;
 
 mod c;
 mod cpu;
+mod logging;
 
 // pub use since we want to export
 #[cfg(not(test))]
@@ -150,7 +147,7 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
     memory::enable();
 
     // set up logging
-    //log::set_output(Some(Box::new(logging::Logger::new(serial::Writer::new()))));
+    assert!(kernel_std::set_logger(box logging::Logger::new(log::LogLevelFilter::Trace, "".into())).is_ok());
 
     // say hello
     info!("Hello!");

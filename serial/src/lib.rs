@@ -4,9 +4,26 @@ extern crate core as std;
 extern crate constants;
 extern crate log;
 
+use std::fmt::Write;
+
 use std::fmt;
 
 pub use constants::*;
+
+pub struct Writer;
+
+impl Write for Writer {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        if let Ok(len) = write(s.as_bytes()) {
+            if len != s.as_bytes().len() {
+                // error if not all bytes were written
+                return Err(fmt::Error);
+            }
+        }
+
+        Ok(())
+    }
+}
 
 pub fn setup_serial() {
     // initialize the serial line

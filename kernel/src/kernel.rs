@@ -40,7 +40,6 @@ use constants::*;
 
 mod c;
 mod cpu;
-mod logging;
 
 // pub use since we want to export
 #[cfg(not(test))]

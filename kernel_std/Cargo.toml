@@ -5,6 +5,7 @@ authors = ["Jerome Rasky <jyrome.112@gmail.com>"]
 
 [dependencies]
 rlibc = "*"
+spin = "*"
 log = { version = "*", default-features = false, features = ["nightly"]}
 memory = { path = "../memory" }
 serial = { path = "../serial" }

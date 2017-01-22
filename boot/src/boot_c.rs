@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use std::str;
 use std::slice;
 
@@ -177,7 +179,7 @@ fn parse_command_line(cmdline: &[u8]) -> log::LogLevelFilter {
                 if let Some(item) = item {
                     match item {
                         CommandItem::LogLevel => {
-                            if let Ok(level) = log_string_to_level(acc.as_ref()) {
+                            if let Ok(level) = log::LogLevelFilter::from_str(acc.as_ref()) {
                                 log_level = level;
                             } else {
                                 error!("Invalid log level: {}", acc);

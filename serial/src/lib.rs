@@ -4,14 +4,9 @@ extern crate core as std;
 extern crate constants;
 extern crate log;
 
-use std::fmt::Write;
-
 use std::fmt;
-use std::str;
 
 pub use constants::*;
-
-pub struct ReserveLogger;
 
 pub fn setup_serial() {
     // initialize the serial line
@@ -54,40 +49,4 @@ pub fn read(buf: &mut [u8]) -> Result<usize, fmt::Error> {
     }
 
     Ok(buf.len())
-}
-
-impl Write for ReserveLogger {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        if let Ok(len) = write(s.as_bytes()) {
-            if len != s.as_bytes().len() {
-                // error if not all bytes were written
-                return Err(fmt::Error);
-            }
-        }
-
-        Ok(())
-    }
-}
-
-impl ReserveLogger {
-    pub const fn new() -> ReserveLogger {
-        ReserveLogger
-    }
-}
-
-impl log::Log for ReserveLogger {
-    fn enabled(&self, _: &log::LogMetadata) -> bool {
-        true
-    }
-
-    fn log(&self, record: &log::LogRecord) {
-        static mut LOGGER: ReserveLogger = ReserveLogger::new();
-
-        unsafe {
-            let _ = writeln!(
-                LOGGER, "{} RESERVE at {}({}): {}", record.target(), 
-                record.location().file(), record.location().line(),
-                record.args());
-        }
-    }
 }

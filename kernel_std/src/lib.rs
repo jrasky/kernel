@@ -9,6 +9,7 @@
 #![cfg_attr(feature = "freestanding", feature(shared))]
 #![cfg_attr(feature = "freestanding", feature(unique))]
 #![cfg_attr(feature = "freestanding", feature(heap_api))]
+#![cfg_attr(feature = "freestanding", feature(drop_types_in_const))]
 #![no_std]
 extern crate core as std;
 #[cfg(feature = "freestanding")]
@@ -22,8 +23,10 @@ extern crate serial;
 extern crate alloc;
 #[macro_use]
 extern crate collections;
+extern crate spin;
 
 pub use allocator::{Region, Allocator};
+pub use logging::{ReserveLogger};
 
 use std::marker::PhantomData;
 #[cfg(feature = "freestanding")]
@@ -47,7 +50,7 @@ use constants::*;
 pub mod cpu;
 
 mod allocator;
-
+mod logging;
 
 pub trait Error: Debug + Display {
     fn descripton(&self) -> &str;
@@ -117,31 +120,24 @@ struct PanicInfo {
     line: u32
 }
 
-pub fn log_string_to_level(name: &str) -> Result<log::LogLevelFilter, ()> {
-    match name {
-        "any" | "ANY" => Ok(log::LogLevelFilter::Off),
-        "error" | "ERROR" => Ok(log::LogLevelFilter::Error),
-        "warn" | "WARN" => Ok(log::LogLevelFilter::Warn),
-        "info" | "INFO" => Ok(log::LogLevelFilter::Info),
-        "debug" | "DEBUG" => Ok(log::LogLevelFilter::Debug),
-        "trace" | "TRACE" => Ok(log::LogLevelFilter::Trace),
-        _ => Err(())
-    }
-}
+#[cfg(feature = "freestanding")]
+static mut LOGGER: Option<logging::MultiLogger> = None;
 
 #[cfg(feature = "freestanding")]
 pub fn early_setup() {
     // set up the serial line
     serial::setup_serial();
 
-    // set up the reserve logger
-    static RESERVE: serial::ReserveLogger = serial::ReserveLogger::new();
-
+    // set up logging
     unsafe {
         assert!(log::set_logger_raw(|max_log_level| {
-            max_log_level.set(log::LogLevelFilter::Trace);
+            LOGGER = Some(logging::MultiLogger::new(max_log_level));
 
-            &RESERVE
+            let handle = LOGGER.as_ref().unwrap();
+
+            handle.set_max_level(log::LogLevelFilter::Trace);
+
+            handle
         }).is_ok());
     }
 }
@@ -210,7 +206,7 @@ fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, l
     // disable memory
     memory::disable();
 
-    static mut RESERVE: serial::ReserveLogger = serial::ReserveLogger::new();
+    static mut RESERVE: ReserveLogger = ReserveLogger::new();
 
     unsafe {
         let _ = writeln!(RESERVE, "Double panic at {}({}): {}\nWhile processing panic at {}({}): {}",
@@ -227,7 +223,7 @@ fn double_panic(original: &PanicInfo, msg: fmt::Arguments, file: &'static str, l
 #[inline(never)]
 fn triple_panic(file: &'static str, line: u32) -> ! {
     // just try to make some output
-    static mut RESERVE: serial::ReserveLogger = serial::ReserveLogger::new();
+    static mut RESERVE: ReserveLogger = ReserveLogger::new();
 
     unsafe {
         let _ = writeln!(RESERVE, "Triple panic at {}({})", file, line);

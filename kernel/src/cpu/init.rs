@@ -2,9 +2,8 @@ use std::sync::atomic::{Ordering, AtomicBool};
 
 use constants::*;
 
-use kernel_std::cpu::{gdt, tss, idt, stack};
+use kernel_std::cpu::{gdt, tss, idt};
 
-use cpu;
 use c;
 
 static mut EARLY_IDT_BUFFER: [u64; 2 * 15 * U64_BYTES] = [0; 2 * 15 * U64_BYTES];
@@ -70,7 +69,7 @@ pub fn setup_done() -> bool {
 }
 
 /// Unsafe because dropping gdt or idt leaks a reference
-pub unsafe fn setup() -> (gdt::Table, idt::Table, stack::Stack) {
+pub unsafe fn setup() -> (gdt::Table, idt::Table) {
     trace!("Setting up cpu");
 
     // create a new GDT with a TSS
@@ -101,11 +100,12 @@ pub unsafe fn setup() -> (gdt::Table, idt::Table, stack::Stack) {
 
     debug!("Installed IDT");
 
-    let syscall_stack = cpu::syscall::setup();
+    //let syscall_stack = cpu::syscall::setup();
 
-    debug!("Set up syscalls");
+    //debug!("Set up syscalls");
 
     SETUP_DONE.store(true, Ordering::Relaxed);
 
-    (gdt, idt, syscall_stack)
+    //(gdt, idt, syscall_stack)
+    (gdt, idt)
 }

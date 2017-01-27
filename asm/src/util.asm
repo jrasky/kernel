@@ -273,20 +273,20 @@ _do_execute:
     mov al, "E"
     jmp _error
 
-_syscall_landing:
-    ;; switch stack
-    mov rsp, QWORD [SYSCALL_STACK]
+;; _syscall_landing:
+;;     ;; switch stack
+;;     mov rsp, QWORD [SYSCALL_STACK]
 
-_sysenter_landing:
-    ;; align stack
-    and rsp, -16
+;; _sysenter_landing:
+;;     ;; align stack
+;;     and rsp, -16
 
-    ;; call handler procedure
-    call sysenter_handler
+;;     ;; call handler procedure
+;;     call sysenter_handler
 
-    ;; should not return
-    mov al, "S"
-    jmp _error
+;;     ;; should not return
+;;     mov al, "S"
+;;     jmp _error
 
 _sysenter_return:
     mov rax, rsi                ;result

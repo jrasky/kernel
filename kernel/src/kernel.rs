@@ -1,9 +1,7 @@
-#![feature(shared)]
 #![feature(box_syntax)]
 #![feature(naked_functions)]
 #![feature(lang_items)]
 #![feature(const_fn)]
-#![feature(unique)]
 #![feature(alloc)]
 #![feature(collections)]
 #![feature(unwind_attributes)]
@@ -47,68 +45,12 @@ pub use cpu::interrupt::{interrupt_breakpoint,
                          early_interrupt_general_protection_fault,
                          early_interrupt_page_fault};
 
-#[cfg(not(test))]
-pub use cpu::syscall::{sysenter_handler,
-                       SYSCALL_STACK};
-
-
+pub use cpu::task::load_context;
 
 #[cfg(not(test))]
-unsafe extern "C" fn test_task() -> ! {
-    info!("Hello from a task!");
-
-    info!("Spawning another task...");
-
-    let mut gate = cpu::task::Gate::new(vec![]);
-
-    let task = cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task_2,
-                                                      cpu::stack::Stack::create(0x10000),
-                                                      cpu::task::current()));
-
-    gate.add_task(task);
-
-    user::release();
-
-    for x in 0..7 {
-        info!("x: {}", x);
-        user::release();
-    }
-
-    info!("Unblocking other task...");
-
-    gate.finish();
-
-    info!("Task 1 done!");
-    user::exit();
+extern "C" fn test_task() -> ! {
+    panic!("Hello from a task!");
 }
-
-#[cfg(not(test))]
-unsafe extern "C" fn test_task_2() -> ! {
-    info!("Hello from another task!");
-
-    info!("Waiting...");
-
-    user::wait();
-
-    info!("Unblocked!");
-
-    for x2 in 0..5 {
-        info!("x2: {}", x2);
-    }
-
-    info!("Task 2 done!");
-
-    user::exit();
-}
-/*
-#[cfg(not(test))]
-unsafe extern "C" fn serial_handler() -> ! {
-    loop {
-        info!("Got character: {:?}", serial::read());
-        user::release();
-    }
-}
-*/
 
 #[no_mangle]
 #[naked]
@@ -166,39 +108,29 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
 
     // set up cpu data structures and other settings
     // keep references around so we don't break things
-    let (gdt, idt, syscall_stack) = unsafe {cpu::init::setup()};
+    let (gdt, idt) = unsafe {cpu::init::setup()};
 
     // explicity leak gdt and idt and the syscall stack and the kernel page map
     mem::forget(gdt);
     mem::forget(idt);
-    mem::forget(syscall_stack);
 
     info!("Starting tasks");
 
     // start some tasks
-    cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task,
-                                           cpu::stack::Stack::create(0x10000),
-                                           cpu::task::current()));
+    let new_stack = cpu::stack::Stack::new(0xf000);
 
-    // cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, serial_handler,
-    //                                        cpu::stack::Stack::create(0x10000),
-    //                                        cpu::task::current()));
+    let new_task = cpu::task::Task::new(cpu::task::Context::New {
+        rip: test_task as u64,
+        rsp: new_stack.get_ptr() as u64,
+        rdi: 0, rsi: 0,
+        rdx: 0, rcx: 0,
+        r8: 0, r9: 0
+    }, new_stack);
 
-    // cpu::task::add(cpu::task::Task::thread(cpu::task::PrivilegeLevel::CORE, test_task_entry
-    //                                       cpu::stack::Stack::create(0x10000),
-    //                                       cpu::task::current()));
+    let mut self_task = cpu::task::Task::new(
+        cpu::task::Context::default(), cpu::stack::Stack::dummy());
 
-    loop {
-        match cpu::task::run_next() {
-            Ok(_) | Err(cpu::task::RunNextResult::Blocked(_)) => {
-                // do nothing
-            },
-            Err(cpu::task::RunNextResult::NoTasks) => {
-                // done
-                break;
-            }
-        }
-    }
+    self_task.switch(&new_task);
 
     unreachable!("kernel_main tried to return");
 }

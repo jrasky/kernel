@@ -48,7 +48,7 @@ pub use cpu::interrupt::{interrupt_breakpoint,
 pub use cpu::task::load_context;
 
 #[cfg(not(test))]
-extern "C" fn test_task() -> ! {
+extern "C" fn test_task(_: &mut cpu::task::Task) -> ! {
     panic!("Hello from a task!");
 }
 
@@ -117,20 +117,9 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
     info!("Starting tasks");
 
     // start some tasks
-    let new_stack = cpu::stack::Stack::new(0xf000);
+    let mut kernel_task = unsafe { cpu::task::Task::empty() };
 
-    let new_task = cpu::task::Task::new(cpu::task::Context::New {
-        rip: test_task as u64,
-        rsp: new_stack.get_ptr() as u64,
-        rdi: 0, rsi: 0,
-        rdx: 0, rcx: 0,
-        r8: 0, r9: 0
-    }, new_stack);
-
-    let mut self_task = cpu::task::Task::new(
-        cpu::task::Context::default(), cpu::stack::Stack::dummy());
-
-    self_task.switch(&new_task);
+    kernel_task.spawn(test_task, cpu::stack::Stack::new(0xf000));
 
     unreachable!("kernel_main tried to return");
 }

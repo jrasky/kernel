@@ -1,7 +1,10 @@
+use std::fmt;
+
 use cpu::stack::Stack;
 
 #[derive(Debug, Clone)]
 pub enum Context {
+    Empty,
     Kernel {
         // SYSV callee-saved registers
         rip: u64,
@@ -13,31 +16,34 @@ pub enum Context {
         r14: u64,
         r15: u64
     },
-    New {
+    Call {
         // relevant stack frame and execution location
-        rip: u64,
-        rsp: u64,
+        entry: u64,
+        stack: u64,
 
-        // registers for passing integer arguments
-        rdi: u64,
-        rsi: u64,
-        rdx: u64,
-        rcx: u64,
-        r8: u64,
-        r9: u64,
+        // simplified calling convention only permits one integer argument
+        argument: u64,
     }
 }
 
-#[derive(Debug)]
 pub struct Task {
     context: Context,
+    entry: extern fn(previous: &mut Task) -> !,
     stack: Stack
+}
+
+impl fmt::Debug for Task {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "Task {{ context: {:?}, entry: 0x{:x}, stack: {:?} }}",
+               self.context, self.entry as u64, self.stack)
+    }
 }
 
 #[no_mangle]
 pub extern "C" fn load_context(context: &Context) -> ! {
     if let &Context::Kernel { ref rip, ref rbx, ref rsp, ref rbp, ref r12, ref r13, ref r14, ref r15 } = context {
         unsafe {
+            // clobbers is ommitted below to avoid generating code to save registers that we already saved
             asm!(concat!(
                 "mov rbx, $0;",
                 "mov rsp, $1;",
@@ -48,61 +54,67 @@ pub extern "C" fn load_context(context: &Context) -> ! {
                 "mov r15, $6;",
                 "jmp $7"
             ) :: "*m"(rbx), "*m"(rsp), "*m"(rbp), "*m"(r12), "*m"(r13), "*m"(r14), "*m"(r15), "*m"(rip)
-                 : "rbx", "rbp", "r12", "r13", "r14", "r15" : "intel", "volatile");
+                 :: "intel", "volatile");
         }
-
-        unreachable!("returned from context switch");
-    } else if let &Context::New { ref rip, ref rsp, ref rdi, ref rsi, ref rdx, ref rcx, ref r8, ref r9 } = context {
+    } else if let &Context::Call { ref entry, ref stack, ref argument } = context {
         unsafe {
+            // clobbers is ommitted below to avoid generating code to save registers that we already saved
             asm!(concat!(
                 "mov rdi, $0;",
-                "mov rsi, $1;",
-                "mov rdx, $2;",
-                "mov rcx, $3;",
-                "mov r8, $4;",
-                "mov r9, $5;",
-                "mov rsp, $6;",
+                "mov rsp, $1;",
                 "push 0x0;", // simulate a function call
-                "jmp $7"
-            ) :: "*m"(rdi), "*m"(rsi), "*m"(rdx), "*m"(rcx), "*m"(r8), "*m"(r9), "*m"(rsp), "*m"(rip)
-                 : "rdi", "rsi", "rdx", "rcx", "r8", "r9" : "intel", "volatile");
+                "jmp $2"
+            ) :: "*m"(argument), "*m"(stack), "*m"(entry)
+                 :: "intel", "volatile");
         }
-
-        unreachable!("returned from context switch");
     } else {
         panic!("load_context called with non-kernel task!");
     }
+
+    unreachable!("returned from context switch");
 }
 
-impl Default for Context {
-    fn default() -> Context {
-        Context::Kernel {
-            rip: 0,
-            rbx: 0,
-            rsp: 0,
-            rbp: 0,
-            r12: 0,
-            r13: 0,
-            r14: 0,
-            r15: 0
-        }
-    }
+extern fn empty_entry(_: &mut Task) -> ! {
+    unreachable!("Empty entry called");
 }
 
 impl Task {
-    pub fn new(context: Context, stack: Stack) -> Task {
+    pub unsafe fn empty() -> Task {
         Task {
-            context: context,
-            stack: stack
+            context: Context::Empty,
+            entry: empty_entry,
+            stack: Stack::empty()
         }
     }
 
-    pub fn switch(&mut self, into: &Task) {
+    pub fn spawn(&mut self, entry: extern fn(previous: &mut Task) -> !, stack: Stack) -> Task {
+        let task = Task {
+            context: Context::Call {
+                entry: entry as u64,
+                stack: stack.get_ptr() as u64,
+                argument: self as *mut _ as u64,
+            },
+            stack: stack,
+            entry: entry
+        };
+
+        self.switch(task)
+    }
+
+    pub fn switch(&mut self, into: Task) -> Task {
         // save our context and execute the other task
 
-        if let Context::New { .. } = self.context {
-            // replace our context with a standard one if we're a new task
-            self.context = Context::default();
+        if let Context::Empty = self.context {
+            self.context = Context::Kernel {
+                rip: 0,
+                rbx: 0,
+                rsp: 0,
+                rbp: 0,
+                r12: 0,
+                r13: 0,
+                r14: 0,
+                r15: 0
+            };
         }
 
         if let Context::Kernel { ref mut rip, ref mut rbx, ref mut rsp,
@@ -130,5 +142,7 @@ impl Task {
         } else {
             unimplemented!();
         }
+
+        into
     }
 }

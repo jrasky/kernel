@@ -29,7 +29,7 @@ impl Stack {
         }
     }
 
-    pub fn dummy() -> Stack {
+    pub unsafe fn empty() -> Stack {
         Stack {
             buffer: None
         }

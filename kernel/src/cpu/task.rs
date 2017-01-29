@@ -1,5 +1,9 @@
 use std::fmt;
 
+use alloc::arc::Arc;
+
+use spin::RwLock;
+
 use cpu::stack::Stack;
 
 #[derive(Debug, Clone)]
@@ -16,25 +20,43 @@ pub enum Context {
         r14: u64,
         r15: u64
     },
-    Call {
+    Spawn {
         // relevant stack frame and execution location
         entry: u64,
         stack: u64,
 
-        // simplified calling convention only permits one integer argument
-        argument: u64,
+        // the arguments we want to pass
+        arguments: SpawnArgs
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct SpawnArgs {
+    task: *mut RwLock<TaskInner>,
+    previous: *mut RwLock<TaskInner>,
+    entry: extern fn(current: Task) -> !
+}
+
+#[derive(Debug)]
 pub struct Task {
+    inner: Arc<RwLock<TaskInner>>,
+    previous: Handle
+}
+
+#[derive(Debug)]
+pub struct Handle {
+    inner: Arc<RwLock<TaskInner>>
+}
+
+struct TaskInner {
     context: Context,
-    entry: extern fn(previous: &mut Task) -> !,
+    entry: extern fn(current: Task) -> !,
     stack: Stack
 }
 
-impl fmt::Debug for Task {
+impl fmt::Debug for TaskInner {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        write!(fmt, "Task {{ context: {:?}, entry: 0x{:x}, stack: {:?} }}",
+        write!(fmt, "TaskInner {{ context: {:?}, entry: 0x{:x}, stack: {:?} }}",
                self.context, self.entry as u64, self.stack)
     }
 }
@@ -56,15 +78,15 @@ pub extern "C" fn load_context(context: &Context) -> ! {
             ) :: "*m"(rbx), "*m"(rsp), "*m"(rbp), "*m"(r12), "*m"(r13), "*m"(r14), "*m"(r15), "*m"(rip)
                  :: "intel", "volatile");
         }
-    } else if let &Context::Call { ref entry, ref stack, ref argument } = context {
+    } else if let &Context::Spawn { ref entry, ref stack, ref arguments } = context {
         unsafe {
             // clobbers is ommitted below to avoid generating code to save registers that we already saved
             asm!(concat!(
                 "mov rdi, $0;",
-                "mov rsp, $1;",
+                "mov rsi, $1;",
                 "push 0x0;", // simulate a function call
                 "jmp $2"
-            ) :: "*m"(argument), "*m"(stack), "*m"(entry)
+            ) :: "m"(arguments), "*m"(stack), "*m"(entry)
                  :: "intel", "volatile");
         }
     } else {
@@ -74,47 +96,100 @@ pub extern "C" fn load_context(context: &Context) -> ! {
     unreachable!("returned from context switch");
 }
 
-extern fn empty_entry(_: &mut Task) -> ! {
+extern fn empty_entry(_: Task) -> ! {
     unreachable!("Empty entry called");
+}
+
+unsafe extern fn spawn_entry(args: *const SpawnArgs) {
+    let args = args.as_ref().unwrap();
+
+    let task = Task {
+        inner: Arc::from_raw(args.task),
+        previous: Handle {
+            inner: Arc::from_raw(args.previous)
+        }
+    };
+
+    (args.entry)(task)
 }
 
 impl Task {
     pub unsafe fn empty() -> Task {
         Task {
+            inner: Arc::new(RwLock::new(TaskInner::empty())),
+            previous: Handle {
+                inner: Arc::new(RwLock::new(TaskInner::empty()))
+            }
+        }
+    }
+
+    pub fn spawn(&self, entry: extern fn(task: Task) -> !, stack: Stack) -> Handle {
+        let stack_ptr = stack.get_ptr();
+
+        let task = Task {
+            inner: Arc::new(RwLock::new(TaskInner {
+                context: Context::Empty,
+                stack: stack,
+                entry: entry
+            })),
+            previous: Handle {
+                inner: self.inner.clone()
+            }
+        };
+
+        let arguments = SpawnArgs {
+            task: Arc::into_raw(task.inner.clone()),
+            previous: Arc::into_raw(task.previous.inner.clone()),
+            entry: entry
+        };
+
+        let context = Context::Spawn {
+            entry: spawn_entry as u64,
+            stack: stack_ptr as u64,
+            arguments: arguments
+        };
+
+        task.inner.write().context = context;
+
+        Handle {
+            inner: task.inner
+            // previous is saved in the context of the Handle, to be used on spawn
+        }
+    }
+
+    pub fn switch(&mut self, into: Handle) -> Handle {
+        self.inner.write().switch(&*into.inner.read());
+
+        into
+    }
+}
+
+impl TaskInner {
+    unsafe fn empty() -> TaskInner {
+        TaskInner {
             context: Context::Empty,
             entry: empty_entry,
             stack: Stack::empty()
         }
     }
 
-    pub fn spawn(&mut self, entry: extern fn(previous: &mut Task) -> !, stack: Stack) -> Task {
-        let task = Task {
-            context: Context::Call {
-                entry: entry as u64,
-                stack: stack.get_ptr() as u64,
-                argument: self as *mut _ as u64,
-            },
-            stack: stack,
-            entry: entry
-        };
-
-        self.switch(task)
-    }
-
-    pub fn switch(&mut self, into: Task) -> Task {
+    fn switch(&mut self, into: &TaskInner) {
         // save our context and execute the other task
 
-        if let Context::Empty = self.context {
-            self.context = Context::Kernel {
-                rip: 0,
-                rbx: 0,
-                rsp: 0,
-                rbp: 0,
-                r12: 0,
-                r13: 0,
-                r14: 0,
-                r15: 0
-            };
+        match self.context {
+            Context::Empty | Context::Spawn { .. } => {
+                self.context = Context::Kernel {
+                    rip: 0,
+                    rbx: 0,
+                    rsp: 0,
+                    rbp: 0,
+                    r12: 0,
+                    r13: 0,
+                    r14: 0,
+                    r15: 0
+                };
+            }
+            _ => {}
         }
 
         if let Context::Kernel { ref mut rip, ref mut rbx, ref mut rsp,
@@ -142,7 +217,5 @@ impl Task {
         } else {
             unimplemented!();
         }
-
-        into
     }
 }

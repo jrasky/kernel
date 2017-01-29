@@ -1,13 +1,14 @@
+use std::cell::{RefCell, RefMut};
+
 use std::fmt;
 use std::mem;
+use std::ptr;
 
-use alloc::arc::Arc;
-
-use spin::Mutex;
+use alloc::rc::Rc;
 
 use cpu::stack::Stack;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Context {
     Empty,
     Kernel {
@@ -31,28 +32,28 @@ pub enum Context {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct SpawnArgs {
-    task: *mut Mutex<TaskInner>,
-    previous: *mut Mutex<TaskInner>,
+    task: *mut RefCell<TaskInner>,
+    previous: *mut RefCell<TaskInner>,
     entry: extern fn(current: Task) -> !
 }
 
 #[derive(Debug)]
-pub struct LoadHook {
-    outer: *const Mutex<TaskInner>,
-    inner: *const Mutex<TaskInner>
+pub struct LoadHook<'a> {
+    outer: RefMut<'a, TaskInner>,
+    inner: RefMut<'a, TaskInner>
 }
 
 #[derive(Debug)]
 pub struct Task {
-    inner: Arc<Mutex<TaskInner>>,
+    inner: Rc<RefCell<TaskInner>>,
     previous: Handle
 }
 
 #[derive(Debug)]
 pub struct Handle {
-    inner: Arc<Mutex<TaskInner>>
+    inner: Rc<RefCell<TaskInner>>
 }
 
 struct TaskInner {
@@ -69,12 +70,17 @@ impl fmt::Debug for TaskInner {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn load_context(context: *const Context, hook: *const LoadHook) -> ! {
-    // unlock the locks held while saving the context
-    hook.as_ref().unwrap().outer.as_ref().unwrap().force_unlock();
-    hook.as_ref().unwrap().inner.as_ref().unwrap().force_unlock();
+pub unsafe extern "C" fn load_context(hook: *mut LoadHook) -> ! {
+    // copy the info we need out of the hook object
+    let hook = ptr::read(hook);
 
-    if let &Context::Kernel { ref rip, ref rbx, ref rsp, ref rbp, ref r12, ref r13, ref r14, ref r15 } = context.as_ref().unwrap() {
+    // copy out the context to the stack
+    let context = hook.inner.context;
+
+    // unlock the locks held while saving the context
+    mem::drop(hook);
+
+    if let Context::Kernel { ref rip, ref rbx, ref rsp, ref rbp, ref r12, ref r13, ref r14, ref r15 } = context {
         // clobbers is ommitted below to avoid generating code to save registers that we already saved
         asm!(concat!(
             "mov rbx, $0;",
@@ -87,7 +93,7 @@ pub unsafe extern "C" fn load_context(context: *const Context, hook: *const Load
             "jmp $7"
         ) :: "*m"(rbx), "*m"(rsp), "*m"(rbp), "*m"(r12), "*m"(r13), "*m"(r14), "*m"(r15), "*m"(rip)
              :: "intel", "volatile");
-    } else if let &Context::Spawn { ref entry, ref stack, ref arguments } = context.as_ref().unwrap() {
+    } else if let Context::Spawn { ref entry, ref stack, ref arguments } = context {
         // clobbers is ommitted below to avoid generating code to save registers that we already saved
         asm!(concat!(
             "mov rdi, $0;",
@@ -111,21 +117,74 @@ unsafe extern fn spawn_entry(args: *const SpawnArgs) {
     let args = args.as_ref().unwrap();
 
     let task = Task {
-        inner: Arc::from_raw(args.task),
+        inner: Rc::from_raw(args.task),
         previous: Handle {
-            inner: Arc::from_raw(args.previous)
+            inner: Rc::from_raw(args.previous)
         }
     };
 
     (args.entry)(task)
 }
 
+fn switch(mut hook: LoadHook) {
+    // save our context and execute the other task
+    match hook.outer.context {
+        Context::Empty | Context::Spawn { .. } => {
+            hook.outer.context = Context::Kernel {
+                rip: 0,
+                rbx: 0,
+                rsp: 0,
+                rbp: 0,
+                r12: 0,
+                r13: 0,
+                r14: 0,
+                r15: 0
+            };
+        }
+        _ => {}
+    }
+
+    unsafe {
+        // What we're doing doesn't violate borrowing rules because we only use the
+        // mutable references to the context fields before calling load_context.
+        let hook_ptr = &mut hook as *mut _;
+
+        if let Context::Kernel { ref mut rip, ref mut rbx, ref mut rsp,
+                                 ref mut rbp, ref mut r12, ref mut r13,
+                                 ref mut r14, ref mut r15 } = hook.outer.context
+        {
+            asm!(concat!(
+                "mov $0, rbx;",
+                "mov $1, rsp;",
+                "mov $2, rbp;",
+                "mov $3, r12;",
+                "mov $4, r13;",
+                "mov $5, r14;",
+                "mov $6, r15;",
+                "lea rdi, .continue;",
+                "mov $7, rdi;",
+                "mov rdi, $8;",
+                "call load_context;",
+                ".continue: nop"
+            ) : "=*m"(rbx), "=*m"(rsp), "=*m"(rbp), "=*m"(r12), "=*m"(r13), "=*m"(r14),
+                 "=*m"(r15), "=*m"(rip)
+                 : "m"(hook_ptr) : "rdi" : "intel", "volatile");
+        } else {
+            unimplemented!();
+        }
+
+        // IMPORTANT: hook has been "moved" at this point, so forget the value
+        // to avoid running the destructor twice.
+        mem::forget(hook);
+    }
+}
+
 impl Task {
     pub unsafe fn empty() -> Task {
         Task {
-            inner: Arc::new(Mutex::new(TaskInner::empty())),
+            inner: Rc::new(RefCell::new(TaskInner::empty())),
             previous: Handle {
-                inner: Arc::new(Mutex::new(TaskInner::empty()))
+                inner: Rc::new(RefCell::new(TaskInner::empty()))
             }
         }
     }
@@ -134,7 +193,7 @@ impl Task {
         let stack_ptr = stack.get_ptr();
 
         let task = Task {
-            inner: Arc::new(Mutex::new(TaskInner {
+            inner: Rc::new(RefCell::new(TaskInner {
                 context: Context::Empty,
                 stack: stack,
                 entry: entry
@@ -145,8 +204,8 @@ impl Task {
         };
 
         let arguments = SpawnArgs {
-            task: Arc::into_raw(task.inner.clone()),
-            previous: Arc::into_raw(task.previous.inner.clone()),
+            task: Rc::into_raw(task.inner.clone()),
+            previous: Rc::into_raw(task.previous.inner.clone()),
             entry: entry
         };
 
@@ -156,7 +215,7 @@ impl Task {
             arguments: arguments
         };
 
-        task.inner.lock().context = context;
+        task.inner.borrow_mut().context = context;
 
         Handle {
             inner: task.inner
@@ -165,37 +224,23 @@ impl Task {
     }
 
     pub fn yield_back(&mut self) {
-        let mut outer = self.inner.lock();
-        let inner = self.previous.inner.lock();
-
         // these locks need to be unlocked after the context switch
         let hook = LoadHook {
-            outer: &*self.inner,
-            inner: &*self.previous.inner
+            outer: self.inner.borrow_mut(),
+            inner: self.previous.inner.borrow_mut()
         };
 
-        outer.switch(&*inner, &hook);
-
-        // don't unlock the locks twice
-        mem::forget(outer);
-        mem::forget(inner);
+        switch(hook);
     }
 
     pub fn switch(&mut self, into: &mut Handle) {
-        let mut outer = self.inner.lock();
-        let inner = into.inner.lock();
-
         // these locks need to be unlocked after the context switch
         let hook = LoadHook {
-            outer: &*self.inner,
-            inner: &*into.inner
+            outer: self.inner.borrow_mut(),
+            inner: into.inner.borrow_mut()
         };
 
-        outer.switch(&*inner, &hook);
-
-        // don't unlock the locks twice
-        mem::forget(outer);
-        mem::forget(inner);
+        switch(hook);
     }
 }
 
@@ -205,53 +250,6 @@ impl TaskInner {
             context: Context::Empty,
             entry: empty_entry,
             stack: Stack::empty()
-        }
-    }
-
-    fn switch(&mut self, into: &TaskInner, hook: &LoadHook) {
-        // save our context and execute the other task
-
-        match self.context {
-            Context::Empty | Context::Spawn { .. } => {
-                self.context = Context::Kernel {
-                    rip: 0,
-                    rbx: 0,
-                    rsp: 0,
-                    rbp: 0,
-                    r12: 0,
-                    r13: 0,
-                    r14: 0,
-                    r15: 0
-                };
-            }
-            _ => {}
-        }
-
-        if let Context::Kernel { ref mut rip, ref mut rbx, ref mut rsp,
-                                 ref mut rbp, ref mut r12, ref mut r13,
-                                 ref mut r14, ref mut r15 } = self.context
-        {
-            unsafe {
-                asm!(concat!(
-                    "mov $0, rbx;",
-                    "mov $1, rsp;",
-                    "mov $2, rbp;",
-                    "mov $3, r12;",
-                    "mov $4, r13;",
-                    "mov $5, r14;",
-                    "mov $6, r15;",
-                    "lea rdi, .continue;",
-                    "mov $7, rdi;",
-                    "mov rdi, $8;",
-                    "mov rsi, $9;",
-                    "call load_context;",
-                    ".continue: nop"
-                ) : "=*m"(rbx), "=*m"(rsp), "=*m"(rbp), "=*m"(r12), "=*m"(r13), "=*m"(r14),
-                     "=*m"(r15), "=*m"(rip)
-                     : "m"(&into.context), "m"(hook) : "rdi" : "intel", "volatile");
-            }
-        } else {
-            unimplemented!();
         }
     }
 }

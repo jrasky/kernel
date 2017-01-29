@@ -1,8 +1,9 @@
 use std::fmt;
+use std::mem;
 
 use alloc::arc::Arc;
 
-use spin::RwLock;
+use spin::Mutex;
 
 use cpu::stack::Stack;
 
@@ -32,20 +33,26 @@ pub enum Context {
 
 #[derive(Debug, Clone)]
 pub struct SpawnArgs {
-    task: *mut RwLock<TaskInner>,
-    previous: *mut RwLock<TaskInner>,
+    task: *mut Mutex<TaskInner>,
+    previous: *mut Mutex<TaskInner>,
     entry: extern fn(current: Task) -> !
 }
 
 #[derive(Debug)]
+pub struct LoadHook {
+    outer: *const Mutex<TaskInner>,
+    inner: *const Mutex<TaskInner>
+}
+
+#[derive(Debug)]
 pub struct Task {
-    inner: Arc<RwLock<TaskInner>>,
+    inner: Arc<Mutex<TaskInner>>,
     previous: Handle
 }
 
 #[derive(Debug)]
 pub struct Handle {
-    inner: Arc<RwLock<TaskInner>>
+    inner: Arc<Mutex<TaskInner>>
 }
 
 struct TaskInner {
@@ -62,33 +69,33 @@ impl fmt::Debug for TaskInner {
 }
 
 #[no_mangle]
-pub extern "C" fn load_context(context: &Context) -> ! {
-    if let &Context::Kernel { ref rip, ref rbx, ref rsp, ref rbp, ref r12, ref r13, ref r14, ref r15 } = context {
-        unsafe {
-            // clobbers is ommitted below to avoid generating code to save registers that we already saved
-            asm!(concat!(
-                "mov rbx, $0;",
-                "mov rsp, $1;",
-                "mov rbp, $2;",
-                "mov r12, $3;",
-                "mov r13, $4;",
-                "mov r14, $5;",
-                "mov r15, $6;",
-                "jmp $7"
-            ) :: "*m"(rbx), "*m"(rsp), "*m"(rbp), "*m"(r12), "*m"(r13), "*m"(r14), "*m"(r15), "*m"(rip)
-                 :: "intel", "volatile");
-        }
-    } else if let &Context::Spawn { ref entry, ref stack, ref arguments } = context {
-        unsafe {
-            // clobbers is ommitted below to avoid generating code to save registers that we already saved
-            asm!(concat!(
-                "mov rdi, $0;",
-                "mov rsi, $1;",
-                "push 0x0;", // simulate a function call
-                "jmp $2"
-            ) :: "m"(arguments), "*m"(stack), "*m"(entry)
-                 :: "intel", "volatile");
-        }
+pub unsafe extern "C" fn load_context(context: *const Context, hook: *const LoadHook) -> ! {
+    // unlock the locks held while saving the context
+    hook.as_ref().unwrap().outer.as_ref().unwrap().force_unlock();
+    hook.as_ref().unwrap().inner.as_ref().unwrap().force_unlock();
+
+    if let &Context::Kernel { ref rip, ref rbx, ref rsp, ref rbp, ref r12, ref r13, ref r14, ref r15 } = context.as_ref().unwrap() {
+        // clobbers is ommitted below to avoid generating code to save registers that we already saved
+        asm!(concat!(
+            "mov rbx, $0;",
+            "mov rsp, $1;",
+            "mov rbp, $2;",
+            "mov r12, $3;",
+            "mov r13, $4;",
+            "mov r14, $5;",
+            "mov r15, $6;",
+            "jmp $7"
+        ) :: "*m"(rbx), "*m"(rsp), "*m"(rbp), "*m"(r12), "*m"(r13), "*m"(r14), "*m"(r15), "*m"(rip)
+             :: "intel", "volatile");
+    } else if let &Context::Spawn { ref entry, ref stack, ref arguments } = context.as_ref().unwrap() {
+        // clobbers is ommitted below to avoid generating code to save registers that we already saved
+        asm!(concat!(
+            "mov rdi, $0;",
+            "mov rsi, $1;",
+            "push 0x0;", // simulate a function call
+            "jmp $2"
+        ) :: "m"(arguments), "*m"(stack), "*m"(entry)
+             :: "intel", "volatile");
     } else {
         panic!("load_context called with non-kernel task!");
     }
@@ -116,9 +123,9 @@ unsafe extern fn spawn_entry(args: *const SpawnArgs) {
 impl Task {
     pub unsafe fn empty() -> Task {
         Task {
-            inner: Arc::new(RwLock::new(TaskInner::empty())),
+            inner: Arc::new(Mutex::new(TaskInner::empty())),
             previous: Handle {
-                inner: Arc::new(RwLock::new(TaskInner::empty()))
+                inner: Arc::new(Mutex::new(TaskInner::empty()))
             }
         }
     }
@@ -127,7 +134,7 @@ impl Task {
         let stack_ptr = stack.get_ptr();
 
         let task = Task {
-            inner: Arc::new(RwLock::new(TaskInner {
+            inner: Arc::new(Mutex::new(TaskInner {
                 context: Context::Empty,
                 stack: stack,
                 entry: entry
@@ -149,7 +156,7 @@ impl Task {
             arguments: arguments
         };
 
-        task.inner.write().context = context;
+        task.inner.lock().context = context;
 
         Handle {
             inner: task.inner
@@ -157,10 +164,38 @@ impl Task {
         }
     }
 
-    pub fn switch(&mut self, into: Handle) -> Handle {
-        self.inner.write().switch(&*into.inner.read());
+    pub fn yield_back(&mut self) {
+        let mut outer = self.inner.lock();
+        let inner = self.previous.inner.lock();
 
-        into
+        // these locks need to be unlocked after the context switch
+        let hook = LoadHook {
+            outer: &*self.inner,
+            inner: &*self.previous.inner
+        };
+
+        outer.switch(&*inner, &hook);
+
+        // don't unlock the locks twice
+        mem::forget(outer);
+        mem::forget(inner);
+    }
+
+    pub fn switch(&mut self, into: &mut Handle) {
+        let mut outer = self.inner.lock();
+        let inner = into.inner.lock();
+
+        // these locks need to be unlocked after the context switch
+        let hook = LoadHook {
+            outer: &*self.inner,
+            inner: &*into.inner
+        };
+
+        outer.switch(&*inner, &hook);
+
+        // don't unlock the locks twice
+        mem::forget(outer);
+        mem::forget(inner);
     }
 }
 
@@ -173,7 +208,7 @@ impl TaskInner {
         }
     }
 
-    fn switch(&mut self, into: &TaskInner) {
+    fn switch(&mut self, into: &TaskInner, hook: &LoadHook) {
         // save our context and execute the other task
 
         match self.context {
@@ -208,11 +243,12 @@ impl TaskInner {
                     "lea rdi, .continue;",
                     "mov $7, rdi;",
                     "mov rdi, $8;",
+                    "mov rsi, $9;",
                     "call load_context;",
                     ".continue: nop"
                 ) : "=*m"(rbx), "=*m"(rsp), "=*m"(rbp), "=*m"(r12), "=*m"(r13), "=*m"(r14),
                      "=*m"(r15), "=*m"(rip)
-                     : "m"(&into.context) : "rdi" : "intel", "volatile");
+                     : "m"(&into.context), "m"(hook) : "rdi" : "intel", "volatile");
             }
         } else {
             unimplemented!();

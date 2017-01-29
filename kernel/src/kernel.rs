@@ -49,8 +49,12 @@ pub use cpu::interrupt::{interrupt_breakpoint,
 pub use cpu::task::load_context;
 
 #[cfg(not(test))]
-extern "C" fn test_task(_: cpu::task::Task) -> ! {
-    panic!("Hello from a task!");
+extern "C" fn test_task(mut task: cpu::task::Task) -> ! {
+    info!("Hello from a task!");
+
+    task.yield_back();
+
+    unreachable!("task exited");
 }
 
 #[no_mangle]
@@ -115,14 +119,17 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
     mem::forget(gdt);
     mem::forget(idt);
 
+    // we're done with setup
+    cpu::init::setup_done();
+
     info!("Starting tasks");
 
     // start some tasks
     let mut kernel_task = unsafe { cpu::task::Task::empty() };
 
-    let new_task = kernel_task.spawn(test_task, cpu::stack::Stack::new(0xf000));
+    let mut new_task = kernel_task.spawn(test_task, cpu::stack::Stack::new(0xf000));
 
-    kernel_task.switch(new_task);
+    kernel_task.switch(&mut new_task);
 
     unreachable!("kernel_main tried to return");
 }

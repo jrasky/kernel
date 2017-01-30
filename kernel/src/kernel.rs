@@ -127,7 +127,7 @@ pub extern "C" fn kernel_main(boot_proto: u64) -> ! {
     // start some tasks
     let mut kernel_task = unsafe { cpu::task::Task::empty() };
 
-    let mut new_task = kernel_task.spawn(test_task, cpu::stack::Stack::new(0xf000));
+    let mut new_task = kernel_task.spawn(test_task, kernel_std::cpu::stack::Stack::new(0xf000));
 
     kernel_task.switch(&mut new_task);
 

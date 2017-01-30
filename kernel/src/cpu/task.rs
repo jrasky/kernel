@@ -6,7 +6,7 @@ use std::ptr;
 
 use alloc::rc::Rc;
 
-use cpu::stack::Stack;
+use kernel_std::cpu::stack::Stack;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Context {

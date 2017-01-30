@@ -1,34 +1,46 @@
-use std::ptr::Unique;
+use std::fmt::Debug;
+
+use std::ptr;
+use std::fmt;
+
+use alloc::raw_vec::RawVec;
 
 use alloc::heap;
 
 pub struct Stack {
-    buffer: Unique<u8>,
-    size: usize,
-    drop: bool,
+    buffer: Option<RawVec<u8>>
 }
 
-impl Drop for Stack {
-    fn drop(&mut self) {
-        if self.drop {
-            unsafe {
-                heap::deallocate(self.buffer.get_mut(), self.size, 16);
-            }
+impl Debug for Stack {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(ref buffer) = self.buffer {
+            write!(fmt, "Stack {{ buffer: Some {{ end: 0x{:x} size: 0x{:x} }} }}",
+                   self.get_ptr() as usize, buffer.cap())
+        } else {
+            write!(fmt, "Stack {{ buffer: None }}")
         }
     }
 }
 
 impl Stack {
-    pub fn create(size: usize) -> Stack {
+    pub fn new(size: usize) -> Stack {
         Stack {
-            buffer: unsafe { Unique::new(heap::allocate(size, 16)) },
-            size: size,
-            drop: true,
+            buffer: Some(unsafe { RawVec::from_raw_parts(heap::allocate(size, 16), size) }),
+        }
+    }
+
+    pub unsafe fn empty() -> Stack {
+        Stack {
+            buffer: None
         }
     }
 
     pub fn get_ptr(&self) -> *mut u8 {
-        trace!("stack {:p} size {:x}", self.buffer, self.size);
-        unsafe { (self.buffer.get() as *const u8 as *mut u8).offset(self.size as isize) }
+        if let Some(ref buffer) = self.buffer {
+            let size = buffer.cap();
+            unsafe { buffer.ptr().offset(size as isize) }
+        } else {
+            ptr::null_mut()
+        }
     }
 }
